@@ -4,6 +4,40 @@ if (is_file(__DIR__ . '/polling_log.php')) {
     require_once __DIR__ . '/polling_log.php';
 }
 
+function mirza_server_log_dir(): string
+{
+    return __DIR__ . '/storage/logs';
+}
+
+function mirza_server_log(string $channel, array $context = []): void
+{
+    $channel = preg_replace('/[^a-zA-Z0-9._-]/', '_', $channel);
+    if ($channel === null || $channel === '') {
+        $channel = 'app';
+    }
+
+    $dir = mirza_server_log_dir();
+    if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+        error_log('mirza_server_log: unable to create log dir ' . $dir);
+        return;
+    }
+
+    $record = [
+        'time' => date('c'),
+        'channel' => $channel,
+        'context' => $context,
+    ];
+    $line = json_encode($record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($line === false) {
+        $line = json_encode([
+            'time' => date('c'),
+            'channel' => $channel,
+            'context' => ['encode_error' => true],
+        ]);
+    }
+    @file_put_contents($dir . '/' . $channel . '.log', $line . PHP_EOL, FILE_APPEND | LOCK_EX);
+}
+
 /**
  * Direct connections only (panels, payments, local URLs). Ignores HTTP_PROXY env vars.
  */

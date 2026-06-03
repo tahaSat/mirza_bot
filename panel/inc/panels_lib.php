@@ -419,3 +419,74 @@ function panel_features_for_type(string $type): array
     }
     return array_values($all);
 }
+
+/**
+ * Discover readable report log files for web panel.
+ * @return array<string, array{label:string,path:string}>
+ */
+function panel_report_log_files(): array
+{
+    $root = dirname(__DIR__, 2);
+    $candidates = [
+        'error_log' => ['label' => 'گزارش خطا (error_log)', 'path' => $root . '/error_log'],
+        'polling_log' => ['label' => 'لاگ پولینگ (polling.log)', 'path' => $root . '/polling.log'],
+        'storage_polling' => ['label' => 'لاگ پولینگ (storage/logs)', 'path' => $root . '/storage/logs/polling.log'],
+        'storage_panel' => ['label' => 'لاگ پنل (storage/logs/panel.log)', 'path' => $root . '/storage/logs/panel.log'],
+    ];
+
+    $out = [];
+    foreach ($candidates as $key => $info) {
+        if (is_file($info['path']) && is_readable($info['path'])) {
+            $out[$key] = $info;
+        }
+    }
+    return $out;
+}
+
+/**
+ * Read last lines from a log file safely.
+ * @return array{lines:string[],size:int,mtime:int|null}
+ */
+function panel_read_log_tail(string $path, int $maxLines = 200, int $maxBytes = 262144): array
+{
+    if (!is_file($path) || !is_readable($path)) {
+        return ['lines' => [], 'size' => 0, 'mtime' => null];
+    }
+
+    $size = (int) (filesize($path) ?: 0);
+    $mtime = @filemtime($path) ?: null;
+    if ($size === 0) {
+        return ['lines' => [], 'size' => 0, 'mtime' => $mtime];
+    }
+
+    $readBytes = min($size, max(4096, $maxBytes));
+    $fp = fopen($path, 'rb');
+    if ($fp === false) {
+        return ['lines' => [], 'size' => $size, 'mtime' => $mtime];
+    }
+
+    if ($size > $readBytes) {
+        fseek($fp, -$readBytes, SEEK_END);
+    }
+    $chunk = stream_get_contents($fp);
+    fclose($fp);
+
+    if (!is_string($chunk) || $chunk === '') {
+        return ['lines' => [], 'size' => $size, 'mtime' => $mtime];
+    }
+
+    $chunk = str_replace("\r\n", "\n", $chunk);
+    if ($size > $readBytes) {
+        $firstBreak = strpos($chunk, "\n");
+        if ($firstBreak !== false) {
+            $chunk = substr($chunk, $firstBreak + 1);
+        }
+    }
+
+    $lines = explode("\n", trim($chunk));
+    if (count($lines) > $maxLines) {
+        $lines = array_slice($lines, -$maxLines);
+    }
+
+    return ['lines' => $lines, 'size' => $size, 'mtime' => $mtime];
+}

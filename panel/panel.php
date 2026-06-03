@@ -135,6 +135,7 @@ $tabs = [
     'account' => 'اکانت و تست',
     'pricing' => 'قیمت‌گذاری',
     'advanced' => 'پیشرفته',
+    'reports' => 'گزارشات',
 ];
 if (!isset($tabs[$tab])) {
     $tab = 'connection';
@@ -144,6 +145,22 @@ if (isset($_GET['probe']) && $_GET['probe'] === '1') {
     csrf_check_get();
 }
 $connectionProbe = ($tab === 'connection') ? panel_probe_connection($panel) : null;
+$reportLogs = [];
+$reportSelectedKey = '';
+$reportSelectedInfo = null;
+$reportTail = null;
+if ($tab === 'reports') {
+    $reportLogs = panel_report_log_files();
+    $reportSelectedKey = (string) ($_GET['log'] ?? '');
+    if ($reportSelectedKey === '' || !isset($reportLogs[$reportSelectedKey])) {
+        $keys = array_keys($reportLogs);
+        $reportSelectedKey = $keys[0] ?? '';
+    }
+    if ($reportSelectedKey !== '' && isset($reportLogs[$reportSelectedKey])) {
+        $reportSelectedInfo = $reportLogs[$reportSelectedKey];
+        $reportTail = panel_read_log_tail($reportSelectedInfo['path']);
+    }
+}
 
 $pageTitle = 'مدیریت پنل: ' . ($panel['name_panel'] ?? '');
 $activeNav = 'panels';
@@ -487,6 +504,52 @@ include __DIR__ . '/inc/layout_head.php';
           <label>proxies</label>
           <textarea class="input" rows="3" readonly><?= htmlspecialchars($panel['proxies'] ?? '') ?></textarea>
         </div>
+      </div>
+    </div>
+  <?php endif; ?>
+
+  <?php if ($tab === 'reports'): ?>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head" style="flex-wrap:wrap;gap:10px">
+        <div>
+          <div class="card-title">گزارشات سرور</div>
+          <div class="card-subtitle">نمایش آخرین خطوط لاگ برای عیب‌یابی ربات و پنل</div>
+        </div>
+        <a href="panel.php?id=<?= $id ?>&tab=reports&log=<?= urlencode($reportSelectedKey) ?>"
+          class="btn btn-ghost btn-sm">بروزرسانی</a>
+      </div>
+      <div class="card-body">
+        <?php if (empty($reportLogs)): ?>
+          <div class="notice notice-warn">هیچ فایل لاگی برای نمایش پیدا نشد (error_log / polling.log).</div>
+        <?php else: ?>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+            <?php foreach ($reportLogs as $key => $info): ?>
+              <a href="panel.php?id=<?= $id ?>&tab=reports&log=<?= urlencode($key) ?>"
+                class="btn <?= $reportSelectedKey === $key ? 'btn-primary' : 'btn-ghost' ?> btn-sm">
+                <?= htmlspecialchars($info['label']) ?>
+              </a>
+            <?php endforeach; ?>
+          </div>
+          <?php if ($reportSelectedInfo && is_array($reportTail)): ?>
+            <div class="kv-list" style="margin-bottom:12px">
+              <div class="kv">
+                <span class="kv-key">فایل</span>
+                <span class="kv-val cm" style="font-size:.75rem"><?= htmlspecialchars($reportSelectedInfo['path']) ?></span>
+              </div>
+              <div class="kv">
+                <span class="kv-key">حجم</span>
+                <span class="kv-val"><?= number_format((int) ($reportTail['size'] ?? 0)) ?> بایت</span>
+              </div>
+              <div class="kv">
+                <span class="kv-key">آخرین بروزرسانی</span>
+                <span class="kv-val"><?= htmlspecialchars(($reportTail['mtime'] ?? null) ? date('Y/m/d H:i:s', (int) $reportTail['mtime']) : '—') ?></span>
+              </div>
+            </div>
+            <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:420px;overflow:auto">
+              <pre style="margin:0;white-space:pre-wrap;word-break:break-word;direction:ltr;text-align:left;font-size:.78rem;line-height:1.6"><?= htmlspecialchars(!empty($reportTail['lines']) ? implode("\n", $reportTail['lines']) : 'لاگ خالی است.') ?></pre>
+            </div>
+          <?php endif; ?>
+        <?php endif; ?>
       </div>
     </div>
   <?php endif; ?>

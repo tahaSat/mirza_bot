@@ -240,6 +240,10 @@ function get_clinets($username, $namepanel)
 {
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $namepanel, "select");
     login($marzban_list_get['code_panel']);
+    $panelFresh = select("marzban_panel", "*", "name_panel", $namepanel, "select");
+    if (is_array($panelFresh)) {
+        $marzban_list_get = $panelFresh;
+    }
     $url = $marzban_list_get['url_panel'] . "/panel/api/inbounds/getClientTraffics/$username";
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));
@@ -269,6 +273,10 @@ function addClient($namepanel, $usernameac, $Expire, $Total, $Uuid, $Flow, $subi
 {
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $namepanel, "select");
     login($marzban_list_get['code_panel']);
+    $panelFresh = select("marzban_panel", "*", "name_panel", $namepanel, "select");
+    if (is_array($panelFresh)) {
+        $marzban_list_get = $panelFresh;
+    }
     if ($name_product == "usertest") {
         if ($marzban_list_get['on_hold_test'] == "1") {
             if ($Expire == 0) {
@@ -333,6 +341,10 @@ function updateClient($namepanel, $uuid, array $config)
 {
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $namepanel, "select");
     login($marzban_list_get['code_panel']);
+    $panelFresh = select("marzban_panel", "*", "name_panel", $namepanel, "select");
+    if (is_array($panelFresh)) {
+        $marzban_list_get = $panelFresh;
+    }
     $configpanel = json_encode($config, true);
     $url = $marzban_list_get['url_panel'] . '/panel/api/inbounds/updateClient/' . $uuid;
     $req = new CurlRequest($url);
@@ -350,6 +362,10 @@ function ResetUserDataUsagex_uisin($usernamepanel, $namepanel)
     $data_user = json_decode($data_user['body'], true)['obj'];
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $namepanel, "select");
     login($marzban_list_get['code_panel']);
+    $panelFresh = select("marzban_panel", "*", "name_panel", $namepanel, "select");
+    if (is_array($panelFresh)) {
+        $marzban_list_get = $panelFresh;
+    }
     $url = $marzban_list_get['url_panel'] . "/panel/api/inbounds/{$data_user['inboundId']}/resetClientTraffic/" . $usernamepanel;
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));
@@ -364,6 +380,10 @@ function removeClient($location, $username)
 {
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $location, "select");
     login($marzban_list_get['code_panel']);
+    $panelFresh = select("marzban_panel", "*", "name_panel", $location, "select");
+    if (is_array($panelFresh)) {
+        $marzban_list_get = $panelFresh;
+    }
     $url = $marzban_list_get['url_panel'] . "/panel/api/inbounds/{$marzban_list_get['inboundid']}/delClientByEmail/" . $username;
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));

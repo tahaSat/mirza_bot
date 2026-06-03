@@ -32,7 +32,7 @@ $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
 try {
     $total = db_count($pdo, "SELECT COUNT(*) FROM user $whereSQL", $params);
-    $users = db_fetchAll($pdo, "SELECT * FROM user $whereSQL ORDER BY register DESC LIMIT $perPage OFFSET $offset", $params);
+    $users = db_fetchAll($pdo, "SELECT * FROM user $whereSQL ORDER BY register DESC LIMIn i click T $perPage OFFSET $offset", $params);
 } catch (Exception $e) {
     $total = 0;
     $users = [];

@@ -1,5 +1,10 @@
 <?php
 require_once 'config.php';
+require_once __DIR__ . '/request.php';
+if (is_file(__DIR__ . '/polling_log.php')) {
+    require_once __DIR__ . '/polling_log.php';
+}
+
 function telegram($method, $datas = [], $token = null)
 {
     global $APIKEY;
@@ -11,6 +16,7 @@ function telegram($method, $datas = [], $token = null)
         unset($datas['message_thread_id']);
     }
 
+    $startedAt = microtime(true);
     $ch = curl_init($url);
     if ($ch === false) {
         error_log('Unable to initialise cURL for Telegram request.');
@@ -21,17 +27,29 @@ function telegram($method, $datas = [], $token = null)
     }
 
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+    apply_telegram_proxy($ch, $url);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $datas);
 
     $rawResponse = curl_exec($ch);
+    $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
     if ($rawResponse === false) {
         $curlError = curl_error($ch);
         curl_close($ch);
 
         if ($curlError !== '') {
             error_log('Telegram request failed: ' . $curlError);
+        }
+        if (function_exists('mirza_polling_log') && mirza_polling_debug_enabled()) {
+            mirza_polling_log('telegram_api_error', [
+                'method' => $method,
+                'duration_ms' => $durationMs,
+                'error' => $curlError,
+            ]);
         }
 
         return [
@@ -42,11 +60,18 @@ function telegram($method, $datas = [], $token = null)
 
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-
     $decodedResponse = json_decode($rawResponse, true);
     if (!is_array($decodedResponse)) {
         $logSnippet = substr($rawResponse, 0, 200);
         error_log(sprintf('Invalid response from Telegram API (HTTP %d): %s', $httpCode, $logSnippet));
+        if (function_exists('mirza_polling_log') && mirza_polling_debug_enabled()) {
+            mirza_polling_log('telegram_api_invalid_json', [
+                'method' => $method,
+                'duration_ms' => $durationMs,
+                'http_code' => $httpCode,
+                'body_snippet' => $logSnippet,
+            ]);
+        }
 
         return [
             'ok' => false,
@@ -56,13 +81,35 @@ function telegram($method, $datas = [], $token = null)
     }
 
     if (isset($decodedResponse['ok']) && !$decodedResponse['ok']) {
-        error_log(json_encode($decodedResponse));
+        error_log(json_encode($decodedResponse, JSON_UNESCAPED_UNICODE));
+        if (function_exists('mirza_polling_log') && mirza_polling_debug_enabled()) {
+            mirza_polling_log('telegram_api_failed', [
+                'method' => $method,
+                'duration_ms' => $durationMs,
+                'http_code' => $httpCode,
+                'error_code' => $decodedResponse['error_code'] ?? null,
+                'description' => $decodedResponse['description'] ?? null,
+            ]);
+        }
+    } elseif (function_exists('mirza_polling_log') && mirza_polling_debug_enabled() && $durationMs >= 2000) {
+        mirza_polling_log('telegram_api_slow', [
+            'method' => $method,
+            'duration_ms' => $durationMs,
+            'http_code' => $httpCode,
+        ]);
     }
 
     return $decodedResponse;
 }
 function sendmessage($chat_id,$text,$keyboard,$parse_mode,$bot_token = null){
     if(intval($chat_id) == 0)return ['ok' => false];
+    if ($text === null || $text === '') {
+        error_log('sendmessage: empty text for chat_id ' . $chat_id);
+        if (function_exists('mirza_polling_log') && mirza_polling_debug_enabled()) {
+            mirza_polling_log('sendmessage_empty_text', ['chat_id' => $chat_id]);
+        }
+        return ['ok' => false, 'description' => 'message text is empty'];
+    }
     return telegram('sendmessage',[
         'chat_id' => $chat_id,
         'text' => $text,
@@ -227,12 +274,16 @@ function isDuplicateUpdate($updateId)
     return false;
 }
 // #-----------------------------#
-$update = json_decode(file_get_contents("php://input"), true);
-$update_id = $update['update_id'] ?? 0;
-if (isDuplicateUpdate($update_id)) {
-    http_response_code(200);
-    exit;
+if (isset($GLOBALS['_mirza_telegram_update']) && is_array($GLOBALS['_mirza_telegram_update'])) {
+    $update = $GLOBALS['_mirza_telegram_update'];
+} else {
+    $update = json_decode(file_get_contents("php://input"), true);
 }
+$update_id = $update['update_id'] ?? 0;
+//if (isDuplicateUpdate($update_id)) {
+   // http_response_code(200);
+ //   exit;
+//}
 $from_id = $update['message']['from']['id'] ?? $update['callback_query']['from']['id'] ?? $update["inline_query"]['from']['id'] ?? 0;
 $time_message = $update['message']['date'] ?? $update['callback_query']['date'] ?? $update["inline_query"]['date'] ?? 0;
 $is_bot = $update['message']['from']['is_bot'] ?? false;

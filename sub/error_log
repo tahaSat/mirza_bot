@@ -1,0 +1,18 @@
+[24-May-2026 16:32:27 Asia/Tehran] {"status":null,"body":null,"error":"Connection timed out after 10001 milliseconds"}
+[24-May-2026 16:32:27 Asia/Tehran] PHP Warning:  Undefined array key "links" in /var/www/mirza_pro/sub/index.php on line 21
+[24-May-2026 16:32:27 Asia/Tehran] PHP Warning:  foreach() argument must be of type array|object, null given in /var/www/mirza_pro/sub/index.php on line 21
+[24-May-2026 18:49:22 Asia/Tehran] {"status":null,"body":null,"error":"Resolving timed out after 10001 milliseconds"}
+[24-May-2026 18:49:22 Asia/Tehran] PHP Warning:  Undefined array key "links" in /var/www/mirza_pro/sub/index.php on line 21
+[24-May-2026 18:49:22 Asia/Tehran] PHP Warning:  foreach() argument must be of type array|object, null given in /var/www/mirza_pro/sub/index.php on line 21
+[26-May-2026 12:48:45 Asia/Tehran] {"status":null,"body":null,"error":"OpenSSL\/3.0.13: error:0A000410:SSL routines::sslv3 alert handshake failure"}
+[26-May-2026 12:48:45 Asia/Tehran] PHP Warning:  Undefined array key "links" in /var/www/mirza_pro/sub/index.php on line 21
+[26-May-2026 12:48:45 Asia/Tehran] PHP Warning:  foreach() argument must be of type array|object, null given in /var/www/mirza_pro/sub/index.php on line 21
+[26-May-2026 12:48:45 Asia/Tehran] {"status":null,"body":null,"error":"OpenSSL\/3.0.13: error:0A000410:SSL routines::sslv3 alert handshake failure"}
+[26-May-2026 12:48:45 Asia/Tehran] PHP Warning:  Undefined array key "links" in /var/www/mirza_pro/sub/index.php on line 21
+[26-May-2026 12:48:45 Asia/Tehran] PHP Warning:  foreach() argument must be of type array|object, null given in /var/www/mirza_pro/sub/index.php on line 21
+[26-May-2026 12:51:05 Asia/Tehran] {"status":null,"body":null,"error":"OpenSSL\/3.0.13: error:0A000410:SSL routines::sslv3 alert handshake failure"}
+[26-May-2026 12:51:05 Asia/Tehran] PHP Warning:  Undefined array key "links" in /var/www/mirza_pro/sub/index.php on line 21
+[26-May-2026 12:51:05 Asia/Tehran] PHP Warning:  foreach() argument must be of type array|object, null given in /var/www/mirza_pro/sub/index.php on line 21
+[26-May-2026 17:35:23 Asia/Tehran] {"status":null,"body":null,"error":"OpenSSL\/3.0.13: error:0A000410:SSL routines::sslv3 alert handshake failure"}
+[26-May-2026 17:35:23 Asia/Tehran] PHP Warning:  Undefined array key "links" in /var/www/mirza_pro/sub/index.php on line 21
+[26-May-2026 17:35:23 Asia/Tehran] PHP Warning:  foreach() argument must be of type array|object, null given in /var/www/mirza_pro/sub/index.php on line 21

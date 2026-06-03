@@ -1,5 +1,62 @@
 <?php
 require_once 'config.php';
+if (is_file(__DIR__ . '/polling_log.php')) {
+    require_once __DIR__ . '/polling_log.php';
+}
+
+/**
+ * Direct connections only (panels, payments, local URLs). Ignores HTTP_PROXY env vars.
+ */
+function curl_disable_proxy($ch)
+{
+    curl_setopt($ch, CURLOPT_PROXY, '');
+    if (defined('CURLOPT_NOPROXY')) {
+        curl_setopt($ch, CURLOPT_NOPROXY, '*');
+    }
+}
+
+/**
+ * Some x-ui/nginx setups only accept HTTP/1.1 (ALPN h2 causes 403 or handshake issues).
+ */
+function curl_force_panel_http11($ch): void
+{
+    curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    if (defined('CURLOPT_SSL_ENABLE_ALPN')) {
+        curl_setopt($ch, CURLOPT_SSL_ENABLE_ALPN, 0);
+    }
+}
+
+/**
+ * Proxy only for api.telegram.org — never use for panel or other outbound URLs.
+ */
+function apply_telegram_proxy($ch, $url = null)
+{
+    if ($url !== null && stripos($url, 'api.telegram.org') === false) {
+        curl_disable_proxy($ch);
+        return;
+    }
+
+    global $telegram_proxy, $telegram_proxy_type;
+
+    if (empty($telegram_proxy)) {
+        curl_disable_proxy($ch);
+        return;
+    }
+
+    curl_setopt($ch, CURLOPT_PROXY, $telegram_proxy);
+    $proxyType = strtolower((string) ($telegram_proxy_type ?? 'http'));
+    if ($proxyType === 'socks5') {
+        if (defined('CURLPROXY_SOCKS5_HOSTNAME')) {
+            curl_setopt($ch, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS5_HOSTNAME);
+        } else {
+            curl_setopt($ch, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS5);
+        }
+        return;
+    }
+
+    curl_setopt($ch, CURLOPT_PROXYTYPE, CURLPROXY_HTTP);
+    curl_setopt($ch, CURLOPT_HTTPPROXYTUNNEL, true);
+}
 
 class CurlRequest {
     private $url;
@@ -49,7 +106,10 @@ class CurlRequest {
 
     private function execute($method, $data = null) {
         $this->timeout = !$this->timeout  ?  10000 : $this->timeout;
+        $startedAt = microtime(true);
         $ch = curl_init();
+        curl_disable_proxy($ch);
+        curl_force_panel_http11($ch);
         curl_setopt($ch, CURLOPT_URL, $this->url);
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -71,9 +131,19 @@ class CurlRequest {
         }
 
         $response = curl_exec($ch);
+        $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
         if (curl_errno($ch)) {
             $error = curl_error($ch);
             curl_close($ch);
+            if (function_exists('mirza_polling_log') && mirza_polling_debug_enabled()) {
+                mirza_polling_log('panel_http_error', [
+                    'method' => strtoupper($method),
+                    'url' => mirza_panel_url_for_log($this->url),
+                    'timeout_ms' => $this->timeout,
+                    'duration_ms' => $durationMs,
+                    'error' => $error,
+                ]);
+            }
             return [
                 'status' => null,
                 'body' => null,
@@ -82,6 +152,20 @@ class CurlRequest {
         }
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
+
+        if (function_exists('mirza_polling_log') && mirza_polling_debug_enabled()) {
+            global $telegram_polling_slow_panel_ms;
+            $slowMs = isset($telegram_polling_slow_panel_ms) ? (int) $telegram_polling_slow_panel_ms : 3000;
+            if ($durationMs >= $slowMs || ($httpCode !== null && $httpCode >= 400)) {
+                mirza_polling_log('panel_http_slow_or_error', [
+                    'method' => strtoupper($method),
+                    'url' => mirza_panel_url_for_log($this->url),
+                    'timeout_ms' => $this->timeout,
+                    'duration_ms' => $durationMs,
+                    'http_code' => $httpCode,
+                ]);
+            }
+        }
 
         return [
             'status' => $httpCode,

@@ -1,0 +1,95 @@
+[22-May-2026 20:51:24 UTC] [CHECK:support_message] ❌ SQLSTATE[42S02]: Base table or view not found: 1146 Table 'mirzabot.user' doesn't exist
+[23-May-2026 21:07:26 Asia/Tehran] Telegram request failed: SSL connection timeout
+[23-May-2026 21:10:45 Asia/Tehran] Telegram request failed: SSL connection timeout
+[23-May-2026 21:10:58 Asia/Tehran] {"status":null,"body":null,"error":"Unsupported HTTP version in response"}
+[23-May-2026 21:11:08 Asia/Tehran] Telegram request failed: SSL connection timeout
+[24-May-2026 01:50:22 Asia/Tehran] {"status":null,"body":null,"error":"Unsupported HTTP version in response"}
+[24-May-2026 01:50:28 Asia/Tehran] {"status":null,"body":null,"error":"Unsupported HTTP version in response"}
+[24-May-2026 01:53:28 Asia/Tehran] PHP Warning:  Undefined array key "username" in /var/www/mirza_pro/function.php on line 817
+[24-May-2026 01:54:27 Asia/Tehran] {"status":200,"body":"{\"success\":false,\"msg\":\"Error getting traffics. (Inbound Not Found For Email: pyrovetis_100\\n)\",\"obj\":null}","error":"Error getting traffics. (Inbound Not Found For Email: pyrovetis_100\n)"}
+[24-May-2026 01:54:33 Asia/Tehran] {"status":200,"body":"{\"success\":false,\"msg\":\"Error getting traffics. (Inbound Not Found For Email: pyrovetis_100\\n)\",\"obj\":null}","error":"Error getting traffics. (Inbound Not Found For Email: pyrovetis_100\n)"}
+[24-May-2026 02:09:33 Asia/Tehran] Telegram request failed: SSL connection timeout
+[24-May-2026 02:13:58 Asia/Tehran] PHP Warning:  file_get_contents(https://api.telegram.org/file/bot8913088647:AAFT3js74c3IKMJr93DDIn11X_FbiWXNHhQ/photos/file_0.jpg): Failed to open stream: Connection timed out in /var/www/mirza_pro/admin.php on line 9458
+[24-May-2026 02:14:14 Asia/Tehran] {"status":null,"body":null,"error":"Resolving timed out after 10001 milliseconds"}
+[24-May-2026 02:14:29 Asia/Tehran] PHP Warning:  imagecreatefromjpeg(): gd-jpeg: JPEG library reports unrecoverable error: Empty input file in /var/www/mirza_pro/function.php on line 1518
+[24-May-2026 02:14:29 Asia/Tehran] PHP Warning:  imagecreatefromjpeg(): "images.jpg" is not a valid JPEG file in /var/www/mirza_pro/function.php on line 1518
+[24-May-2026 02:14:29 Asia/Tehran] addBackgroundImage::System Error: imagecreatefromjpeg(): "images.jpg" is not a valid JPEG file
+[24-May-2026 02:14:32 Asia/Tehran] {"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"}
+[24-May-2026 02:17:03 Asia/Tehran] {"status":200,"body":"{\"success\":false,\"msg\":\"Error getting traffics. (Inbound Not Found For Email: tahasatt_101\\n)\",\"obj\":null}","error":"Error getting traffics. (Inbound Not Found For Email: tahasatt_101\n)"}
+[24-May-2026 02:17:22 Asia/Tehran] {"status":null,"body":null,"error":"Resolving timed out after 10000 milliseconds"}
+[24-May-2026 02:17:22 Asia/Tehran] {"status":200,"body":"{\"success\":false,\"msg\":\"Error getting traffics. (Inbound Not Found For Email: tahasatt_101\\n)\",\"obj\":null}","error":"Error getting traffics. (Inbound Not Found For Email: tahasatt_101\n)"}
+[24-May-2026 02:17:23 Asia/Tehran] {"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"}
+[24-May-2026 02:17:28 Asia/Tehran] {"status":200,"body":"{\"success\":false,\"msg\":\"Error getting traffics. (Inbound Not Found For Email: tahasatt_101\\n)\",\"obj\":null}","error":"Error getting traffics. (Inbound Not Found For Email: tahasatt_101\n)"}
+[24-May-2026 02:18:59 Asia/Tehran] Telegram request failed: SSL connection timeout
+[24-May-2026 02:19:21 Asia/Tehran] {"status":200,"body":"{\"success\":false,\"msg\":\"Error getting traffics. (Inbound Not Found For Email: tahasatt_101\\n)\",\"obj\":null}","error":"Error getting traffics. (Inbound Not Found For Email: tahasatt_101\n)"}
+[24-May-2026 02:19:25 Asia/Tehran] {"status":200,"body":"{\"success\":false,\"msg\":\"Error getting traffics. (Inbound Not Found For Email: 6576633_tahasatt_101\\n)\",\"obj\":null}","error":"Error getting traffics. (Inbound Not Found For Email: 6576633_tahasatt_101\n)"}
+[24-May-2026 02:19:25 Asia/Tehran] {"status":200,"body":"{\"success\":false,\"msg\":\"Error getting traffics. (Inbound Not Found For Email: pyrovetis_101\\n)\",\"obj\":null}","error":"Error getting traffics. (Inbound Not Found For Email: pyrovetis_101\n)"}
+[24-May-2026 02:19:28 Asia/Tehran] PHP Warning:  imagecreatefromjpeg(): gd-jpeg: JPEG library reports unrecoverable error: Empty input file in /var/www/mirza_pro/function.php on line 1518
+[24-May-2026 02:19:28 Asia/Tehran] PHP Warning:  imagecreatefromjpeg(): "images.jpg" is not a valid JPEG file in /var/www/mirza_pro/function.php on line 1518
+[24-May-2026 02:19:28 Asia/Tehran] addBackgroundImage::System Error: imagecreatefromjpeg(): "images.jpg" is not a valid JPEG file
+[24-May-2026 02:19:36 Asia/Tehran] {"status":200,"body":"{\"success\":false,\"msg\":\"Error getting traffics. (Inbound Not Found For Email: pyrovetis_101\\n)\",\"obj\":null}","error":"Error getting traffics. (Inbound Not Found For Email: pyrovetis_101\n)"}
+[24-May-2026 17:31:22 Asia/Tehran] {"status":null,"body":null,"error":"Unsupported HTTP version in response"}
+[24-May-2026 17:31:28 Asia/Tehran] {"status":null,"body":null,"error":"Unsupported HTTP version in response"}
+[24-May-2026 17:32:14 Asia/Tehran] PHP Warning:  Undefined array key "username" in /var/www/mirza_pro/function.php on line 817
+[24-May-2026 17:35:50 Asia/Tehran] {"status":null,"body":null,"error":"Resolving timed out after 10001 milliseconds"}
+[24-May-2026 17:36:03 Asia/Tehran] {"status":null,"body":null,"error":"Connection timed out after 10002 milliseconds"}
+[24-May-2026 17:36:36 Asia/Tehran] PHP Warning:  Undefined array key "username" in /var/www/mirza_pro/function.php on line 817
+[24-May-2026 17:36:56 Asia/Tehran] PHP Warning:  Undefined array key "username" in /var/www/mirza_pro/function.php on line 817
+[26-May-2026 01:59:55 Asia/Tehran] Telegram request failed: SSL connection timeout
+[26-May-2026 02:00:37 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4251
+[26-May-2026 02:00:37 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4297
+[26-May-2026 02:00:37 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4308
+[26-May-2026 02:00:37 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4319
+[26-May-2026 02:00:37 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4349
+[26-May-2026 02:00:37 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4351
+[26-May-2026 02:00:37 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4389
+[26-May-2026 02:00:37 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4391
+[26-May-2026 02:00:37 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4393
+[26-May-2026 02:00:37 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4400
+[26-May-2026 02:05:41 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 3532
+[26-May-2026 02:06:00 Asia/Tehran] Telegram request failed: SSL connection timeout
+[27-May-2026 03:29:21 Asia/Tehran] Telegram request failed: SSL connection timeout
+[27-May-2026 03:29:22 Asia/Tehran] Telegram request failed: SSL connection timeout
+[27-May-2026 03:29:22 Asia/Tehran] Telegram request failed: SSL connection timeout
+[27-May-2026 17:10:23 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4299
+[27-May-2026 17:10:23 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4301
+[27-May-2026 17:10:23 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4305
+[27-May-2026 18:31:07 Asia/Tehran] {"status":200,"body":"{\"success\":false,\"msg\":\"Error getting traffics. (Inbound Not Found For Email: 289943892_f258\\n)\",\"obj\":null}","error":"Error getting traffics. (Inbound Not Found For Email: 289943892_f258\n)"}
+[27-May-2026 18:31:14 Asia/Tehran] {"status":200,"body":"{\"success\":false,\"msg\":\"Error getting traffics. (Inbound Not Found For Email: 289943892_f258\\n)\",\"obj\":null}","error":"Error getting traffics. (Inbound Not Found For Email: 289943892_f258\n)"}
+[27-May-2026 18:31:19 Asia/Tehran] PHP Warning:  imagecreatefromjpeg(): gd-jpeg: JPEG library reports unrecoverable error: Empty input file in /var/www/mirza_pro/function.php on line 1518
+[27-May-2026 18:31:19 Asia/Tehran] PHP Warning:  imagecreatefromjpeg(): "images.jpg" is not a valid JPEG file in /var/www/mirza_pro/function.php on line 1518
+[27-May-2026 18:31:19 Asia/Tehran] addBackgroundImage::System Error: imagecreatefromjpeg(): "images.jpg" is not a valid JPEG file
+[27-May-2026 18:32:30 Asia/Tehran] PHP Warning:  Undefined array key 1 in /var/www/mirza_pro/keyboard.php on line 1668
+[27-May-2026 18:32:30 Asia/Tehran] PHP Warning:  Undefined array key 1 in /var/www/mirza_pro/keyboard.php on line 1678
+[27-May-2026 18:33:53 Asia/Tehran] PHP Warning:  imagecreatefromjpeg(): gd-jpeg: JPEG library reports unrecoverable error: Empty input file in /var/www/mirza_pro/function.php on line 1518
+[27-May-2026 18:33:53 Asia/Tehran] PHP Warning:  imagecreatefromjpeg(): "images.jpg" is not a valid JPEG file in /var/www/mirza_pro/function.php on line 1518
+[27-May-2026 18:33:53 Asia/Tehran] addBackgroundImage::System Error: imagecreatefromjpeg(): "images.jpg" is not a valid JPEG file
+[01-Jun-2026 14:02:36 Asia/Tehran] Telegram request failed: SSL connection timeout
+[01-Jun-2026 15:53:52 Asia/Tehran] Telegram request failed: Operation timed out after 30002 milliseconds with 0 bytes received
+[03-Jun-2026 04:15:21 Asia/Tehran] {"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"}
+[03-Jun-2026 04:20:18 Asia/Tehran] {"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"}
+[03-Jun-2026 04:20:29 Asia/Tehran] {"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"}
+[03-Jun-2026 04:21:08 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/index.php on line 4527
+[03-Jun-2026 04:41:00 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4299
+[03-Jun-2026 04:41:00 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4301
+[03-Jun-2026 04:41:00 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/admin.php on line 4305
+[03-Jun-2026 19:00:54 Asia/Tehran] Telegram request failed: SSL connection timeout
+[03-Jun-2026 20:00:58 Asia/Tehran] PHP Warning:  Trying to access array offset on value of type null in /var/www/mirza_pro/index.php on line 4527
+[03-Jun-2026 20:04:13 Asia/Tehran] Telegram request failed: SSL connection timeout
+[03-Jun-2026 20:04:35 Asia/Tehran] Telegram request failed: SSL connection timeout
+[03-Jun-2026 20:04:53 Asia/Tehran] Telegram request failed: SSL connection timeout
+[03-Jun-2026 20:06:14 Asia/Tehran] Telegram request failed: SSL connection timeout
+[03-Jun-2026 20:10:27 Asia/Tehran] Telegram request failed: SSL connection timeout
+[03-Jun-2026 20:12:58 Asia/Tehran] Telegram request failed: SSL connection timeout
+[03-Jun-2026 20:15:54 Asia/Tehran] Telegram request failed: OpenSSL SSL_connect: SSL_ERROR_SYSCALL in connection to api.telegram.org:443 
+[03-Jun-2026 20:21:37 Asia/Tehran] Telegram request failed: SSL connection timeout
+[03-Jun-2026 23:36:58 Asia/Tehran] Telegram request failed: SSL connection timeout
+[04-Jun-2026 00:38:55 Asia/Tehran] PHP Warning:  Undefined array key "username" in /var/www/mirza_pro/index.php on line 3197
+[04-Jun-2026 00:40:43 Asia/Tehran] {"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"}
+[04-Jun-2026 00:40:48 Asia/Tehran] {"status":null,"body":null,"error":"Empty reply from server"}
+[04-Jun-2026 00:41:51 Asia/Tehran] PHP Warning:  Undefined array key "username" in /var/www/mirza_pro/function.php on line 817
+[04-Jun-2026 00:42:02 Asia/Tehran] Telegram request failed: SSL connection timeout
+[04-Jun-2026 00:44:38 Asia/Tehran] PHP Warning:  Undefined array key "username" in /var/www/mirza_pro/function.php on line 817
+[04-Jun-2026 00:44:51 Asia/Tehran] PHP Warning:  Undefined array key "username" in /var/www/mirza_pro/index.php on line 3197
+[04-Jun-2026 00:45:05 Asia/Tehran] Telegram request failed: SSL connection timeout
+[04-Jun-2026 01:03:26 Asia/Tehran] Telegram request failed: SSL connection timeout

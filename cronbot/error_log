@@ -1,0 +1,72 @@
+[03-Jun-2026 06:37:01 Asia/Tehran] PHP Fatal error:  Uncaught mysqli_sql_exception: Permission denied in /var/www/mirza_pro/config.php:9
+Stack trace:
+#0 /var/www/mirza_pro/config.php(9): mysqli_connect()
+#1 /var/www/mirza_pro/cronbot/activeconfig.php(4): require_once('...')
+#2 {main}
+  thrown in /var/www/mirza_pro/config.php on line 9
+[03-Jun-2026 06:37:01 Asia/Tehran] PHP Fatal error:  Uncaught mysqli_sql_exception: Permission denied in /var/www/mirza_pro/config.php:9
+Stack trace:
+#0 /var/www/mirza_pro/config.php(9): mysqli_connect()
+#1 /var/www/mirza_pro/cronbot/NoticationsService.php(5): require_once('...')
+#2 {main}
+  thrown in /var/www/mirza_pro/config.php on line 9
+[03-Jun-2026 06:37:01 Asia/Tehran] PHP Fatal error:  Uncaught mysqli_sql_exception: Permission denied in /var/www/mirza_pro/config.php:9
+Stack trace:
+#0 /var/www/mirza_pro/config.php(9): mysqli_connect()
+#1 /var/www/mirza_pro/cronbot/NoticationsService.php(5): require_once('...')
+#2 {main}
+  thrown in /var/www/mirza_pro/config.php on line 9
+[03-Jun-2026 03:07:01 UTC] PHP Fatal error:  Uncaught mysqli_sql_exception: Permission denied in /var/www/mirza_pro/config.php:9
+Stack trace:
+#0 /var/www/mirza_pro/config.php(9): mysqli_connect()
+#1 /var/www/mirza_pro/cronbot/iranpay1.php(3): require_once('...')
+#2 {main}
+  thrown in /var/www/mirza_pro/config.php on line 9
+[03-Jun-2026 03:07:01 UTC] PHP Fatal error:  Uncaught mysqli_sql_exception: Permission denied in /var/www/mirza_pro/config.php:9
+Stack trace:
+#0 /var/www/mirza_pro/config.php(9): mysqli_connect()
+#1 /var/www/mirza_pro/cronbot/iranpay1.php(3): require_once('...')
+#2 {main}
+  thrown in /var/www/mirza_pro/config.php on line 9
+[03-Jun-2026 06:37:01 Asia/Tehran] PHP Fatal error:  Uncaught mysqli_sql_exception: Permission denied in /var/www/mirza_pro/config.php:9
+Stack trace:
+#0 /var/www/mirza_pro/config.php(9): mysqli_connect()
+#1 /var/www/mirza_pro/cronbot/disableconfig.php(4): require_once('...')
+#2 {main}
+  thrown in /var/www/mirza_pro/config.php on line 9
+[03-Jun-2026 06:37:01 Asia/Tehran] PHP Fatal error:  Uncaught mysqli_sql_exception: Permission denied in /var/www/mirza_pro/config.php:9
+Stack trace:
+#0 /var/www/mirza_pro/config.php(9): mysqli_connect()
+#1 /var/www/mirza_pro/cronbot/disableconfig.php(4): require_once('...')
+#2 {main}
+  thrown in /var/www/mirza_pro/config.php on line 9
+[03-Jun-2026 06:37:01 Asia/Tehran] PHP Fatal error:  Uncaught mysqli_sql_exception: Permission denied in /var/www/mirza_pro/config.php:9
+Stack trace:
+#0 /var/www/mirza_pro/config.php(9): mysqli_connect()
+#1 /var/www/mirza_pro/cronbot/croncard.php(4): require_once('...')
+#2 {main}
+  thrown in /var/www/mirza_pro/config.php on line 9
+[03-Jun-2026 06:37:01 Asia/Tehran] PHP Fatal error:  Uncaught mysqli_sql_exception: Permission denied in /var/www/mirza_pro/config.php:9
+Stack trace:
+#0 /var/www/mirza_pro/config.php(9): mysqli_connect()
+#1 /var/www/mirza_pro/cronbot/activeconfig.php(4): require_once('...')
+#2 {main}
+  thrown in /var/www/mirza_pro/config.php on line 9
+[03-Jun-2026 06:37:01 Asia/Tehran] PHP Fatal error:  Uncaught mysqli_sql_exception: Permission denied in /var/www/mirza_pro/config.php:9
+Stack trace:
+#0 /var/www/mirza_pro/config.php(9): mysqli_connect()
+#1 /var/www/mirza_pro/cronbot/croncard.php(4): require_once('...')
+#2 {main}
+  thrown in /var/www/mirza_pro/config.php on line 9
+[04-Jun-2026 01:51:04 Asia/Tehran] PHP Fatal error:  Uncaught mysqli_sql_exception: Host '85.198.20.224' is not allowed to connect to this MySQL server in /var/www/mirza_pro/config.php:9
+Stack trace:
+#0 /var/www/mirza_pro/config.php(9): mysqli_connect()
+#1 /var/www/mirza_pro/cronbot/croncard.php(4): require_once('...')
+#2 {main}
+  thrown in /var/www/mirza_pro/config.php on line 9
+[04-Jun-2026 01:51:05 Asia/Tehran] PHP Fatal error:  Uncaught mysqli_sql_exception: Host '85.198.20.224' is not allowed to connect to this MySQL server in /var/www/mirza_pro/config.php:9
+Stack trace:
+#0 /var/www/mirza_pro/config.php(9): mysqli_connect()
+#1 /var/www/mirza_pro/cronbot/NoticationsService.php(5): require_once('...')
+#2 {main}
+  thrown in /var/www/mirza_pro/config.php on line 9

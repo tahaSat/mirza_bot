@@ -1,0 +1,24 @@
+🚀 Polling Daemon Started...
+Monitoring updates via Proxy 127.0.0.1:10808
+📥 New Update ID found: 581261164
+➡️ Forwarded locally. Apache Status: 200
+📥 New Update ID found: 581261165
+➡️ Forwarded locally. Apache Status: 200
+🚀 Polling Daemon Started...
+Monitoring updates via Proxy 127.0.0.1:10808
+⚠️ Telegram returned HTTP status 409 (Retrying in 5s...)
+⚠️ Telegram returned HTTP status 409 (Retrying in 5s...)
+⚠️ Telegram returned HTTP status 409 (Retrying in 5s...)
+⚠️ Telegram returned HTTP status 409 (Retrying in 5s...)
+⚠️ Telegram returned HTTP status 409 (Retrying in 5s...)
+⚠️ Proxy/Network Error: Operation timed out after 35002 milliseconds with 0 bytes received (Retrying in 2s...)
+🚀 Polling Daemon Started...
+Monitoring updates via Proxy 127.0.0.1:10808
+📥 New Update ID found: 581261167
+➡️ Forwarded locally. Apache Status: 200
+⚠️ Proxy/Network Error: Failure when receiving data from the peer (Retrying in 2s...)
+⚠️ Proxy/Network Error: Failure when receiving data from the peer (Retrying in 2s...)
+⚠️ Proxy/Network Error: Failure when receiving data from the peer (Retrying in 2s...)
+⚠️ Proxy/Network Error: Operation timed out after 35001 milliseconds with 0 bytes received (Retrying in 2s...)
+⚠️ Proxy/Network Error: Operation timed out after 35002 milliseconds with 0 bytes received (Retrying in 2s...)
+⚠️ Proxy/Network Error: Operation timed out after 35000 milliseconds with 0 bytes received (Retrying in 2s...)

@@ -11,6 +11,8 @@ function telegram($method, $datas = [], $token = null)
 
     $token = $token === null ? $APIKEY : $token;
     $url = "https://api.telegram.org/bot" . $token . "/" . $method;
+    $methodLower = strtolower($method);
+    $canRetryWithoutThread = isset($datas['message_thread_id']) && intval($datas['message_thread_id']) > 0;
 
     if (isset($datas['message_thread_id']) && intval($datas['message_thread_id']) <= 0) {
         unset($datas['message_thread_id']);
@@ -90,6 +92,15 @@ function telegram($method, $datas = [], $token = null)
                 'error_code' => $decodedResponse['error_code'] ?? null,
                 'description' => $decodedResponse['description'] ?? null,
             ]);
+        }
+        if ($methodLower === 'sendmessage' && $canRetryWithoutThread) {
+            $retryPayload = $datas;
+            unset($retryPayload['message_thread_id']);
+            $retryResponse = telegram($method, $retryPayload, $token);
+            if (is_array($retryResponse) && !empty($retryResponse['ok'])) {
+                error_log('Telegram sendmessage fallback succeeded without message_thread_id.');
+                return $retryResponse;
+            }
         }
     } elseif (function_exists('mirza_polling_log') && mirza_polling_debug_enabled() && $durationMs >= 2000) {
         mirza_polling_log('telegram_api_slow', [

@@ -102,6 +102,9 @@ $initials = mb_strtoupper(mb_substr($currentUser, 0, 1, 'UTF-8'), 'UTF-8');
         </div>
         <div class="nav-section">
           <div class="nav-heading">پنل</div>
+          <a href="reports.php" class="nav-item <?= $activeNav === 'reports' ? 'active' : '' ?>" title="گزارشات">
+            <span class="nav-icon"><?= icon('search') ?></span><span class="nav-label">گزارشات</span>
+          </a>
           <a href="settings.php" class="nav-item <?= $activeNav === 'settings' ? 'active' : '' ?>" title="تنظیمات">
             <span class="nav-icon"><?= icon('settings') ?></span><span class="nav-label">تنظیمات</span>
           </a>

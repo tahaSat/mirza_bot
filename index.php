@@ -1,8 +1,8 @@
 <?php
-$version = file_get_contents('version');
+$version = @file_get_contents(__DIR__ . '/version') ?: '0';
 date_default_timezone_set('Asia/Tehran');
 ini_set('default_charset', 'UTF-8');
-ini_set('error_log', 'error_log');
+ini_set('error_log', __DIR__ . '/logs/php_errors.log');
 ini_set('memory_limit', '-1');
 require_once 'config.php';
 require_once 'botapi.php';
@@ -11,7 +11,7 @@ require_once 'function.php';
 require_once 'keyboard.php';
 require_once 'vendor/autoload.php';
 require_once 'panels.php';
-$textbotlang = languagechange('text.json');
+$textbotlang = languagechange(__DIR__ . '/text.json');
 if ($is_bot)
     return;
 if (isset($update['chat_member'])) {
@@ -456,8 +456,8 @@ if ($text == "/start" || $datain == "start" || $text == "start") {
                 $data = " | {$row['note']}";
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . $data . "✨",
-                    'callback_data' => "product_" . $row['id_invoice']
+                    'text' => mirza_inline_service_button_text($row['username'], $data),
+                    'callback_data' => mirza_inline_callback_data('product_', $row['id_invoice'])
                 ],
             ];
         }
@@ -465,8 +465,8 @@ if ($text == "/start" || $datain == "start" || $text == "start") {
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . "✨",
-                    'callback_data' => "product_" . $row['id_invoice']
+                    'text' => mirza_inline_service_button_text($row['username']),
+                    'callback_data' => mirza_inline_callback_data('product_', $row['id_invoice'])
                 ],
             ];
         }
@@ -518,8 +518,8 @@ if ($text == "/start" || $datain == "start" || $text == "start") {
                 $data = " | {$row['note']}";
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . $data . "✨",
-                    'callback_data' => "product_" . $row['id_invoice']
+                    'text' => mirza_inline_service_button_text($row['username'], $data),
+                    'callback_data' => mirza_inline_callback_data('product_', $row['id_invoice'])
                 ],
             ];
         }
@@ -527,8 +527,8 @@ if ($text == "/start" || $datain == "start" || $text == "start") {
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . "✨",
-                    'callback_data' => "product_" . $row['id_invoice']
+                    'text' => mirza_inline_service_button_text($row['username']),
+                    'callback_data' => mirza_inline_callback_data('product_', $row['id_invoice'])
                 ],
             ];
         }
@@ -581,8 +581,8 @@ if ($text == "/start" || $datain == "start" || $text == "start") {
                 $data = " | {$row['note']}";
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . $data . "✨",
-                    'callback_data' => "product_" . $row['id_invoice']
+                    'text' => mirza_inline_service_button_text($row['username'], $data),
+                    'callback_data' => mirza_inline_callback_data('product_', $row['id_invoice'])
                 ],
             ];
         }
@@ -590,8 +590,8 @@ if ($text == "/start" || $datain == "start" || $text == "start") {
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . "✨",
-                    'callback_data' => "product_" . $row['id_invoice']
+                    'text' => mirza_inline_service_button_text($row['username']),
+                    'callback_data' => mirza_inline_callback_data('product_', $row['id_invoice'])
                 ],
             ];
         }
@@ -773,8 +773,8 @@ if ($text == "/start" || $datain == "start" || $text == "start") {
                     $data = " | {$row['note']}";
                 $keyboardlists['inline_keyboard'][] = [
                     [
-                        'text' => "✨" . $row['username'] . $data . "✨",
-                        'callback_data' => "product_" . $row['id_invoice']
+                        'text' => mirza_inline_service_button_text($row['username'], $data),
+                        'callback_data' => mirza_inline_callback_data('product_', $row['id_invoice'])
                     ],
                 ];
             }
@@ -782,8 +782,8 @@ if ($text == "/start" || $datain == "start" || $text == "start") {
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 $keyboardlists['inline_keyboard'][] = [
                     [
-                        'text' => "✨" . $row['username'] . "✨",
-                        'callback_data' => "product_" . $row['id_invoice']
+                        'text' => mirza_inline_service_button_text($row['username']),
+                        'callback_data' => mirza_inline_callback_data('product_', $row['id_invoice'])
                     ],
                 ];
             }
@@ -6954,8 +6954,8 @@ $text_porsant
                 $data = " | {$row['note']}";
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . $data . "✨",
-                    'callback_data' => "extend_" . $row['id_invoice']
+                    'text' => mirza_inline_service_button_text($row['username'], $data),
+                    'callback_data' => mirza_inline_callback_data('extend_', $row['id_invoice'])
                 ],
             ];
         }
@@ -6963,8 +6963,8 @@ $text_porsant
         while ($row = mysqli_fetch_assoc($result)) {
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . "✨",
-                    'callback_data' => "extend_" . $row['id_invoice']
+                    'text' => mirza_inline_service_button_text($row['username']),
+                    'callback_data' => mirza_inline_callback_data('extend_', $row['id_invoice'])
                 ],
             ];
         }
@@ -7011,8 +7011,8 @@ $text_porsant
                 $data = " | {$row['note']}";
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . $data . "✨",
-                    'callback_data' => "extend_" . $row['id_invoice']
+                    'text' => mirza_inline_service_button_text($row['username'], $data),
+                    'callback_data' => mirza_inline_callback_data('extend_', $row['id_invoice'])
                 ],
             ];
         }
@@ -7020,8 +7020,8 @@ $text_porsant
         while ($row = mysqli_fetch_assoc($result)) {
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . "✨",
-                    'callback_data' => "extend_" . $row['id_invoice']
+                    'text' => mirza_inline_service_button_text($row['username']),
+                    'callback_data' => mirza_inline_callback_data('extend_', $row['id_invoice'])
                 ],
             ];
         }
@@ -7069,8 +7069,8 @@ $text_porsant
                 $data = " | {$row['note']}";
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . $data . "✨",
-                    'callback_data' => "extend_" . $row['id_invoice']
+                    'text' => mirza_inline_service_button_text($row['username'], $data),
+                    'callback_data' => mirza_inline_callback_data('extend_', $row['id_invoice'])
                 ],
             ];
         }
@@ -7078,8 +7078,8 @@ $text_porsant
         while ($row = mysqli_fetch_assoc($result)) {
             $keyboardlists['inline_keyboard'][] = [
                 [
-                    'text' => "✨" . $row['username'] . "✨",
-                    'callback_data' => "extend_" . $row['id_invoice']
+                    'text' => mirza_inline_service_button_text($row['username']),
+                    'callback_data' => mirza_inline_callback_data('extend_', $row['id_invoice'])
                 ],
             ];
         }

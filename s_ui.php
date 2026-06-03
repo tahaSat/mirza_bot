@@ -1,5 +1,6 @@
 <?php
 require_once 'config.php';
+require_once __DIR__ . '/request.php';
 ini_set('error_log', 'error_log');
 
 
@@ -7,6 +8,7 @@ function get_Clients_ui($username, $namepanel)
 {
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $namepanel, "select");
     $curl = curl_init();
+    curl_disable_proxy($curl);
     $url = $marzban_list_get['url_panel'] . '/apiv2/clients';
     curl_setopt_array($curl, array(
         CURLOPT_URL => $url,
@@ -44,6 +46,7 @@ function GetClientsS_UI($username, $namepanel)
         return [];
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $namepanel, "select");
     $curl = curl_init();
+    curl_disable_proxy($curl);
     curl_setopt_array($curl, array(
         CURLOPT_URL => $marzban_list_get['url_panel'] . '/apiv2/clients?id=' . $userdata['id'],
         CURLOPT_RETURNTRANSFER => true,
@@ -152,6 +155,7 @@ function addClientS_ui($namepanel, $usernameac, $Expire, $Total, $inboundid, $no
         )),
     );
     $curl = curl_init();
+    curl_disable_proxy($curl);
     curl_setopt_array($curl, array(
         CURLOPT_URL => $marzban_list_get['url_panel'] . '/apiv2/save',
         CURLOPT_RETURNTRANSFER => true,
@@ -173,6 +177,7 @@ function updateClientS_ui($namepanel, array $config)
 {
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $namepanel, "select");
     $curl = curl_init();
+    curl_disable_proxy($curl);
     curl_setopt_array($curl, array(
         CURLOPT_URL => $marzban_list_get['url_panel'] . '/apiv2/save',
         CURLOPT_RETURNTRANSFER => true,
@@ -220,12 +225,14 @@ function removeClientS_ui($location, $username)
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $location, "select");
     $data_user = GetClientsS_UI($username, $location);
     $curl = curl_init();
+    curl_disable_proxy($curl);
     $configpanel = array(
         "object" => 'clients',
         'action' => "del",
         "data" => $data_user['id'],
     );
     $curl = curl_init();
+    curl_disable_proxy($curl);
     curl_setopt_array($curl, array(
         CURLOPT_URL => $marzban_list_get['url_panel'] . '/apiv2/save',
         CURLOPT_RETURNTRANSFER => true,
@@ -248,6 +255,7 @@ function get_onlineclients_ui($name_panel, $username)
 {
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $name_panel, "select");
     $curl = curl_init();
+    curl_disable_proxy($curl);
     curl_setopt_array($curl, array(
         CURLOPT_URL => $marzban_list_get['url_panel'] . '/apiv2/onlines',
         CURLOPT_RETURNTRANSFER => true,
@@ -276,6 +284,7 @@ function get_settig($name_panel)
 {
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $name_panel, "select");
     $curl = curl_init();
+    curl_disable_proxy($curl);
     curl_setopt_array($curl, array(
         CURLOPT_URL => $marzban_list_get['url_panel'] . '/apiv2/settings',
         CURLOPT_RETURNTRANSFER => true,

@@ -144,3 +144,27 @@ function user_role_tag(string $agent): string
         default => 'tag-plain',
     };
 }
+
+function panel_agent_label(string $agent): string
+{
+    return match ($agent) {
+        'f' => 'کاربر عادی',
+        'n' => 'نماینده',
+        'n2' => 'نماینده پیشرفته',
+        'all' => 'همه گروه‌ها',
+        default => $agent,
+    };
+}
+
+/** Web path prefix for panel assets, e.g. /panel */
+function panel_web_base(): string
+{
+    $dir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/panel'));
+    $dir = rtrim($dir, '/');
+    return $dir !== '' ? $dir : '/panel';
+}
+
+function panel_asset(string $path): string
+{
+    return panel_web_base() . '/' . ltrim($path, '/');
+}

@@ -17,7 +17,11 @@ $initials = mb_strtoupper(mb_substr($currentUser, 0, 1, 'UTF-8'), 'UTF-8');
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>پنل مدیریت میرزا بات</title>
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="<?= htmlspecialchars(panel_asset('css/style.css')) ?>">
+  <script>
+    window.openModal = function (id) { var m = document.getElementById(id); if (m) m.classList.add('open'); };
+    window.closeModal = function (id) { var m = document.getElementById(id); if (m) m.classList.remove('open'); };
+  </script>
   <script>
     (function () {
       var t = localStorage.getItem('panel-theme') || 'navy';
@@ -86,8 +90,14 @@ $initials = mb_strtoupper(mb_substr($currentUser, 0, 1, 'UTF-8'), 'UTF-8');
           <a href="product.php" class="nav-item <?= $activeNav === 'product' ? 'active' : '' ?>" title="محصولات">
             <span class="nav-icon"><?= icon('package') ?></span><span class="nav-label">محصولات</span>
           </a>
-          <a href="payment.php" class="nav-item <?= $activeNav === 'payment' ? 'active' : '' ?>" title="تراکنش‌ها">
+          <a href="payment.php" class="nav-item <?= in_array($activeNav, ['payment', 'payment_methods'], true) ? 'active' : '' ?>" title="تراکنش‌ها">
             <span class="nav-icon"><?= icon('card') ?></span><span class="nav-label">تراکنش‌ها</span>
+          </a>
+          <a href="payment_methods.php" class="nav-item <?= $activeNav === 'payment_methods' ? 'active' : '' ?>" title="درگاه‌های پرداخت">
+            <span class="nav-icon"><?= icon('settings') ?></span><span class="nav-label">درگاه‌ها</span>
+          </a>
+          <a href="panels.php" class="nav-item <?= $activeNav === 'panels' ? 'active' : '' ?>" title="پنل‌های VPN">
+            <span class="nav-icon"><?= icon('server') ?></span><span class="nav-label">پنل‌های VPN</span>
           </a>
         </div>
         <div class="nav-section">

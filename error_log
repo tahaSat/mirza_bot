@@ -1,0 +1,1 @@
+[22-May-2026 20:51:24 UTC] [CHECK:support_message] ❌ SQLSTATE[42S02]: Base table or view not found: 1146 Table 'mirzabot.user' doesn't exist

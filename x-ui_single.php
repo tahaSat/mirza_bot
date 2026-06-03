@@ -2,55 +2,158 @@
 require_once 'config.php';
 require_once 'request.php';
 ini_set('error_log', 'error_log');
+
+function panel_cookie_path(): string
+{
+    return __DIR__ . '/cookie.txt';
+}
+
+function panel_http_timeout_ms(): int
+{
+    global $request_exec_timeout;
+    if ($request_exec_timeout !== null && (int) $request_exec_timeout > 0) {
+        return (int) $request_exec_timeout;
+    }
+    return 30000;
+}
+
+function panel_login_base_url(array $panel): string
+{
+    return rtrim(trim($panel['url_panel'] ?? ''), '/');
+}
+
+function panel_login_origin(string $baseUrl): string
+{
+    $parts = parse_url($baseUrl);
+    $origin = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '');
+    if (!empty($parts['port'])) {
+        $origin .= ':' . $parts['port'];
+    }
+    return $origin;
+}
+
+function panel_login_headers(string $baseUrl): array
+{
+    return [
+        'Accept: application/json, text/plain, */*',
+        'Content-Type: application/x-www-form-urlencoded; charset=UTF-8',
+        'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer: ' . $baseUrl . '/',
+        'Origin: ' . panel_login_origin($baseUrl),
+        'X-Requested-With: XMLHttpRequest',
+    ];
+}
+
 function panel_login_cookie($code_panel)
 {
     $panel = select("marzban_panel", "*", "code_panel", $code_panel, "select");
-    $curl = curl_init();
-    curl_setopt_array($curl, array(
-        CURLOPT_URL => $panel['url_panel'] . '/login',
+    $baseUrl = panel_login_base_url($panel);
+    $cookieFile = panel_cookie_path();
+    if (is_file($cookieFile)) {
+        @unlink($cookieFile);
+    }
+
+    $commonOpts = [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_ENCODING => '',
-        CURLOPT_MAXREDIRS => 10,
-        CURLOPT_TIMEOUT_MS => 4000,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT_MS => panel_http_timeout_ms(),
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => 0,
+        CURLOPT_COOKIEJAR => $cookieFile,
+        CURLOPT_COOKIEFILE => $cookieFile,
+        CURLOPT_HTTPHEADER => panel_login_headers($baseUrl),
+    ];
+
+    // Load login page first (some x-ui/nginx setups expect session + Referer chain).
+    $warmup = curl_init();
+    curl_disable_proxy($warmup);
+    curl_force_panel_http11($warmup);
+    curl_setopt_array($warmup, $commonOpts + [
+        CURLOPT_URL => $baseUrl . '/',
+        CURLOPT_HTTPGET => true,
         CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-        CURLOPT_CUSTOMREQUEST => 'POST',
-        CURLOPT_POSTFIELDS => "username={$panel['username_panel']}&password=" . urlencode($panel['password_panel']),
-        CURLOPT_COOKIEJAR => 'cookie.txt',
-    ));
+    ]);
+    curl_exec($warmup);
+    curl_close($warmup);
+
+    $curl = curl_init();
+    curl_disable_proxy($curl);
+    curl_force_panel_http11($curl);
+    curl_setopt_array($curl, $commonOpts + [
+        CURLOPT_URL => $baseUrl . '/login',
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => http_build_query([
+            'username' => $panel['username_panel'],
+            'password' => $panel['password_panel'],
+        ]),
+        CURLOPT_FOLLOWLOCATION => false,
+    ]);
     $response = curl_exec($curl);
-    if (curl_error($curl)) {
-        return json_encode(array(
+    $httpCode = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($curl);
+    curl_close($curl);
+
+    if ($response === false || $curlError !== '') {
+        return [
             'success' => false,
-            'msg' => curl_error($curl)
-        ));
+            'msg' => $curlError !== '' ? $curlError : 'Panel login request failed.',
+        ];
     }
-    return $response;
+
+    $decoded = json_decode((string) $response, true);
+    if (is_array($decoded)) {
+        if (empty($decoded['success'])) {
+            $decoded['msg'] = $decoded['msg'] ?? 'Login rejected by panel.';
+        }
+        return $decoded;
+    }
+
+    $snippet = trim(preg_replace('/\s+/', ' ', substr(strip_tags((string) $response), 0, 200)));
+    $hint = $httpCode === 403
+        ? ' HTTP 403 often means IP blocked on the panel (fail2ban/nginx/x-ui) — whitelist the bot server IP.'
+        : '';
+
+    return [
+        'success' => false,
+        'msg' => 'Invalid panel response (HTTP ' . $httpCode . ').' . $hint
+            . ($snippet !== '' ? ' Body: ' . $snippet : '')
+            . ' Check url_panel, username, and password.',
+    ];
 }
+
 function login($code_panel, $verify = true)
 {
     $panel = select("marzban_panel", "*", "code_panel", $code_panel, "select");
+    $cookieFile = panel_cookie_path();
     if ($panel['datelogin'] != null && $verify) {
         $date = json_decode($panel['datelogin'], true);
         if (isset($date['time'])) {
             $timecurrent = time();
             $start_date = time() - strtotime($date['time']);
-            if ($start_date <= 3000) {
-                file_put_contents('cookie.txt', $date['access_token']);
-                return;
+            if ($start_date <= 3000 && !empty($date['access_token'])) {
+                file_put_contents($cookieFile, $date['access_token']);
+                return ['success' => true];
             }
         }
     }
-    $response = panel_login_cookie($panel['code_panel']);
+    $result = panel_login_cookie($panel['code_panel']);
+    if (!is_array($result)) {
+        return ['success' => false, 'msg' => 'Invalid panel response.'];
+    }
+    if (empty($result['success'])) {
+        return $result;
+    }
+    if (!is_file($cookieFile)) {
+        return ['success' => false, 'msg' => 'Login succeeded but session cookie was not saved.'];
+    }
     $time = date('Y/m/d H:i:s');
     $data = json_encode(array(
         'time' => $time,
-        'access_token' => file_get_contents('cookie.txt')
+        'access_token' => file_get_contents($cookieFile)
     ));
     update("marzban_panel", "datelogin", $data, 'name_panel', $panel['name_panel']);
-    if (!is_string($response))
-        return array('success' => false);
-    return json_decode($response, true);
+    return $result;
 }
 
 function get_clinets($username, $namepanel)
@@ -64,7 +167,7 @@ function get_clinets($username, $namepanel)
     );
     $req = new CurlRequest($url);
     $req->setHeaders($headers);
-    $req->setCookie('cookie.txt');
+    $req->setCookie(panel_cookie_path());
     $response = $req->get();
 
     if (isset($response['body'])) {
@@ -80,8 +183,8 @@ function get_clinets($username, $namepanel)
         error_log(json_encode($response));
     }
 
-    if (is_file('cookie.txt')) {
-        @unlink('cookie.txt');
+    if (is_file(panel_cookie_path())) {
+        @unlink(panel_cookie_path());
     }
 
     return $response;
@@ -147,9 +250,11 @@ function addClient($namepanel, $usernameac, $Expire, $Total, $Uuid, $Flow, $subi
     );
     $req = new CurlRequest($url);
     $req->setHeaders($headers);
-    $req->setCookie('cookie.txt');
+    $req->setCookie(panel_cookie_path());
     $response = $req->post($configpanel);
-    unlink('cookie.txt');
+    if (is_file(panel_cookie_path())) {
+        @unlink(panel_cookie_path());
+    }
     return $response;
 }
 function updateClient($namepanel, $uuid, array $config)
@@ -164,9 +269,11 @@ function updateClient($namepanel, $uuid, array $config)
     );
     $req = new CurlRequest($url);
     $req->setHeaders($headers);
-    $req->setCookie('cookie.txt');
+    $req->setCookie(panel_cookie_path());
     $response = $req->post($configpanel);
-    unlink('cookie.txt');
+    if (is_file(panel_cookie_path())) {
+        @unlink(panel_cookie_path());
+    }
     return $response;
 }
 function ResetUserDataUsagex_uisin($usernamepanel, $namepanel)
@@ -182,9 +289,11 @@ function ResetUserDataUsagex_uisin($usernamepanel, $namepanel)
     );
     $req = new CurlRequest($url);
     $req->setHeaders($headers);
-    $req->setCookie('cookie.txt');
+    $req->setCookie(panel_cookie_path());
     $response = $req->post(array());
-    unlink('cookie.txt');
+    if (is_file(panel_cookie_path())) {
+        @unlink(panel_cookie_path());
+    }
     return $response;
 }
 function removeClient($location, $username)
@@ -198,8 +307,10 @@ function removeClient($location, $username)
     );
     $req = new CurlRequest($url);
     $req->setHeaders($headers);
-    $req->setCookie('cookie.txt');
+    $req->setCookie(panel_cookie_path());
     $response = $req->post(array());
-    unlink('cookie.txt');
+    if (is_file(panel_cookie_path())) {
+        @unlink(panel_cookie_path());
+    }
     return $response;
 }

@@ -71,7 +71,7 @@ include __DIR__ . '/inc/layout_head.php';
             <?= number_format($pendingPay > 0 ? $pendingPay : $txToday) ?>
         </div>
         <div class="stat-meta">
-            <?= $pendingPay > 0 ? '<a href="payment.php" style="color:var(--no)">بررسی ←</a>' : 'ثبت‌شده' ?>
+            <?= $pendingPay > 0 ? '<a href="payment.php?tab=pending" style="color:var(--no)">بررسی ←</a>' : 'ثبت‌شده' ?>
         </div>
     </div>
 </div>

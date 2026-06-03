@@ -135,6 +135,7 @@ function getusers($location, $status)
     $header_value = 'Bearer ';
 
     $ch = curl_init();
+    curl_disable_proxy($ch);
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_HTTPGET, true);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -156,6 +157,7 @@ function getinbounds($location)
     $header_value = 'Bearer ';
 
     $ch = curl_init();
+    curl_disable_proxy($ch);
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_HTTPGET, true);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -334,6 +336,7 @@ function Get_System_Stats($location)
     $header_value = 'Bearer ';
 
     $ch = curl_init();
+    curl_disable_proxy($ch);
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_HTTPGET, true);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -410,6 +413,7 @@ function Modifyuser_node($location, $id_node, array $data)
     $url = $marzban_list_get['url_panel'] . '/api/node/' . $id_node;
     $payload = json_encode($data);
     $ch = curl_init();
+    curl_disable_proxy($ch);
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
@@ -430,6 +434,7 @@ function hosts($location)
     $Check_token = token_panel($marzban_list_get['code_panel']);
     $url = $marzban_list_get['url_panel'] . '/api/hosts';
     $ch = curl_init();
+    curl_disable_proxy($ch);
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');

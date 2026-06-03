@@ -41,6 +41,15 @@ var _lb = (function () {
     return { start: start, done: done };
 }());
 
+window.openModal = function (id) {
+    var m = document.getElementById(id);
+    if (m) m.classList.add('open');
+};
+window.closeModal = function (id) {
+    var m = document.getElementById(id);
+    if (m) m.classList.remove('open');
+};
+
 window.addEventListener('load', function () { _lb.done(); });
 
 document.addEventListener('click', function (e) {
@@ -103,14 +112,21 @@ window.closeConfirm = function () {
     _confirmCb = null;
 };
 
-document.getElementById('confirm-ok').addEventListener('click', function () {
-    document.getElementById('confirm-veil').classList.remove('open');
-    if (_confirmCb) { var cb = _confirmCb; _confirmCb = null; cb(); }
-});
+var _confirmOk = document.getElementById('confirm-ok');
+if (_confirmOk) {
+    _confirmOk.addEventListener('click', function () {
+        var veil = document.getElementById('confirm-veil');
+        if (veil) veil.classList.remove('open');
+        if (_confirmCb) { var cb = _confirmCb; _confirmCb = null; cb(); }
+    });
+}
 
-document.getElementById('confirm-veil').addEventListener('click', function (e) {
-    if (e.target === this) closeConfirm();
-});
+var _confirmVeil = document.getElementById('confirm-veil');
+if (_confirmVeil) {
+    _confirmVeil.addEventListener('click', function (e) {
+        if (e.target === this) closeConfirm();
+    });
+}
 
 document.querySelectorAll('[data-confirm]').forEach(function (el) {
     el.addEventListener('click', function (e) {
@@ -159,10 +175,10 @@ function closeSidebar() {
 }
 
 (function () {
-    if (document.documentElement.classList.contains('sb-pre-collapsed')) {
-        document.getElementById('sidebar').classList.add('collapsed');
-        document.documentElement.classList.remove('sb-pre-collapsed');
-    }
+    if (!document.documentElement.classList.contains('sb-pre-collapsed')) return;
+    var sb = document.getElementById('sidebar');
+    if (sb) sb.classList.add('collapsed');
+    document.documentElement.classList.remove('sb-pre-collapsed');
 }());
 
 var _backdrop = document.getElementById('backdrop');
@@ -174,15 +190,6 @@ if (_swipeSb) {
     _swipeSb.addEventListener('touchstart', function (e) { _swipeX = e.touches[0].clientX; }, { passive: true });
     _swipeSb.addEventListener('touchmove',  function (e) { if (e.touches[0].clientX - _swipeX > 40) closeSidebar(); }, { passive: true });
 }
-
-window.openModal = function (id) {
-    var m = document.getElementById(id);
-    if (m) m.classList.add('open');
-};
-window.closeModal = function (id) {
-    var m = document.getElementById(id);
-    if (m) m.classList.remove('open');
-};
 
 document.querySelectorAll('.modal-veil').forEach(function (v) {
     v.addEventListener('click', function (e) { if (e.target === v) v.classList.remove('open'); });

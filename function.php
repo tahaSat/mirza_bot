@@ -1,8 +1,30 @@
 <?php
 require_once 'vendor/autoload.php';
 require 'config.php';
+require_once __DIR__ . '/request.php';
 require 'vendor/autoload.php';
-ini_set('error_log', 'error_log');
+ini_set('error_log', __DIR__ . '/logs/php_errors.log');
+
+/**
+ * Telegram inline button labels are limited to 64 UTF-8 code units.
+ */
+function mirza_inline_service_button_text(string $username, string $noteSuffix = ''): string
+{
+    $label = '✨' . $username . $noteSuffix . '✨';
+    if (mb_strlen($label, 'UTF-8') > 64) {
+        return mb_substr($label, 0, 61, 'UTF-8') . '…';
+    }
+    return $label;
+}
+
+/**
+ * Telegram callback_data is limited to 64 bytes.
+ */
+function mirza_inline_callback_data(string $prefix, $id): string
+{
+    $data = $prefix . $id;
+    return strlen($data) > 64 ? substr($data, 0, 64) : $data;
+}
 
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\Encoding\Encoding;
@@ -560,6 +582,7 @@ function nowPayments($payment, $price_amount, $order_id, $order_description)
     global $domainhosts;
     $apinowpayments = select("PaySetting", "*", "NamePay", "marchent_tronseller", "select")['ValuePay'];
     $curl = curl_init();
+    curl_disable_proxy($curl);
     curl_setopt_array($curl, array(
         CURLOPT_URL => 'https://api.nowpayments.io/v1/' . $payment,
         CURLOPT_RETURNTRANSFER => true,
@@ -589,6 +612,7 @@ function StatusPayment($paymentid)
 {
     $apinowpayments = select("PaySetting", "*", "NamePay", "marchent_tronseller", "select")['ValuePay'];
     $curl = curl_init();
+    curl_disable_proxy($curl);
     curl_setopt_array($curl, array(
         CURLOPT_URL => 'https://api.nowpayments.io/v1/payment/' . $paymentid,
         CURLOPT_RETURNTRANSFER => true,
@@ -639,6 +663,7 @@ function trnado($order_id, $price)
     $walletaddress = select("PaySetting", "*", "NamePay", "walletaddress", "select")['ValuePay'];
     $urlpay = select("PaySetting", "*", "NamePay", "urlpaymenttron", "select")['ValuePay'];
     $curl = curl_init();
+    curl_disable_proxy($curl);
     $data = array(
         "PaymentID" => $order_id,
         "WalletAddress" => $walletaddress,
@@ -715,6 +740,7 @@ function generateUsername($from_id, $Metode, $username, $randomString, $text, $n
 function outputlink($text)
 {
     $ch = curl_init();
+    curl_disable_proxy($ch);
     curl_setopt($ch, CURLOPT_URL, $text);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT_MS, 6000);
@@ -1392,6 +1418,7 @@ function plisio($order_id, $price)
     $url .= '&language=fa';
     $url .= '&api_key=' . urlencode($api_key);
     $ch = curl_init($url);
+    curl_disable_proxy($ch);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     $response = json_decode(curl_exec($ch), true);
     return $response['data'];
@@ -1518,16 +1545,41 @@ function addBackgroundImage($urlimage, $qrCodeResult, $backgroundPath)
     imagedestroy($backgroundImage);
 }
 
+function resolveTelegramClientIp()
+{
+    $candidates = [];
+
+    if (!empty($_SERVER['HTTP_X_REAL_IP'])) {
+        $candidates[] = $_SERVER['HTTP_X_REAL_IP'];
+    }
+    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $parts = explode(',', (string) $_SERVER['HTTP_X_FORWARDED_FOR']);
+        $candidates[] = trim($parts[0]);
+    }
+    if (!empty($_SERVER['REMOTE_ADDR'])) {
+        $candidates[] = $_SERVER['REMOTE_ADDR'];
+    }
+
+    foreach ($candidates as $ip) {
+        $ip = trim((string) $ip);
+        if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP)) {
+            return $ip;
+        }
+    }
+
+    return '';
+}
+
 function checktelegramip()
 {
-    $clientIp = $_SERVER['REMOTE_ADDR'] ?? '';
-    if (!is_string($clientIp) || $clientIp === '') {
+    $clientIp = resolveTelegramClientIp();
+    if ($clientIp === '') {
         return false;
     }
 
-    $clientIp = trim($clientIp);
-    if (!filter_var($clientIp, FILTER_VALIDATE_IP)) {
-        return false;
+    global $telegram_polling_mode;
+    if (!empty($telegram_polling_mode) && in_array($clientIp, ['127.0.0.1', '::1'], true)) {
+        return true;
     }
 
     $telegramIpRanges = [
@@ -1658,6 +1710,7 @@ function createInvoice($amount)
     $walletaddress = select("PaySetting", "*", "NamePay", "walletaddress", "select")['ValuePay'];
 
     $curl = curl_init();
+    curl_disable_proxy($curl);
 
     curl_setopt_array($curl, array(
         CURLOPT_URL => 'https://pay.melorinabeauty.com/api/factor/create',
@@ -1686,6 +1739,7 @@ function verifpay($id)
     $PaySetting = select("PaySetting", "*", "NamePay", "apiiranpay", "select")['ValuePay'];
     $walletaddress = select("PaySetting", "*", "NamePay", "walletaddress", "select")['ValuePay'];
     $curl = curl_init();
+    curl_disable_proxy($curl);
 
     curl_setopt_array($curl, array(
         CURLOPT_URL => 'https://pay.melorinabeauty.ir/api/factor/status?id=' . $id,
@@ -1712,6 +1766,7 @@ function createInvoiceiranpay1($amount, $id_invoice)
     global $domainhosts;
     $PaySetting = select("PaySetting", "*", "NamePay", "marchent_floypay", "select")['ValuePay'];
     $curl = curl_init();
+    curl_disable_proxy($curl);
     $amount = intval($amount);
     $data = [
         "ApiKey" => $PaySetting,
@@ -1776,15 +1831,33 @@ function publickey()
 }
 function languagechange($path_dir)
 {
-    $setting = select("setting", "*");
-    return json_decode(file_get_contents($path_dir), true)['fa'];
-    if (intval($setting['languageen']) == 1) {
-        return json_decode(file_get_contents($path_dir), true)['en'];
-    } elseif (intval($setting['languageru']) == 1) {
-        return json_decode(file_get_contents($path_dir), true)['ru'];
-    } else {
-        return json_decode(file_get_contents($path_dir), true)['fa'];
+    if (!is_string($path_dir) || $path_dir === '') {
+        return [];
     }
+    if ($path_dir[0] !== '/' && !preg_match('#^[A-Za-z]:[/\\\\]#', $path_dir)) {
+        $path_dir = __DIR__ . '/' . ltrim($path_dir, './');
+    }
+
+    $raw = @file_get_contents($path_dir);
+    if ($raw === false) {
+        error_log('languagechange: cannot read ' . $path_dir);
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        error_log('languagechange: invalid JSON in ' . $path_dir);
+        return [];
+    }
+
+    $setting = select("setting", "*");
+    if (intval($setting['languageen'] ?? 0) === 1 && isset($decoded['en'])) {
+        return $decoded['en'];
+    }
+    if (intval($setting['languageru'] ?? 0) === 1 && isset($decoded['ru'])) {
+        return $decoded['ru'];
+    }
+    return $decoded['fa'] ?? $decoded['en'] ?? [];
 }
 function generateAuthStr($length = 10)
 {
@@ -1933,6 +2006,7 @@ function createPayZarinpal($price, $order_id)
     global $domainhosts;
     $marchent_zarinpal = select("PaySetting", "ValuePay", "NamePay", "merchant_zarinpal", "select")['ValuePay'];
     $curl = curl_init();
+    curl_disable_proxy($curl);
     curl_setopt_array($curl, array(
         CURLOPT_URL => 'https://api.zarinpal.com/pg/v4/payment/request.json',
         CURLOPT_RETURNTRANSFER => true,
@@ -1966,6 +2040,7 @@ function createPayaqayepardakht($price, $order_id)
     global $domainhosts;
     $merchant_aqayepardakht = select("PaySetting", "ValuePay", "NamePay", "merchant_id_aqayepardakht", "select")['ValuePay'];
     $curl = curl_init();
+    curl_disable_proxy($curl);
     curl_setopt_array($curl, array(
         CURLOPT_URL => 'https://panel.aqayepardakht.ir/api/v2/create',
         CURLOPT_RETURNTRANSFER => true,

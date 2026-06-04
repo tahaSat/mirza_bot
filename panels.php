@@ -578,9 +578,47 @@ class ManagePanel
                     'msg' => "User not found"
                 );
             }
-            $user_data = $user_data['obj'];
-            $expire = $user_data['expiryTime'] / 1000;
-            if ($user_data['enable']) {
+            $obj = $user_data['obj'];
+            if (isset($obj['client']) && is_array($obj['client'])) {
+                $client = $obj['client'];
+                if (!isset($client['inboundIds']) && isset($obj['inboundIds'])) {
+                    $client['inboundIds'] = $obj['inboundIds'];
+                }
+                $user_data = $client;
+            } else {
+                $user_data = $obj;
+            }
+
+            $total = isset($user_data['total']) && is_numeric($user_data['total'])
+                ? (float) $user_data['total']
+                : (isset($user_data['totalGB']) && is_numeric($user_data['totalGB']) ? (float) $user_data['totalGB'] : 0);
+            $up = isset($user_data['up']) && is_numeric($user_data['up'])
+                ? (float) $user_data['up']
+                : (isset($user_data['upload']) && is_numeric($user_data['upload']) ? (float) $user_data['upload'] : 0);
+            $down = isset($user_data['down']) && is_numeric($user_data['down'])
+                ? (float) $user_data['down']
+                : (isset($user_data['download']) && is_numeric($user_data['download']) ? (float) $user_data['download'] : 0);
+            $user_data['total'] = $total;
+            $user_data['up'] = $up;
+            $user_data['down'] = $down;
+
+            $expiryRaw = $user_data['expiryTime'] ?? ($user_data['expire'] ?? 0);
+            $expiryMs = 0;
+            if (is_string($expiryRaw) && trim($expiryRaw) !== '' && !is_numeric($expiryRaw)) {
+                $ts = strtotime($expiryRaw);
+                if ($ts !== false && $ts > 0) {
+                    $expiryMs = $ts * 1000;
+                }
+            } elseif (is_numeric($expiryRaw)) {
+                $expiryMs = (int) $expiryRaw;
+            }
+            if ($expiryMs > 0 && $expiryMs < 100000000000) {
+                $expiryMs *= 1000;
+            }
+            $user_data['expiryTime'] = $expiryMs;
+            $expire = $expiryMs > 0 ? (int) floor($expiryMs / 1000) : 0;
+
+            if (!empty($user_data['enable'])) {
                 $user_data['enable'] = "active";
             } else {
                 $user_data['enable'] = "disabled";
@@ -595,8 +633,6 @@ class ManagePanel
             }
             if ($user_data['expiryTime'] < -10000) {
                 $user_data['enable'] = "on_hold";
-                // In new x-ui, on-hold users can have negative expiryTime as "duration until first use".
-                // Keep a meaningful display expiry instead of forcing unlimited.
                 $holdSeconds = (int) floor(abs((float) $user_data['expiryTime']) / 1000);
                 $expire = $holdSeconds > 0 ? (time() + $holdSeconds) : 0;
             }

@@ -16,6 +16,8 @@ $botToken = $APIKEY ?? '';
 $localBotUrl = $telegram_local_bot_url ?? 'http://127.0.0.1/index.php';
 $pollingAsync = !isset($telegram_polling_async) || $telegram_polling_async;
 $getUpdatesTimeout = 25;
+global $telegram_proxy_retry_once;
+$retryOnce = !isset($telegram_proxy_retry_once) || (bool) $telegram_proxy_retry_once;
 
 if ($botToken === '') {
     fwrite(STDERR, "Missing APIKEY in config.php\n");
@@ -50,18 +52,50 @@ while (true) {
         'allowed_updates' => json_encode(['message', 'callback_query', 'channel_post', 'pre_checkout_query', 'inline_query']),
     ];
 
-    $ch = curl_init_telegram($telegram_url);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $post_fields);
-    curl_setopt($ch, CURLOPT_TIMEOUT, $getUpdatesTimeout + 10);
+    $attempt = 0;
+    $maxAttempts = $retryOnce ? 2 : 1;
+    $response = false;
+    $http_code = 0;
+    $curl_error = '';
+    while ($attempt < $maxAttempts) {
+        $attempt++;
+        $activeProxyLabel = mirza_telegram_proxy_label();
+        $ch = curl_init_telegram($telegram_url);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post_fields);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $getUpdatesTimeout + 10);
 
-    $response = curl_exec($ch);
-    $http_code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curl_error = curl_error($ch);
-    curl_close($ch);
+        $response = curl_exec($ch);
+        $http_code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curl_error = curl_error($ch);
+        curl_close($ch);
+
+        if ($response !== false) {
+            break;
+        }
+        if (!mirza_telegram_proxy_is_transport_error($curl_error)) {
+            break;
+        }
+        if ($attempt >= $maxAttempts) {
+            break;
+        }
+
+        $rotation = mirza_telegram_proxy_rotate_on_failure($curl_error);
+        mirza_polling_log_line('🔁 Proxy failover for getUpdates: ' . $activeProxyLabel . ' -> ' . mirza_telegram_proxy_label($rotation['to'] ?? null));
+        mirza_polling_log('getUpdates_proxy_failover', [
+            'attempt' => $attempt,
+            'error' => $curl_error,
+            'from' => $rotation['from'] ?? null,
+            'to' => $rotation['to'] ?? null,
+            'rotated' => !empty($rotation['rotated']),
+        ]);
+    }
 
     if ($response === false) {
         mirza_polling_log_line('⚠️ Proxy/Network Error: ' . $curl_error . ' (Retrying in 2s...)');
-        mirza_polling_log('getUpdates_network_error', ['error' => $curl_error]);
+        mirza_polling_log('getUpdates_network_error', [
+            'error' => $curl_error,
+            'active_proxy' => mirza_telegram_proxy_label(),
+        ]);
         sleep(2);
         continue;
     }

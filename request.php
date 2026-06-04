@@ -63,22 +63,288 @@ function curl_force_panel_http11($ch): void
 /**
  * Proxy only for api.telegram.org — never use for panel or other outbound URLs.
  */
-function apply_telegram_proxy($ch, $url = null)
+function mirza_telegram_proxy_state_path(): string
+{
+    global $telegram_proxy_state_file;
+    if (isset($telegram_proxy_state_file) && is_string($telegram_proxy_state_file) && $telegram_proxy_state_file !== '') {
+        return $telegram_proxy_state_file;
+    }
+    return __DIR__ . '/storage/cache/telegram_proxy_state.json';
+}
+
+function mirza_telegram_proxy_state_default(): array
+{
+    return [
+        'active_index' => 0,
+        'last_failover_at' => 0,
+        'updated_at' => time(),
+    ];
+}
+
+function mirza_telegram_proxy_list(): array
+{
+    global $telegram_proxies, $telegram_proxy, $telegram_proxy_type;
+
+    $list = [];
+    if (isset($telegram_proxies) && is_array($telegram_proxies)) {
+        $list = $telegram_proxies;
+    } elseif (!empty($telegram_proxy)) {
+        $list = [[
+            'name' => 'legacy',
+            'proxy' => $telegram_proxy,
+            'type' => $telegram_proxy_type ?? 'http',
+        ]];
+    }
+
+    $normalized = [];
+    foreach ($list as $idx => $item) {
+        if (!is_array($item) || empty($item['proxy'])) {
+            continue;
+        }
+        $normalized[] = [
+            'name' => (string) ($item['name'] ?? ('proxy-' . $idx)),
+            'proxy' => (string) $item['proxy'],
+            'type' => strtolower((string) ($item['type'] ?? 'http')),
+        ];
+    }
+
+    if (empty($normalized) && !empty($telegram_proxy)) {
+        $normalized[] = [
+            'name' => 'legacy',
+            'proxy' => (string) $telegram_proxy,
+            'type' => strtolower((string) ($telegram_proxy_type ?? 'http')),
+        ];
+    }
+
+    return $normalized;
+}
+
+function mirza_telegram_proxy_is_transport_error($curlError): bool
+{
+    return is_string($curlError) && trim($curlError) !== '';
+}
+
+function mirza_telegram_proxy_with_state_lock(callable $callback): array
+{
+    $stateFile = mirza_telegram_proxy_state_path();
+    $dir = dirname($stateFile);
+    if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+        return mirza_telegram_proxy_state_default();
+    }
+
+    $handle = fopen($stateFile, 'c+');
+    if ($handle === false) {
+        return mirza_telegram_proxy_state_default();
+    }
+
+    try {
+        if (!flock($handle, LOCK_EX)) {
+            fclose($handle);
+            return mirza_telegram_proxy_state_default();
+        }
+
+        rewind($handle);
+        $raw = stream_get_contents($handle);
+        $state = is_string($raw) && $raw !== '' ? json_decode($raw, true) : [];
+        if (!is_array($state)) {
+            $state = [];
+        }
+        $state = array_merge(mirza_telegram_proxy_state_default(), $state);
+        $newState = $callback($state);
+        if (!is_array($newState)) {
+            $newState = $state;
+        }
+        $newState = array_merge(mirza_telegram_proxy_state_default(), $newState);
+        $newState['updated_at'] = time();
+
+        $stateToPersist = $newState;
+        foreach (['_rotation_from', '_rotation_to', '_rotation_changed'] as $tmpKey) {
+            if (array_key_exists($tmpKey, $stateToPersist)) {
+                unset($stateToPersist[$tmpKey]);
+            }
+        }
+
+        $encoded = json_encode($stateToPersist, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($encoded !== false) {
+            rewind($handle);
+            ftruncate($handle, 0);
+            fwrite($handle, $encoded);
+            fflush($handle);
+        }
+
+        flock($handle, LOCK_UN);
+        fclose($handle);
+        return $newState;
+    } catch (Throwable $e) {
+        try {
+            flock($handle, LOCK_UN);
+        } catch (Throwable $ignored) {
+        }
+        fclose($handle);
+        return mirza_telegram_proxy_state_default();
+    }
+}
+
+function mirza_telegram_proxy_get_state(): array
+{
+    $list = mirza_telegram_proxy_list();
+    $count = count($list);
+
+    $state = mirza_telegram_proxy_with_state_lock(function ($state) use ($count) {
+        $index = (int) ($state['active_index'] ?? 0);
+        if ($count <= 0 || $index < 0 || $index >= $count) {
+            $index = 0;
+        }
+        $state['active_index'] = $index;
+        return $state;
+    });
+
+    global $telegram_proxy_prefer_primary_interval_sec;
+    $preferPrimaryInterval = isset($telegram_proxy_prefer_primary_interval_sec) ? max(0, (int) $telegram_proxy_prefer_primary_interval_sec) : 0;
+    if ($count > 1 && $preferPrimaryInterval > 0 && (int) $state['active_index'] !== 0) {
+        $lastFailoverAt = (int) ($state['last_failover_at'] ?? 0);
+        if ($lastFailoverAt > 0 && (time() - $lastFailoverAt) >= $preferPrimaryInterval) {
+            $state = mirza_telegram_proxy_with_state_lock(function ($lockedState) {
+                $lockedState['active_index'] = 0;
+                return $lockedState;
+            });
+        }
+    }
+
+    return $state;
+}
+
+function mirza_telegram_proxy_active_index(): int
+{
+    $state = mirza_telegram_proxy_get_state();
+    return (int) ($state['active_index'] ?? 0);
+}
+
+function mirza_telegram_proxy_get_active(): ?array
+{
+    $list = mirza_telegram_proxy_list();
+    if (empty($list)) {
+        return null;
+    }
+
+    $index = mirza_telegram_proxy_active_index();
+    if (!isset($list[$index])) {
+        $index = 0;
+    }
+    $active = $list[$index];
+    $active['index'] = $index;
+    return $active;
+}
+
+function mirza_telegram_proxy_rotate_on_failure(string $reason = ''): array
+{
+    $list = mirza_telegram_proxy_list();
+    $count = count($list);
+    $result = [
+        'rotated' => false,
+        'from' => 0,
+        'to' => 0,
+        'proxy' => null,
+        'name' => null,
+        'reason' => $reason,
+    ];
+
+    if ($count <= 1) {
+        $active = mirza_telegram_proxy_get_active();
+        if (is_array($active)) {
+            $result['proxy'] = $active['proxy'];
+            $result['name'] = $active['name'];
+        }
+        return $result;
+    }
+
+    global $telegram_proxy_failover_cooldown_sec;
+    $cooldown = isset($telegram_proxy_failover_cooldown_sec) ? max(0, (int) $telegram_proxy_failover_cooldown_sec) : 0;
+
+    $state = mirza_telegram_proxy_with_state_lock(function ($state) use ($count, $cooldown) {
+        $now = time();
+        $from = (int) ($state['active_index'] ?? 0);
+        if ($from < 0 || $from >= $count) {
+            $from = 0;
+        }
+        $lastFailoverAt = (int) ($state['last_failover_at'] ?? 0);
+        if ($cooldown > 0 && $lastFailoverAt > 0 && ($now - $lastFailoverAt) < $cooldown) {
+            $state['_rotation_from'] = $from;
+            $state['_rotation_to'] = $from;
+            $state['_rotation_changed'] = false;
+            return $state;
+        }
+
+        $to = ($from + 1) % $count;
+        $state['active_index'] = $to;
+        $state['last_failover_at'] = $now;
+        $state['_rotation_from'] = $from;
+        $state['_rotation_to'] = $to;
+        $state['_rotation_changed'] = true;
+        return $state;
+    });
+
+    $from = (int) ($state['_rotation_from'] ?? 0);
+    $to = (int) ($state['_rotation_to'] ?? $from);
+    $changed = !empty($state['_rotation_changed']);
+
+    $result['rotated'] = $changed;
+    $result['from'] = $from;
+    $result['to'] = $to;
+    if (isset($list[$to])) {
+        $result['proxy'] = $list[$to]['proxy'];
+        $result['name'] = $list[$to]['name'];
+    }
+    return $result;
+}
+
+function mirza_telegram_proxy_label($index = null): string
+{
+    $list = mirza_telegram_proxy_list();
+    if (empty($list)) {
+        return 'none';
+    }
+
+    if ($index === null) {
+        $index = mirza_telegram_proxy_active_index();
+    }
+    $index = (int) $index;
+    if (!isset($list[$index])) {
+        $index = 0;
+    }
+    $item = $list[$index];
+    return '#' . $index . ' ' . ($item['name'] ?? 'proxy') . ' (' . ($item['proxy'] ?? 'unknown') . ', ' . ($item['type'] ?? 'http') . ')';
+}
+
+/**
+ * Proxy only for api.telegram.org — never use for panel or other outbound URLs.
+ */
+function apply_telegram_proxy($ch, $url = null, $forcedIndex = null)
 {
     if ($url !== null && stripos($url, 'api.telegram.org') === false) {
         curl_disable_proxy($ch);
         return;
     }
 
-    global $telegram_proxy, $telegram_proxy_type;
-
-    if (empty($telegram_proxy)) {
+    $list = mirza_telegram_proxy_list();
+    if (empty($list)) {
         curl_disable_proxy($ch);
         return;
     }
 
-    curl_setopt($ch, CURLOPT_PROXY, $telegram_proxy);
-    $proxyType = strtolower((string) ($telegram_proxy_type ?? 'http'));
+    $index = $forcedIndex === null ? mirza_telegram_proxy_active_index() : (int) $forcedIndex;
+    if (!isset($list[$index])) {
+        $index = 0;
+    }
+    $proxyConfig = $list[$index];
+    $proxy = (string) ($proxyConfig['proxy'] ?? '');
+    if ($proxy === '') {
+        curl_disable_proxy($ch);
+        return;
+    }
+
+    curl_setopt($ch, CURLOPT_PROXY, $proxy);
+    $proxyType = strtolower((string) ($proxyConfig['type'] ?? 'http'));
     if ($proxyType === 'socks5') {
         if (defined('CURLPROXY_SOCKS5_HOSTNAME')) {
             curl_setopt($ch, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS5_HOSTNAME);

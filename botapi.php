@@ -18,31 +18,71 @@ function telegram($method, $datas = [], $token = null)
         unset($datas['message_thread_id']);
     }
 
-    $startedAt = microtime(true);
-    $ch = curl_init($url);
-    if ($ch === false) {
-        error_log('Unable to initialise cURL for Telegram request.');
-        return [
-            'ok' => false,
-            'description' => 'Unable to initialise cURL for Telegram request.'
-        ];
-    }
+    global $telegram_proxy_retry_once;
+    $retryOnce = !isset($telegram_proxy_retry_once) || (bool) $telegram_proxy_retry_once;
+    $maxAttempts = $retryOnce ? 2 : 1;
 
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-    apply_telegram_proxy($ch, $url);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $datas);
+    $rawResponse = false;
+    $curlError = '';
+    $durationMs = 0;
+    $httpCode = 0;
+    $attempt = 0;
+    while ($attempt < $maxAttempts) {
+        $attempt++;
+        $startedAt = microtime(true);
+        $ch = curl_init($url);
+        if ($ch === false) {
+            error_log('Unable to initialise cURL for Telegram request.');
+            return [
+                'ok' => false,
+                'description' => 'Unable to initialise cURL for Telegram request.'
+            ];
+        }
 
-    $rawResponse = curl_exec($ch);
-    $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
-    if ($rawResponse === false) {
+        $proxyInfo = mirza_telegram_proxy_get_active();
+
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        apply_telegram_proxy($ch, $url);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $datas);
+
+        $rawResponse = curl_exec($ch);
+        $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
         $curlError = curl_error($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
+        if ($rawResponse !== false) {
+            break;
+        }
+
+        if (!mirza_telegram_proxy_is_transport_error($curlError)) {
+            break;
+        }
+
+        if ($attempt >= $maxAttempts) {
+            break;
+        }
+
+        $rotation = mirza_telegram_proxy_rotate_on_failure($curlError);
+        if (function_exists('mirza_polling_log') && mirza_polling_debug_enabled()) {
+            mirza_polling_log('telegram_proxy_failover', [
+                'method' => $method,
+                'attempt' => $attempt,
+                'error' => $curlError,
+                'from' => $rotation['from'] ?? null,
+                'to' => $rotation['to'] ?? null,
+                'rotated' => !empty($rotation['rotated']),
+                'active_proxy' => is_array($proxyInfo) ? ($proxyInfo['proxy'] ?? null) : null,
+            ]);
+        }
+    }
+
+    if ($rawResponse === false) {
         if ($curlError !== '') {
             error_log('Telegram request failed: ' . $curlError);
         }
@@ -60,8 +100,6 @@ function telegram($method, $datas = [], $token = null)
         ];
     }
 
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
     $decodedResponse = json_decode($rawResponse, true);
     if (!is_array($decodedResponse)) {
         $logSnippet = substr($rawResponse, 0, 200);

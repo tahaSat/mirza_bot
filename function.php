@@ -1231,7 +1231,7 @@ $textonebuy
         $stmt->bindParam(':type', $type);
         $stmt->bindParam(':time', $dateacc);
         $stmt->bindParam(':price', $Payment_report['price']);
-        $stmt->bindParam(':output', json_encode($extra_volume));
+        $stmt->bindValue(':output', json_encode($extra_volume));
         $stmt->execute();
         $keyboardextrafnished = json_encode([
             'inline_keyboard' => [
@@ -1331,7 +1331,7 @@ $textonebuy
         $stmt->bindParam(':type', $type);
         $stmt->bindParam(':time', $dateacc);
         $stmt->bindParam(':price', $Payment_report['price']);
-        $stmt->bindParam(':output', json_encode($extra_time));
+        $stmt->bindValue(':output', json_encode($extra_time));
         $stmt->execute();
         $keyboardextrafnished = json_encode([
             'inline_keyboard' => [
@@ -1990,6 +1990,10 @@ function sendMessageService($panel_info, $config, $sub_link, $username_service, 
         if (is_array($config)) {
             sendmessage($user_id, "📌 جهت دریافت کانفیگ روی دکمه دریافت کانفیگ کلیک کنید", keyboard_config($config, $invoice_id, false), 'HTML');
         }
+    }
+    // Keep the latest delivered sub link so "subscription link" button can fallback reliably.
+    if (is_string($sub_link) && trim($sub_link) !== '') {
+        update("invoice", "user_info", trim($sub_link), "id_invoice", $invoice_id);
     }
 }
 function isValidInvitationCode($setting, $fromId, $verfy_status)

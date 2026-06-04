@@ -551,6 +551,7 @@ class ManagePanel
                 }
             }
         } elseif ($Get_Data_Panel['type'] == "x-ui_single") {
+            $invoiceInfo = select("invoice", "*", "username", $username, "select");
             $user_data = get_clinets($username, $Get_Data_Panel['name_panel']);
             if (!empty($user_data['error'])) {
                 return array(
@@ -611,6 +612,13 @@ class ManagePanel
             $links_user = explode("\n", trim($links_user));
             if ($inoice != false)
                 $linksub = "https://$domainhosts/sub/" . $inoice['id_invoice'];
+            if ((trim((string) $linksub) === trim((string) $baseSub) || trim((string) $linksub) === trim((string) $baseSub) . "/")
+                && !empty($invoiceInfo['user_info']) && is_string($invoiceInfo['user_info'])) {
+                $savedLink = trim($invoiceInfo['user_info']);
+                if (stripos($savedLink, 'http://') === 0 || stripos($savedLink, 'https://') === 0) {
+                    $linksub = $savedLink;
+                }
+            }
             $user_data['lastOnline'] = $user_data['lastOnline'] == 0 ? "offline" : (new DateTime('@' . ($user_data['lastOnline'] / 1000)))->format('Y-m-d H:i:s');
             $Output = array(
                 'status' => $user_data['enable'],

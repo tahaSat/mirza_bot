@@ -206,20 +206,39 @@ function panel_xui_extract_expiry_ms(array $decoded, array $client): int
     ];
 
     foreach ($candidates as $value) {
-        if (!is_numeric($value)) {
+        if (is_string($value) && trim($value) !== '' && !is_numeric($value)) {
+            $ts = strtotime($value);
+            if ($ts !== false && $ts > 0) {
+                return $ts * 1000;
+            }
             continue;
         }
-        $num = (int) $value;
-        if ($num <= 0) {
-            continue;
+        if (is_numeric($value)) {
+            $num = (int) $value;
+            if ($num <= 0) {
+                continue;
+            }
+            // New/old panels may return seconds or milliseconds; normalize to ms.
+            if ($num < 100000000000) {
+                $num *= 1000;
+            }
+            return $num;
         }
-        // New/old panels may return seconds or milliseconds; normalize to ms.
-        if ($num < 100000000000) {
-            $num *= 1000;
-        }
-        return $num;
     }
     return 0;
+}
+
+/**
+ * @param mixed[] $values
+ */
+function panel_xui_pick_numeric(array $values, float $default = 0): float
+{
+    foreach ($values as $value) {
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+    }
+    return $default;
 }
 
 function panel_curl_common_opts(string $cookieFile): array
@@ -405,21 +424,58 @@ function get_clinets($username, $namepanel)
         $inboundIds = panel_xui_normalize_inbound_ids($decodedBody['inboundIds'] ?? ($client['inboundIds'] ?? []));
         $firstInbound = $inboundIds[0] ?? null;
         $traffic = $decodedBody['traffic'] ?? ($client['traffic'] ?? []);
-        $up = isset($traffic['up']) ? (float) $traffic['up'] : (float) ($client['up'] ?? 0);
-        $down = isset($traffic['down']) ? (float) $traffic['down'] : (float) ($client['down'] ?? 0);
+        $up = panel_xui_pick_numeric([
+            $traffic['up'] ?? null,
+            $traffic['upload'] ?? null,
+            $traffic['uploaded'] ?? null,
+            $traffic['uplink'] ?? null,
+            $client['up'] ?? null,
+            $client['upload'] ?? null,
+            $client['uploaded'] ?? null,
+        ]);
+        $down = panel_xui_pick_numeric([
+            $traffic['down'] ?? null,
+            $traffic['download'] ?? null,
+            $traffic['downloaded'] ?? null,
+            $traffic['downlink'] ?? null,
+            $client['down'] ?? null,
+            $client['download'] ?? null,
+            $client['downloaded'] ?? null,
+        ]);
+        $total = panel_xui_pick_numeric([
+            $client['totalGB'] ?? null,
+            $client['total'] ?? null,
+            $client['data_limit'] ?? null,
+            $client['limitBytes'] ?? null,
+            $client['limit'] ?? null,
+            $decodedBody['totalGB'] ?? null,
+            $decodedBody['total'] ?? null,
+            $decodedBody['data']['totalGB'] ?? null,
+            $decodedBody['data']['total'] ?? null,
+        ]);
+        $enableRaw = $client['enable'] ?? ($decodedBody['enable'] ?? true);
+        $enable = is_bool($enableRaw)
+            ? $enableRaw
+            : in_array(strtolower((string) $enableRaw), ['1', 'true', 'on', 'enabled', 'active'], true);
+        $lastOnline = panel_xui_pick_numeric([
+            $client['lastOnline'] ?? null,
+            $client['last_online'] ?? null,
+            $decodedBody['lastOnline'] ?? null,
+            $decodedBody['data']['lastOnline'] ?? null,
+        ]);
         $normalizedObj = [
             'inboundId' => $firstInbound,
             'email' => $client['email'] ?? $username,
-            'total' => isset($client['totalGB']) ? (float) $client['totalGB'] : (float) ($client['total'] ?? 0),
+            'total' => $total,
             'up' => $up,
             'down' => $down,
             'expiryTime' => $expiryMs,
-            'enable' => isset($client['enable']) ? (bool) $client['enable'] : true,
+            'enable' => $enable,
             'subId' => $subId,
             'subscription_url' => $subscriptionUrl,
             'id' => $client['id'] ?? ($client['uuid'] ?? ''),
             'uuid' => $client['id'] ?? ($client['uuid'] ?? ''),
-            'lastOnline' => isset($client['lastOnline']) ? (int) $client['lastOnline'] : 0,
+            'lastOnline' => (int) $lastOnline,
         ];
         $response['body'] = json_encode([
             'success' => true,

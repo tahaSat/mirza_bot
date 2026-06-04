@@ -595,7 +595,10 @@ class ManagePanel
             }
             if ($user_data['expiryTime'] < -10000) {
                 $user_data['enable'] = "on_hold";
-                $expire = 0;
+                // In new x-ui, on-hold users can have negative expiryTime as "duration until first use".
+                // Keep a meaningful display expiry instead of forcing unlimited.
+                $holdSeconds = (int) floor(abs((float) $user_data['expiryTime']) / 1000);
+                $expire = $holdSeconds > 0 ? (time() + $holdSeconds) : 0;
             }
             $subIdRaw = (string) ($user_data['subId'] ?? '');
             $subId = trim($subIdRaw, "/ \t\n\r\0\x0B");

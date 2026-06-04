@@ -428,7 +428,10 @@ function panel_report_log_files(): array
 {
     $root = dirname(__DIR__, 2);
     $candidates = [
+        'subscription_failures' => ['label' => 'خطای ساخت اشتراک (logs/subscription_failures.log)', 'path' => $root . '/logs/subscription_failures.log'],
+        'php_errors' => ['label' => 'خطاهای PHP (logs/php_errors.log)', 'path' => $root . '/logs/php_errors.log'],
         'error_log' => ['label' => 'گزارش خطا (error_log)', 'path' => $root . '/error_log'],
+        'error_dot_log' => ['label' => 'گزارش خطا (error.log)', 'path' => $root . '/error.log'],
         'polling_log' => ['label' => 'لاگ پولینگ (polling.log)', 'path' => $root . '/polling.log'],
         'storage_polling' => ['label' => 'لاگ پولینگ (storage/logs)', 'path' => $root . '/storage/logs/polling.log'],
         'storage_panel' => ['label' => 'لاگ پنل (storage/logs/panel.log)', 'path' => $root . '/storage/logs/panel.log'],

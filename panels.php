@@ -14,6 +14,20 @@ require_once __DIR__ . '/mikrotik.php';
 class ManagePanel
 {
     public $pdo, $domainhosts, $name_panel;
+    private function logCreateUserFailure(array $panel, string $username, string $codeProduct, array $dataConfig, $reason): void
+    {
+        $line = sprintf(
+            "[%s] panel=%s type=%s code_product=%s username=%s from_id=%s reason=%s\n",
+            date('Y-m-d H:i:s'),
+            (string) ($panel['name_panel'] ?? 'unknown'),
+            (string) ($panel['type'] ?? 'unknown'),
+            $codeProduct,
+            $username,
+            (string) ($dataConfig['from_id'] ?? 'unknown'),
+            is_string($reason) ? $reason : json_encode($reason, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
+        @file_put_contents(__DIR__ . '/logs/subscription_failures.log', $line, FILE_APPEND | LOCK_EX);
+    }
     function createUser($name_panel, $code_product, $usernameC, array $Data_Config)
     {
         $Output = [];
@@ -370,6 +384,9 @@ class ManagePanel
         } else {
             $Output['status'] = 'Unsuccessful';
             $Output['msg'] = 'Panel Not Found';
+        }
+        if (($Output['status'] ?? '') === 'Unsuccessful') {
+            $this->logCreateUserFailure($Get_Data_Panel, $usernameC, (string) $code_product, $Data_Config, $Output['msg'] ?? 'unknown');
         }
         return $Output;
     }

@@ -7543,6 +7543,7 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
         $dataoutput = $ManagePanel->createUser($userdata['idpanel'], "usertest", $usernameconfig, $datac);
         if ($dataoutput['username'] == null) {
             $dataoutput['msg'] = json_encode($dataoutput['msg']);
+            error_log("Admin bulk create failed | panel={$panel['name_panel']} | admin={$from_id} | username={$usernameconfig} | reason={$dataoutput['msg']}");
             sendmessage($from_id, $textbotlang['users']['sell']['ErrorConfig'], null, 'HTML');
             $texterros = "
 ⭕️ یک کاربر قصد دریافت اکانت داشت که ساخت کانفیگ با خطا مواجه شده و به کاربر کانفیگ داده نشد

@@ -15,7 +15,7 @@ require_once $Pathfiles . 'jdf.php';
 require_once $Pathfiles . 'panels.php';
 require_once 'func.php';
 require_once 'botapi.php';
-require_once 'keyboard.php';
+require_once __DIR__ . '/keyboard.php';
 require_once $Pathfiles . 'vendor/autoload.php';
 $ManagePanel = new ManagePanel();
 
@@ -509,6 +509,13 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
         $textcreatuser = str_replace('{password}', $dataoutput['subscription_url'], $textcreatuser);
         update("invoice", "user_info", $dataoutput['subscription_url'], "id_invoice", $randomString);
     }
+    $usertestinfo = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => $textbotlang['users']['help']['btninlinebuy'], 'callback_data' => "helpbtn"],
+            ]
+        ]
+    ]);
 if ($marzban_list_get['sublink'] == "onsublink") {
     if ($marzban_list_get['type'] == "WGDashboard") {
         $urlimage = "{$marzban_list_get['inboundid']}_{$dataoutput['username']}.conf";
@@ -1056,6 +1063,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $dataoutput = $ManagePanel->createUser($marzban_list_get['name_panel'], $datafactor['code_product'], $username_ac, $datac);
     if ($dataoutput['username'] == null) {
         $dataoutput['msg'] = json_encode($dataoutput['msg']);
+        error_log("Agent update bot create subscription failed | panel={$marzban_list_get['name_panel']} | user={$from_id} | username={$username_ac} | reason={$dataoutput['msg']}");
         sendmessage($from_id, $textbotlang['users']['sell']['ErrorConfig'], $keyboard, 'HTML');
         $texterros = "⭕️ خطای ساخت اشتراک  در ربات نماینده
 ✍️ دلیل خطا : 
@@ -1187,6 +1195,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         $resultper = ($datafactor['price_productMain'] * $userbotbalance['pricediscount']) / 100;
         $datafactor['price_productMain'] = $datafactor['price_productMain'] - $resultper;
     }
+    $Balance_prim = $user['Balance'];
     if (intval($datafactor['price_product']) != 0) {
         $Balance_prim = $user['Balance'] - $datafactor['price_product'];
         $userbalance = json_decode(file_get_contents("data/$from_id/$from_id.json"), true);
@@ -1402,6 +1411,7 @@ $textonebuy
         $day .= " دیگر";
     }
     #--------------[ subsupdate ]---------------#
+    $lastupdate = '-';
     if ($DataUserOut['sub_updated_at'] !== null) {
         $sub_updated = $DataUserOut['sub_updated_at'];
         $dateTime = new DateTime($sub_updated, new DateTimeZone('UTC'));

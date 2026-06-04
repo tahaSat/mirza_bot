@@ -2435,6 +2435,7 @@ $textconnect
         $dataoutput = $ManagePanel->createUser($marzban_list_get_new['name_panel'], "usertest", $DataUserOut['username'], $datac);
         if ($dataoutput['username'] == null) {
             $dataoutput['msg'] = json_encode($dataoutput['msg']);
+            error_log("Change location failed | from_panel={$marzban_list_get['name_panel']} | to_panel={$marzban_list_get_new['name_panel']} | user={$from_id} | username={$DataUserOut['username']} | reason={$dataoutput['msg']}");
             sendmessage($from_id, $textbotlang['users']['sell']['ErrorConfig'], $keyboard, 'HTML');
             $texterros = "خطا هنگام تغییر موقعیت سرویس
 دلیل خطا : 
@@ -4235,6 +4236,7 @@ $textinvite
             $errorMessage = (string) $errorMessage;
         }
         $dataoutput['msg'] = $errorMessage;
+        error_log("Create subscription failed | panel={$marzban_list_get['name_panel']} | user={$from_id} | username={$username_ac} | reason={$errorMessage}");
         sendmessage($from_id, $textbotlang['users']['sell']['ErrorConfig'], $keyboard, 'HTML');
         $texterros = "⭕️ خطای ساخت اشتراک
 ✍️ دلیل خطا :
@@ -4824,6 +4826,7 @@ $textonebuy
         $dataoutput = $ManagePanel->createUser($marzban_list_get['name_panel'], $info_product['code_product'], $username_acc, $datac);
         if ($dataoutput['username'] == null) {
             $dataoutput['msg'] = json_encode($dataoutput['msg']);
+            error_log("Bulk create subscription failed | panel={$marzban_list_get['name_panel']} | user={$from_id} | username={$username_acc} | reason={$dataoutput['msg']}");
             sendmessage($from_id, $textbotlang['users']['sell']['ErrorConfig'], $keyboard, 'HTML');
             $texterros = "
 ⭕️ خطا در ساخت اکانت در بخش انبوه

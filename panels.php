@@ -565,6 +565,7 @@ class ManagePanel
                 );
             }
             $user_data = json_decode($user_data['body'], true);
+            $raw_user_data = $user_data;
 
             if (!is_array($user_data)) {
                 return array(
@@ -602,7 +603,12 @@ class ManagePanel
             $user_data['up'] = $up;
             $user_data['down'] = $down;
 
-            $expiryRaw = $user_data['expiryTime'] ?? ($user_data['expire'] ?? 0);
+            $expiryRaw = $user_data['expiryTime']
+                ?? ($user_data['expire'] ?? null)
+                ?? ($raw_user_data['obj']['client']['expiryTime'] ?? null)
+                ?? ($raw_user_data['obj']['expiryTime'] ?? null)
+                ?? ($raw_user_data['obj']['client']['expire'] ?? null)
+                ?? ($raw_user_data['obj']['expire'] ?? 0);
             $expiryMs = 0;
             if (is_string($expiryRaw) && trim($expiryRaw) !== '' && !is_numeric($expiryRaw)) {
                 $ts = strtotime($expiryRaw);
@@ -617,6 +623,7 @@ class ManagePanel
             }
             $user_data['expiryTime'] = $expiryMs;
             $expire = $expiryMs > 0 ? (int) floor($expiryMs / 1000) : 0;
+            error_log("x-ui DataUser expiry map | panel={$Get_Data_Panel['name_panel']} | username={$username} | expiry_raw=" . json_encode($expiryRaw, JSON_UNESCAPED_UNICODE) . " | expiry_ms={$expiryMs} | expire={$expire}");
 
             if (!empty($user_data['enable'])) {
                 $user_data['enable'] = "active";

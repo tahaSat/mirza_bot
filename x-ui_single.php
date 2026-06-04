@@ -132,6 +132,9 @@ function panel_xui_extract_client_from_response(array $decoded): array
     if (isset($decoded['client']) && is_array($decoded['client'])) {
         return $decoded['client'];
     }
+    if (isset($decoded['obj']['client']) && is_array($decoded['obj']['client'])) {
+        return $decoded['obj']['client'];
+    }
     if (isset($decoded['obj']) && is_array($decoded['obj'])) {
         return $decoded['obj'];
     }
@@ -155,6 +158,8 @@ function panel_xui_extract_sub_id(array $decoded, array $client): string
         $decoded['subID'] ?? null,
         $decoded['data']['subId'] ?? null,
         $decoded['data']['subid'] ?? null,
+        $decoded['obj']['client']['subId'] ?? null,
+        $decoded['obj']['client']['subid'] ?? null,
         $decoded['obj']['subId'] ?? null,
         $decoded['obj']['subid'] ?? null,
     ];
@@ -179,6 +184,8 @@ function panel_xui_extract_subscription_url(array $decoded, array $client): stri
         $decoded['subURL'] ?? null,
         $decoded['data']['subscription_url'] ?? null,
         $decoded['data']['subscriptionUrl'] ?? null,
+        $decoded['obj']['client']['subscription_url'] ?? null,
+        $decoded['obj']['client']['subscriptionUrl'] ?? null,
     ];
     foreach ($candidates as $v) {
         if (is_string($v) && trim($v) !== '') {
@@ -201,6 +208,8 @@ function panel_xui_extract_expiry_ms(array $decoded, array $client): int
         $decoded['expiredAt'] ?? null,
         $decoded['data']['expiryTime'] ?? null,
         $decoded['data']['expire'] ?? null,
+        $decoded['obj']['client']['expiryTime'] ?? null,
+        $decoded['obj']['client']['expire'] ?? null,
         $decoded['obj']['expiryTime'] ?? null,
         $decoded['obj']['expire'] ?? null,
     ];
@@ -421,7 +430,12 @@ function get_clinets($username, $namepanel)
         $subId = panel_xui_extract_sub_id($decodedBody, $client);
         $subscriptionUrl = panel_xui_extract_subscription_url($decodedBody, $client);
         $expiryMs = panel_xui_extract_expiry_ms($decodedBody, $client);
-        $inboundIds = panel_xui_normalize_inbound_ids($decodedBody['inboundIds'] ?? ($client['inboundIds'] ?? []));
+        $inboundIds = panel_xui_normalize_inbound_ids(
+            $decodedBody['inboundIds']
+            ?? ($decodedBody['obj']['inboundIds'] ?? null)
+            ?? ($decodedBody['obj']['client']['inboundIds'] ?? null)
+            ?? ($client['inboundIds'] ?? [])
+        );
         $firstInbound = $inboundIds[0] ?? null;
         $traffic = $decodedBody['traffic'] ?? ($client['traffic'] ?? []);
         $up = panel_xui_pick_numeric([
@@ -448,6 +462,8 @@ function get_clinets($username, $namepanel)
             $client['data_limit'] ?? null,
             $client['limitBytes'] ?? null,
             $client['limit'] ?? null,
+            $decodedBody['obj']['client']['totalGB'] ?? null,
+            $decodedBody['obj']['client']['total'] ?? null,
             $decodedBody['totalGB'] ?? null,
             $decodedBody['total'] ?? null,
             $decodedBody['data']['totalGB'] ?? null,

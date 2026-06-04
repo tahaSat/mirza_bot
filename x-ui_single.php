@@ -78,6 +78,72 @@ function panel_xui_api_headers(array $panel): array
     return $headers;
 }
 
+function panel_xui_api_base(string $url): string
+{
+    $base = rtrim(trim($url), '/');
+    if (substr($base, -6) === '/panel') {
+        $base = substr($base, 0, -6);
+    }
+    return $base;
+}
+
+/**
+ * @param mixed $raw
+ * @return int[]
+ */
+function panel_xui_normalize_inbound_ids($raw): array
+{
+    if (is_array($raw)) {
+        $ids = $raw;
+    } elseif (is_string($raw)) {
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            $ids = $decoded;
+        } else {
+            $ids = preg_split('/[\s,]+/', trim($raw), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        }
+    } elseif ($raw === null) {
+        $ids = [];
+    } else {
+        $ids = [$raw];
+    }
+
+    $out = [];
+    foreach ($ids as $id) {
+        if (is_numeric($id) && (int) $id > 0) {
+            $out[] = (int) $id;
+        }
+    }
+    return array_values(array_unique($out));
+}
+
+function panel_xui_decode_json_body(array $response): array
+{
+    $body = $response['body'] ?? '';
+    if (!is_string($body) || $body === '') {
+        return [];
+    }
+    $decoded = json_decode($body, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function panel_xui_extract_client_from_response(array $decoded): array
+{
+    if (isset($decoded['client']) && is_array($decoded['client'])) {
+        return $decoded['client'];
+    }
+    if (isset($decoded['obj']) && is_array($decoded['obj'])) {
+        return $decoded['obj'];
+    }
+    if (isset($decoded['data']) && is_array($decoded['data'])) {
+        if (isset($decoded['data']['client']) && is_array($decoded['data']['client'])) {
+            return $decoded['data']['client'];
+        }
+        return $decoded['data'];
+    }
+    return [];
+}
+
 function panel_curl_common_opts(string $cookieFile): array
 {
     return [
@@ -244,19 +310,40 @@ function get_clinets($username, $namepanel)
     if (is_array($panelFresh)) {
         $marzban_list_get = $panelFresh;
     }
-    $url = $marzban_list_get['url_panel'] . "/panel/api/inbounds/getClientTraffics/$username";
+    $base = panel_xui_api_base($marzban_list_get['url_panel']);
+    $url = $base . "/panel/api/clients/get/" . rawurlencode($username);
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));
     $req->setCookie(panel_cookie_path());
     $response = $req->get();
-
-    if (isset($response['body'])) {
-        $decodedBody = json_decode($response['body'], true);
-        if (json_last_error() === JSON_ERROR_NONE && is_array($decodedBody)) {
-            if (isset($decodedBody['success']) && $decodedBody['success'] === false) {
-                $response['error'] = $decodedBody['msg'] ?? 'Unknown panel error';
-            }
-        }
+    $decodedBody = panel_xui_decode_json_body($response);
+    if (isset($decodedBody['success']) && $decodedBody['success'] === false) {
+        $response['error'] = $decodedBody['msg'] ?? 'Unknown panel error';
+    } elseif (($response['status'] ?? 0) === 200 && !empty($decodedBody)) {
+        $client = panel_xui_extract_client_from_response($decodedBody);
+        $inboundIds = panel_xui_normalize_inbound_ids($decodedBody['inboundIds'] ?? ($client['inboundIds'] ?? []));
+        $firstInbound = $inboundIds[0] ?? null;
+        $traffic = $decodedBody['traffic'] ?? ($client['traffic'] ?? []);
+        $up = isset($traffic['up']) ? (float) $traffic['up'] : (float) ($client['up'] ?? 0);
+        $down = isset($traffic['down']) ? (float) $traffic['down'] : (float) ($client['down'] ?? 0);
+        $normalizedObj = [
+            'inboundId' => $firstInbound,
+            'email' => $client['email'] ?? $username,
+            'total' => isset($client['totalGB']) ? (float) $client['totalGB'] : (float) ($client['total'] ?? 0),
+            'up' => $up,
+            'down' => $down,
+            'expiryTime' => isset($client['expiryTime']) ? (int) $client['expiryTime'] : 0,
+            'enable' => isset($client['enable']) ? (bool) $client['enable'] : true,
+            'subId' => $client['subId'] ?? ($client['subid'] ?? ''),
+            'id' => $client['id'] ?? ($client['uuid'] ?? ''),
+            'uuid' => $client['id'] ?? ($client['uuid'] ?? ''),
+            'lastOnline' => isset($client['lastOnline']) ? (int) $client['lastOnline'] : 0,
+        ];
+        $response['body'] = json_encode([
+            'success' => true,
+            'obj' => $normalizedObj,
+            'msg' => $decodedBody['msg'] ?? 'ok',
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 
     if (!empty($response['error'])) {
@@ -300,34 +387,38 @@ function addClient($namepanel, $usernameac, $Expire, $Total, $Uuid, $Flow, $subi
             $timeservice = $Expire * 1000;
         }
     }
-    $config = array(
-        "id" => intval($inboundid),
-        'settings' => json_encode(array(
-            'clients' => array(
-                array(
-                    "id" => $Uuid,
-                    "flow" => $Flow,
-                    "email" => $usernameac,
-                    "totalGB" => $Total,
-                    "expiryTime" => $timeservice,
-                    "enable" => true,
-                    "tgId" => "",
-                    "subId" => $subid,
-                    "reset" => 0,
-                    "comment" => $note
-                )
-            ),
-            'decryption' => 'none',
-            'fallbacks' => array(),
-        ))
-    );
+    $inboundIds = panel_xui_normalize_inbound_ids($inboundid);
+    if (empty($inboundIds)) {
+        return [
+            'status' => 400,
+            'body' => json_encode(['success' => false, 'msg' => 'inboundIds is empty'], JSON_UNESCAPED_UNICODE),
+        ];
+    }
+    $config = [
+        'client' => [
+            'email' => $usernameac,
+            'totalGB' => (float) $Total,
+            'expiryTime' => (int) $timeservice,
+            'tgId' => 0,
+            'limitIp' => 0,
+            'enable' => true,
+            'id' => $Uuid,
+            'subId' => $subid,
+            'comment' => $note,
+        ],
+        'inboundIds' => $inboundIds,
+    ];
+    if ($Flow !== '') {
+        $config['client']['flow'] = $Flow;
+    }
     if (!isset($usernameac))
         return array(
             'status' => 500,
             'msg' => 'username is null'
         );
     $configpanel = json_encode($config, true);
-    $url = $marzban_list_get['url_panel'] . '/panel/api/inbounds/addClient';
+    $base = panel_xui_api_base($marzban_list_get['url_panel']);
+    $url = $base . '/panel/api/clients/add';
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));
     $req->setCookie(panel_cookie_path());
@@ -345,8 +436,53 @@ function updateClient($namepanel, $uuid, array $config)
     if (is_array($panelFresh)) {
         $marzban_list_get = $panelFresh;
     }
-    $configpanel = json_encode($config, true);
-    $url = $marzban_list_get['url_panel'] . '/panel/api/inbounds/updateClient/' . $uuid;
+    $settings = json_decode($config['settings'] ?? '{}', true);
+    $clientPatch = $settings['clients'][0] ?? [];
+    $email = $clientPatch['email'] ?? '';
+    if ($email === '') {
+        return [
+            'status' => 400,
+            'body' => json_encode(['success' => false, 'msg' => 'email is required for update'], JSON_UNESCAPED_UNICODE),
+        ];
+    }
+    $base = panel_xui_api_base($marzban_list_get['url_panel']);
+    $existingReq = new CurlRequest($base . '/panel/api/clients/get/' . rawurlencode($email));
+    $existingReq->setHeaders(panel_xui_api_headers($marzban_list_get));
+    $existingReq->setCookie(panel_cookie_path());
+    $existingResp = $existingReq->get();
+    $existingDecoded = panel_xui_decode_json_body($existingResp);
+    $existingClient = panel_xui_extract_client_from_response($existingDecoded);
+    $existingInboundIds = panel_xui_normalize_inbound_ids($existingDecoded['inboundIds'] ?? ($existingClient['inboundIds'] ?? []));
+    $inboundIds = isset($config['id']) ? panel_xui_normalize_inbound_ids([$config['id']]) : $existingInboundIds;
+    if (empty($inboundIds)) {
+        $inboundIds = $existingInboundIds;
+    }
+    $mergedClient = array_merge($existingClient, [
+        'email' => $email,
+    ]);
+    if (array_key_exists('totalGB', $clientPatch)) {
+        $mergedClient['totalGB'] = (float) $clientPatch['totalGB'];
+    }
+    if (array_key_exists('expiryTime', $clientPatch)) {
+        $mergedClient['expiryTime'] = (int) $clientPatch['expiryTime'];
+    }
+    if (array_key_exists('enable', $clientPatch)) {
+        $mergedClient['enable'] = (bool) $clientPatch['enable'];
+    }
+    if (array_key_exists('id', $clientPatch)) {
+        $mergedClient['id'] = $clientPatch['id'];
+    }
+    if (array_key_exists('subId', $clientPatch)) {
+        $mergedClient['subId'] = $clientPatch['subId'];
+    }
+    if (array_key_exists('flow', $clientPatch)) {
+        $mergedClient['flow'] = $clientPatch['flow'];
+    }
+    $configpanel = json_encode([
+        'client' => $mergedClient,
+        'inboundIds' => $inboundIds,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $url = $base . '/panel/api/clients/update/' . rawurlencode($email);
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));
     $req->setCookie(panel_cookie_path());
@@ -358,15 +494,14 @@ function updateClient($namepanel, $uuid, array $config)
 }
 function ResetUserDataUsagex_uisin($usernamepanel, $namepanel)
 {
-    $data_user = get_clinets($usernamepanel, $namepanel);
-    $data_user = json_decode($data_user['body'], true)['obj'];
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $namepanel, "select");
     login($marzban_list_get['code_panel']);
     $panelFresh = select("marzban_panel", "*", "name_panel", $namepanel, "select");
     if (is_array($panelFresh)) {
         $marzban_list_get = $panelFresh;
     }
-    $url = $marzban_list_get['url_panel'] . "/panel/api/inbounds/{$data_user['inboundId']}/resetClientTraffic/" . $usernamepanel;
+    $base = panel_xui_api_base($marzban_list_get['url_panel']);
+    $url = $base . "/panel/api/clients/resetTraffic/" . rawurlencode($usernamepanel);
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));
     $req->setCookie(panel_cookie_path());
@@ -384,7 +519,8 @@ function removeClient($location, $username)
     if (is_array($panelFresh)) {
         $marzban_list_get = $panelFresh;
     }
-    $url = $marzban_list_get['url_panel'] . "/panel/api/inbounds/{$marzban_list_get['inboundid']}/delClientByEmail/" . $username;
+    $base = panel_xui_api_base($marzban_list_get['url_panel']);
+    $url = $base . "/panel/api/clients/del/" . rawurlencode($username);
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));
     $req->setCookie(panel_cookie_path());

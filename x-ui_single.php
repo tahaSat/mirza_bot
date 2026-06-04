@@ -188,6 +188,40 @@ function panel_xui_extract_subscription_url(array $decoded, array $client): stri
     return '';
 }
 
+function panel_xui_extract_expiry_ms(array $decoded, array $client): int
+{
+    $candidates = [
+        $client['expiryTime'] ?? null,
+        $client['expiry_time'] ?? null,
+        $client['expire'] ?? null,
+        $client['expiredAt'] ?? null,
+        $client['expired_at'] ?? null,
+        $decoded['expiryTime'] ?? null,
+        $decoded['expire'] ?? null,
+        $decoded['expiredAt'] ?? null,
+        $decoded['data']['expiryTime'] ?? null,
+        $decoded['data']['expire'] ?? null,
+        $decoded['obj']['expiryTime'] ?? null,
+        $decoded['obj']['expire'] ?? null,
+    ];
+
+    foreach ($candidates as $value) {
+        if (!is_numeric($value)) {
+            continue;
+        }
+        $num = (int) $value;
+        if ($num <= 0) {
+            continue;
+        }
+        // New/old panels may return seconds or milliseconds; normalize to ms.
+        if ($num < 100000000000) {
+            $num *= 1000;
+        }
+        return $num;
+    }
+    return 0;
+}
+
 function panel_curl_common_opts(string $cookieFile): array
 {
     return [
@@ -367,6 +401,7 @@ function get_clinets($username, $namepanel)
         $client = panel_xui_extract_client_from_response($decodedBody);
         $subId = panel_xui_extract_sub_id($decodedBody, $client);
         $subscriptionUrl = panel_xui_extract_subscription_url($decodedBody, $client);
+        $expiryMs = panel_xui_extract_expiry_ms($decodedBody, $client);
         $inboundIds = panel_xui_normalize_inbound_ids($decodedBody['inboundIds'] ?? ($client['inboundIds'] ?? []));
         $firstInbound = $inboundIds[0] ?? null;
         $traffic = $decodedBody['traffic'] ?? ($client['traffic'] ?? []);
@@ -378,7 +413,7 @@ function get_clinets($username, $namepanel)
             'total' => isset($client['totalGB']) ? (float) $client['totalGB'] : (float) ($client['total'] ?? 0),
             'up' => $up,
             'down' => $down,
-            'expiryTime' => isset($client['expiryTime']) ? (int) $client['expiryTime'] : 0,
+            'expiryTime' => $expiryMs,
             'enable' => isset($client['enable']) ? (bool) $client['enable'] : true,
             'subId' => $subId,
             'subscription_url' => $subscriptionUrl,

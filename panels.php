@@ -596,8 +596,16 @@ class ManagePanel
                 $user_data['enable'] = "on_hold";
                 $expire = 0;
             }
-            $linksub = $Get_Data_Panel['linksubx'] . "/{$user_data['subId']}";
-            $links_user = outputlink($Get_Data_Panel['linksubx'] . "/{$user_data['subId']}");
+            $subIdRaw = (string) ($user_data['subId'] ?? '');
+            $subId = trim($subIdRaw, "/ \t\n\r\0\x0B");
+            $baseSub = rtrim((string) $Get_Data_Panel['linksubx'], '/');
+            $linksub = $baseSub;
+            if ($subId !== '') {
+                $linksub .= "/{$subId}";
+            } elseif (!empty($user_data['subscription_url']) && is_string($user_data['subscription_url'])) {
+                $linksub = trim($user_data['subscription_url']);
+            }
+            $links_user = outputlink($linksub);
             if (isBase64($links_user))
                 $links_user = base64_decode($links_user);
             $links_user = explode("\n", trim($links_user));

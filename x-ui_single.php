@@ -144,6 +144,50 @@ function panel_xui_extract_client_from_response(array $decoded): array
     return [];
 }
 
+function panel_xui_extract_sub_id(array $decoded, array $client): string
+{
+    $candidates = [
+        $client['subId'] ?? null,
+        $client['subid'] ?? null,
+        $client['subID'] ?? null,
+        $decoded['subId'] ?? null,
+        $decoded['subid'] ?? null,
+        $decoded['subID'] ?? null,
+        $decoded['data']['subId'] ?? null,
+        $decoded['data']['subid'] ?? null,
+        $decoded['obj']['subId'] ?? null,
+        $decoded['obj']['subid'] ?? null,
+    ];
+    foreach ($candidates as $v) {
+        if (is_string($v) && trim($v) !== '') {
+            return trim($v);
+        }
+    }
+    return '';
+}
+
+function panel_xui_extract_subscription_url(array $decoded, array $client): string
+{
+    $candidates = [
+        $client['subscription_url'] ?? null,
+        $client['subscriptionUrl'] ?? null,
+        $client['subUrl'] ?? null,
+        $client['subURL'] ?? null,
+        $decoded['subscription_url'] ?? null,
+        $decoded['subscriptionUrl'] ?? null,
+        $decoded['subUrl'] ?? null,
+        $decoded['subURL'] ?? null,
+        $decoded['data']['subscription_url'] ?? null,
+        $decoded['data']['subscriptionUrl'] ?? null,
+    ];
+    foreach ($candidates as $v) {
+        if (is_string($v) && trim($v) !== '') {
+            return trim($v);
+        }
+    }
+    return '';
+}
+
 function panel_curl_common_opts(string $cookieFile): array
 {
     return [
@@ -321,6 +365,8 @@ function get_clinets($username, $namepanel)
         $response['error'] = $decodedBody['msg'] ?? 'Unknown panel error';
     } elseif (($response['status'] ?? 0) === 200 && !empty($decodedBody)) {
         $client = panel_xui_extract_client_from_response($decodedBody);
+        $subId = panel_xui_extract_sub_id($decodedBody, $client);
+        $subscriptionUrl = panel_xui_extract_subscription_url($decodedBody, $client);
         $inboundIds = panel_xui_normalize_inbound_ids($decodedBody['inboundIds'] ?? ($client['inboundIds'] ?? []));
         $firstInbound = $inboundIds[0] ?? null;
         $traffic = $decodedBody['traffic'] ?? ($client['traffic'] ?? []);
@@ -334,7 +380,8 @@ function get_clinets($username, $namepanel)
             'down' => $down,
             'expiryTime' => isset($client['expiryTime']) ? (int) $client['expiryTime'] : 0,
             'enable' => isset($client['enable']) ? (bool) $client['enable'] : true,
-            'subId' => $client['subId'] ?? ($client['subid'] ?? ''),
+            'subId' => $subId,
+            'subscription_url' => $subscriptionUrl,
             'id' => $client['id'] ?? ($client['uuid'] ?? ''),
             'uuid' => $client['id'] ?? ($client['uuid'] ?? ''),
             'lastOnline' => isset($client['lastOnline']) ? (int) $client['lastOnline'] : 0,

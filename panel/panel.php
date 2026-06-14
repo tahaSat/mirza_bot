@@ -50,6 +50,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         ? panel_format_hide_users(preg_split('/[\s,]+/', trim($_POST['hide_users']), -1, PREG_SPLIT_NO_EMPTY) ?: [])
         : ($panel['hide_user'] ?? '[]');
 
+    $tabSaving = $_POST['tab'] ?? 'connection';
+    $toggleInForm = array_flip(panel_toggle_keys_for_tab($tabSaving));
+    $toggle = fn(string $postKey, string $dbField, string $onVal, string $offVal) =>
+        panel_toggle_field($panel, $postKey, $dbField, $onVal, $offVal, isset($toggleInForm[$postKey]));
+
     $data = [
         'name_panel' => $newName,
         'url_panel' => array_key_exists('url_panel', $_POST) ? $url : ($panel['url_panel'] ?? ''),
@@ -69,18 +74,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         'priceChangeloc' => array_key_exists('priceChangeloc', $_POST)
             ? trim($_POST['priceChangeloc'])
             : ($panel['priceChangeloc'] ?? '0'),
-        'status' => panel_toggle_field($panel, 'status_active', 'status', 'active', 'disable'),
-        'TestAccount' => panel_toggle_field($panel, 'test_on', 'TestAccount', 'ONTestAccount', 'OFFTestAccount'),
-        'status_extend' => panel_toggle_field($panel, 'extend_on', 'status_extend', 'on_extend', 'off_extend'),
-        'config' => panel_toggle_field($panel, 'config_on', 'config', 'onconfig', 'offconfig'),
-        'sublink' => panel_toggle_field($panel, 'sublink_on', 'sublink', 'onsublink', 'offsublink'),
-        'conecton' => panel_toggle_field($panel, 'conecton_on', 'conecton', 'onconecton', 'offconecton'),
-        'on_hold_test' => panel_toggle_field($panel, 'on_hold_test', 'on_hold_test', '1', '0'),
-        'changeloc' => panel_toggle_field($panel, 'changeloc_on', 'changeloc', 'onchangeloc', 'offchangeloc'),
-        'subvip' => panel_toggle_field($panel, 'subvip_on', 'subvip', 'onsubvip', 'offsubvip'),
-        'inboundstatus' => panel_toggle_field($panel, 'inbound_disable_on', 'inboundstatus', 'oninbounddisable', 'offinbounddisable'),
-        'version_panel' => panel_toggle_field($panel, 'version_panel_on', 'version_panel', '1', '0'),
-        'customvolume' => panel_merge_customvolume($panel),
+        'status' => $toggle('status_active', 'status', 'active', 'disable'),
+        'TestAccount' => $toggle('test_on', 'TestAccount', 'ONTestAccount', 'OFFTestAccount'),
+        'status_extend' => $toggle('extend_on', 'status_extend', 'on_extend', 'off_extend'),
+        'config' => $toggle('config_on', 'config', 'onconfig', 'offconfig'),
+        'sublink' => $toggle('sublink_on', 'sublink', 'onsublink', 'offsublink'),
+        'conecton' => $toggle('conecton_on', 'conecton', 'onconecton', 'offconecton'),
+        'on_hold_test' => $toggle('on_hold_test', 'on_hold_test', '1', '0'),
+        'changeloc' => $toggle('changeloc_on', 'changeloc', 'onchangeloc', 'offchangeloc'),
+        'subvip' => $toggle('subvip_on', 'subvip', 'onsubvip', 'offsubvip'),
+        'inboundstatus' => $toggle('inbound_disable_on', 'inboundstatus', 'oninbounddisable', 'offinbounddisable'),
+        'version_panel' => $toggle('version_panel_on', 'version_panel', '1', '0'),
+        'customvolume' => panel_merge_customvolume($panel, $tabSaving === 'features'),
         'hide_user' => $hideJson,
         'priceextravolume' => panel_merge_agent_json_field($panel, 'priceextravolume', 'priceextravolume'),
         'priceextratime' => panel_merge_agent_json_field($panel, 'priceextratime', 'priceextratime'),

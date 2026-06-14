@@ -232,10 +232,24 @@ function panel_invoice_stats(PDO $pdo, string $namePanel): array
     }
 }
 
-function panel_toggle_field(array $panel, string $postKey, string $dbField, string $onVal, string $offVal): string
+function panel_toggle_keys_for_tab(string $tab): array
+{
+    if ($tab === 'connection') {
+        return ['status_active', 'test_on'];
+    }
+    if ($tab === 'features') {
+        return [
+            'extend_on', 'custom_f', 'custom_n', 'custom_n2', 'config_on', 'sublink_on',
+            'conecton_on', 'on_hold_test', 'changeloc_on', 'subvip_on', 'inbound_disable_on', 'version_panel_on',
+        ];
+    }
+    return [];
+}
+
+function panel_toggle_field(array $panel, string $postKey, string $dbField, string $onVal, string $offVal, bool $inForm = false): string
 {
     if (!array_key_exists($postKey, $_POST)) {
-        return (string) ($panel[$dbField] ?? $offVal);
+        return $inForm ? $offVal : (string) ($panel[$dbField] ?? $offVal);
     }
     return !empty($_POST[$postKey]) ? $onVal : $offVal;
 }
@@ -252,9 +266,9 @@ function panel_merge_agent_json_field(array $panel, string $field, string $prefi
     ]);
 }
 
-function panel_merge_customvolume(array $panel): string
+function panel_merge_customvolume(array $panel, bool $inForm = false): string
 {
-    if (!array_key_exists('custom_f', $_POST)) {
+    if (!$inForm && !array_key_exists('custom_f', $_POST)) {
         return (string) ($panel['customvolume'] ?? panel_default_customvolume());
     }
     return panel_encode_agent_json([

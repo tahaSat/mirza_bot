@@ -90,6 +90,9 @@ $initials = mb_strtoupper(mb_substr($currentUser, 0, 1, 'UTF-8'), 'UTF-8');
           <a href="product.php" class="nav-item <?= $activeNav === 'product' ? 'active' : '' ?>" title="محصولات">
             <span class="nav-icon"><?= icon('package') ?></span><span class="nav-label">محصولات</span>
           </a>
+          <a href="categories.php" class="nav-item <?= $activeNav === 'categories' ? 'active' : '' ?>" title="دسته‌بندی‌ها">
+            <span class="nav-icon"><?= icon('package') ?></span><span class="nav-label">دسته‌بندی‌ها</span>
+          </a>
           <a href="payment.php" class="nav-item <?= in_array($activeNav, ['payment', 'payment_methods'], true) ? 'active' : '' ?>" title="تراکنش‌ها">
             <span class="nav-icon"><?= icon('card') ?></span><span class="nav-label">تراکنش‌ها</span>
           </a>

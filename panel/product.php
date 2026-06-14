@@ -64,6 +64,27 @@ try {
   $panels = db_fetchAll($pdo, "SELECT * FROM marzban_panel");
 } catch (Exception $e) {
 }
+$categories = [];
+try {
+  $categories = db_fetchAll($pdo, "SELECT * FROM category ORDER BY remark");
+} catch (Exception $e) {
+}
+$categoryNames = [];
+foreach ($categories as $cat) {
+  $categoryNames[$cat['remark']] = true;
+}
+try {
+  $usedCats = db_fetchAll($pdo, "SELECT DISTINCT category FROM product WHERE category IS NOT NULL AND category != ''");
+  foreach ($usedCats as $uc) {
+    $name = $uc['category'];
+    if (!isset($categoryNames[$name])) {
+      $categories[] = ['id' => 0, 'remark' => $name];
+      $categoryNames[$name] = true;
+    }
+  }
+  usort($categories, fn($a, $b) => strcmp($a['remark'], $b['remark']));
+} catch (Exception $e) {
+}
 $products = db_fetchAll($pdo, "SELECT * FROM product ORDER BY id");
 
 $pageTitle = 'محصولات';
@@ -72,8 +93,11 @@ $activeNav = 'product';
 include __DIR__ . '/inc/layout_head.php';
 ?>
 
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px" class="fade-up">
-  <div style="font-size:.85rem;color:var(--mute)"><?= count($products) ?> محصول ثبت‌شده</div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px" class="fade-up">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div style="font-size:.85rem;color:var(--mute)"><?= count($products) ?> محصول ثبت‌شده</div>
+    <a href="categories.php" class="btn btn-ghost btn-sm"><?= icon('package', 14) ?> دسته‌بندی‌ها</a>
+  </div>
   <button class="btn btn-primary" onclick="openModal('addModal')"><?= icon('plus', 14) ?> افزودن محصول</button>
 </div>
 
@@ -182,7 +206,12 @@ include __DIR__ . '/inc/layout_head.php';
           </div>
           <div class="field">
             <label>دسته‌بندی</label>
-            <input type="text" name="cetegory_product" class="input" placeholder="VPN، پکیج، ...">
+            <select name="cetegory_product" class="select">
+              <option value="">— بدون دسته —</option>
+              <?php foreach ($categories as $cat): ?>
+                <option value="<?= htmlspecialchars($cat['remark']) ?>"><?= htmlspecialchars($cat['remark']) ?></option>
+              <?php endforeach; ?>
+            </select>
           </div>
           <div class="field">
             <label>پنل</label>
@@ -246,7 +275,12 @@ include __DIR__ . '/inc/layout_head.php';
           </div>
           <div class="field">
             <label>دسته‌بندی</label>
-            <input type="text" name="cetegory_product" id="edit_cat" class="input">
+            <select name="cetegory_product" id="edit_cat" class="select">
+              <option value="">— بدون دسته —</option>
+              <?php foreach ($categories as $cat): ?>
+                <option value="<?= htmlspecialchars($cat['remark']) ?>"><?= htmlspecialchars($cat['remark']) ?></option>
+              <?php endforeach; ?>
+            </select>
           </div>
           <div class="field">
             <label>پنل</label>

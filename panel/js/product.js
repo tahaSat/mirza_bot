@@ -4,9 +4,16 @@ window.openEditModal = function (p) {
     document.getElementById('edit_price').value = p.price_product || '';
     document.getElementById('edit_volume').value = p.Volume_constraint || '';
     document.getElementById('edit_time').value = p.Service_time || '';
-    document.getElementById('edit_cat').value = p.category || '';
     document.getElementById('edit_agent').value = p.agent || '';
     document.getElementById('edit_note').value = p.note || '';
+
+    var catSel = document.getElementById('edit_cat');
+    if (catSel) {
+        var catVal = p.category || '';
+        for (var j = 0; j < catSel.options.length; j++) {
+            catSel.options[j].selected = catSel.options[j].value === catVal;
+        }
+    }
 
     var sel = document.getElementById('edit_panel');
     if (sel) {

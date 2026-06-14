@@ -3,6 +3,25 @@ require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
 require_auth();
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle_bot_button') {
+    csrf_check_post();
+    $button_id = $_POST['button_id'] ?? '';
+    $setting_row = select('setting', '*', null, null, 'select');
+    $new_keyboard = toggle_main_keyboard_button($setting_row['keyboardmain'], $button_id);
+    update('setting', 'keyboardmain', $new_keyboard, null, null);
+    flash('success', 'وضعیت دکمه به‌روز شد.');
+    header('Location: settings.php?tab=bot');
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset_bot_buttons') {
+    csrf_check_post();
+    update('setting', 'keyboardmain', get_default_main_keyboard_json(), null, null);
+    flash('success', 'دکمه‌های منو به حالت پیش‌فرض بازگردانده شد.');
+    header('Location: settings.php?tab=bot');
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'change_password') {
     csrf_check_post();
     $cur = $_POST['current_password'] ?? '';
@@ -31,6 +50,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'chang
 
 $tab = $_GET['tab'] ?? 'appearance';
 
+$bot_button_labels = [
+    'text_sell' => 'خرید اشتراک',
+    'text_extend' => 'تمدید',
+    'text_usertest' => 'اکانت تست',
+    'text_wheel_luck' => 'گردونه شانس',
+    'text_Purchased_services' => 'سرویس‌های خریداری‌شده',
+    'accountwallet' => 'کیف پول',
+    'text_affiliates' => 'زیرمجموعه‌گیری',
+    'text_Tariff_list' => 'لیست تعرفه',
+    'text_support' => 'پشتیبانی',
+    'text_help' => 'آموزش',
+];
+
+$bot_setting = select('setting', 'keyboardmain', null, null, 'select');
+$bot_keyboardmain = $bot_setting['keyboardmain'] ?? get_default_main_keyboard_json();
+$textbot_rows = db_fetchAll($pdo, "SELECT id_text, text FROM textbot WHERE id_text IN ('" . implode("','", array_keys($bot_button_labels)) . "')");
+$bot_text_labels = $bot_button_labels;
+foreach ($textbot_rows as $row) {
+    if (!empty($row['text'])) {
+        $bot_text_labels[$row['id_text']] = $row['text'];
+    }
+}
+$bot_menu_buttons = [];
+foreach (get_default_main_keyboard_layout() as $row) {
+    foreach ($row as $btn_id) {
+        $bot_menu_buttons[] = [
+            'id' => $btn_id,
+            'label' => $bot_text_labels[$btn_id] ?? $btn_id,
+            'active' => check_active_btn($bot_keyboardmain, $btn_id),
+        ];
+    }
+}
+
 $themes = [
     'navy' => ['name' => 'دریای آبی', 'desc' => 'پیش‌فرض · فیروزه‌ای', 'c' => ['#0F172A', '#1E293B', '#06B6D4', '#22C55E'], 'dark' => true],
     'purple' => ['name' => 'بنفش رویا', 'desc' => 'تیره · مدرن', 'c' => ['#180D2E', '#231545', '#A855F7', '#F43F5E'], 'dark' => true],
@@ -45,12 +97,13 @@ $themes = [
 
 $tabs = [
     'appearance' => ['icon' => 'settings', 'label' => 'ظاهر'],
+    'bot' => ['icon' => 'menu', 'label' => 'منوی ربات'],
     'security' => ['icon' => 'block', 'label' => 'امنیت'],
     'system' => ['icon' => 'dashboard', 'label' => 'سیستم'],
 ];
 
-$pageTitle = 'تنظیمات';
-$activeNav = 'settings';
+$pageTitle = $tab === 'bot' ? 'منوی ربات' : 'تنظیمات';
+$activeNav = $tab === 'bot' ? 'bot_menu' : 'settings';
 $showPageHead = false;
 include __DIR__ . '/inc/layout_head.php';
 ?>
@@ -142,6 +195,63 @@ include __DIR__ . '/inc/layout_head.php';
                 </svg>
                 <span style="font-size:.78rem;font-weight:600">جمع‌شده</span>
             </button>
+        </div>
+    </div>
+
+<?php elseif ($tab === 'bot'): ?>
+
+    <div class="card fade-up">
+        <div class="card-head">
+            <div>
+                <div class="card-title">دکمه‌های منوی اصلی ربات</div>
+                <div class="card-subtitle">نمایش یا مخفی کردن دکمه‌هایی که کاربران در تلگرام می‌بینند</div>
+            </div>
+            <form method="POST">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="reset_bot_buttons">
+                <button type="submit" class="btn btn-ghost btn-sm"><?= icon('settings', 14) ?> بازنشانی پیش‌فرض</button>
+            </form>
+        </div>
+        <div class="tbl-wrap">
+            <table class="tbl-md">
+                <thead>
+                    <tr>
+                        <th>دکمه</th>
+                        <th>وضعیت</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($bot_menu_buttons as $btn): ?>
+                        <tr>
+                            <td class="cell-strong"><?= htmlspecialchars($btn['label']) ?></td>
+                            <td>
+                                <span class="tag <?= $btn['active'] ? 'tag-ok' : 'tag-plain' ?>">
+                                    <?= $btn['active'] ? 'نمایش' : 'مخفی' ?>
+                                </span>
+                            </td>
+                            <td style="white-space:nowrap">
+                                <form method="POST" style="display:inline">
+                                    <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                                    <input type="hidden" name="action" value="toggle_bot_button">
+                                    <input type="hidden" name="button_id" value="<?= htmlspecialchars($btn['id']) ?>">
+                                    <button type="submit" class="btn btn-ghost btn-sm">
+                                        <?= $btn['active'] ? 'مخفی کردن' : 'نمایش دادن' ?>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card fade-up d1" style="margin-top:14px">
+        <div class="card-body" style="font-size:.82rem;color:var(--mute);line-height:1.7">
+            تغییرات بلافاصله برای کاربران اعمال می‌شود. همین تنظیمات از طریق
+            <strong>/panel → ⚙️ تنظیمات عمومی → ⌨️ تنظیم دکمه‌های منو</strong>
+            در ربات تلگرام هم قابل مدیریت است.
         </div>
     </div>
 

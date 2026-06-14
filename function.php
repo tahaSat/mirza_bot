@@ -1903,7 +1903,11 @@ function sanitize_recursive(array $data): array
 
 function check_active_btn($keyboard, $text_var)
 {
-    $trace_keyboard = json_decode($keyboard, true)['keyboard'];
+    $layout = json_decode($keyboard, true);
+    if (empty($layout['keyboard']) || !is_array($layout['keyboard'])) {
+        return false;
+    }
+    $trace_keyboard = $layout['keyboard'];
     $status = false;
     foreach ($trace_keyboard as $key => $callback_set) {
         foreach ($callback_set as $keyboard_key => $keyboard) {
@@ -1914,6 +1918,107 @@ function check_active_btn($keyboard, $text_var)
         }
     }
     return $status;
+}
+
+function get_default_main_keyboard_layout()
+{
+    return [
+        ['text_sell', 'text_extend'],
+        ['text_usertest', 'text_wheel_luck'],
+        ['text_Purchased_services', 'accountwallet'],
+        ['text_affiliates', 'text_Tariff_list'],
+        ['text_support', 'text_help'],
+    ];
+}
+
+function get_default_main_keyboard_json()
+{
+    $keyboard = ['keyboard' => []];
+    foreach (get_default_main_keyboard_layout() as $row) {
+        $row_buttons = [];
+        foreach ($row as $btn) {
+            $row_buttons[] = ['text' => $btn];
+        }
+        $keyboard['keyboard'][] = $row_buttons;
+    }
+    return json_encode($keyboard);
+}
+
+function get_active_main_keyboard_buttons($keyboardmain_json)
+{
+    $layout = json_decode($keyboardmain_json, true);
+    $active = [];
+    if (!empty($layout['keyboard']) && is_array($layout['keyboard'])) {
+        foreach ($layout['keyboard'] as $row) {
+            foreach ($row as $btn) {
+                if (!empty($btn['text'])) {
+                    $active[] = $btn['text'];
+                }
+            }
+        }
+    }
+    return $active;
+}
+
+function build_keyboardmain_from_active_buttons($active_buttons)
+{
+    $keyboard = ['keyboard' => []];
+    foreach (get_default_main_keyboard_layout() as $row) {
+        $row_buttons = [];
+        foreach ($row as $btn) {
+            if (in_array($btn, $active_buttons, true)) {
+                $row_buttons[] = ['text' => $btn];
+            }
+        }
+        if (!empty($row_buttons)) {
+            $keyboard['keyboard'][] = $row_buttons;
+        }
+    }
+    return json_encode($keyboard);
+}
+
+function toggle_main_keyboard_button($keyboardmain_json, $button_id)
+{
+    $allowed = [];
+    foreach (get_default_main_keyboard_layout() as $row) {
+        $allowed = array_merge($allowed, $row);
+    }
+    if (!in_array($button_id, $allowed, true)) {
+        return $keyboardmain_json;
+    }
+    $active = get_active_main_keyboard_buttons($keyboardmain_json);
+    if (in_array($button_id, $active, true)) {
+        $active = array_values(array_diff($active, [$button_id]));
+    } else {
+        $active[] = $button_id;
+    }
+    return build_keyboardmain_from_active_buttons($active);
+}
+
+function build_main_keyboard_admin_markup($datatextbot, $keyboardmain_json)
+{
+    global $textbotlang;
+    $rows = [];
+    foreach (get_default_main_keyboard_layout() as $row) {
+        $inline_row = [];
+        foreach ($row as $btn_id) {
+            $label = $datatextbot[$btn_id] ?? $btn_id;
+            $status = check_active_btn($keyboardmain_json, $btn_id)
+                ? $textbotlang['Admin']['Status']['statuson']
+                : $textbotlang['Admin']['Status']['statusoff'];
+            $inline_row[] = [
+                'text' => "$status $label",
+                'callback_data' => "togglemainbtn-$btn_id",
+            ];
+        }
+        if (!empty($inline_row)) {
+            $rows[] = $inline_row;
+        }
+    }
+    $rows[] = [
+        ['text' => "♻️ بازنشانی پیش‌فرض", 'callback_data' => 'resetmainbtn'],
+    ];
+    return json_encode(['inline_keyboard' => $rows]);
 }
 function deleteFolder($folderPath)
 {

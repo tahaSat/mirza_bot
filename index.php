@@ -430,6 +430,10 @@ if ($text == "/start" || $datain == "start" || $text == "start") {
     update("user", "number", $user_phone, "id", $from_id);
     step('home', $from_id);
 } elseif ($text == $datatextbot['text_Purchased_services'] || $datain == "backorder" || $text == "/services") {
+    if (($text == $datatextbot['text_Purchased_services'] || $text == "/services") && !check_active_btn($setting['keyboardmain'], "text_Purchased_services")) {
+        sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
+        return;
+    }
     $stmt = $pdo->prepare("SELECT * FROM invoice WHERE id_user = :id_user AND (status = 'active' OR status = 'end_of_time'  OR status = 'end_of_volume' OR status = 'sendedwarn' OR Status = 'send_on_hold')");
     $stmt->bindParam(':id_user', $from_id);
     $stmt->execute();
@@ -3548,6 +3552,10 @@ $text";
 } elseif ($datain == "fqQuestions") {
     sendmessage($from_id, $datatextbot['text_dec_fq'], null, 'HTML');
 } elseif ($text == $datatextbot['accountwallet'] || $datain == "account" || $text == "/wallet") {
+    if (!check_active_btn($setting['keyboardmain'], "accountwallet")) {
+        sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
+        return;
+    }
     $dateacc = jdate('Y/m/d');
     $current_time = time();
     $timeacc = jdate('H:i:s', $current_time);
@@ -6410,6 +6418,10 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
         ]);
     }
 } elseif ($text == $datatextbot['text_Tariff_list'] || $datain == "Tariff_list") {
+    if (!check_active_btn($setting['keyboardmain'], "text_Tariff_list")) {
+        sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
+        return;
+    }
     sendmessage($from_id, $datatextbot['text_dec_Tariff_list'], null, 'HTML');
 } elseif ($datain == "colselist") {
     deletemessage($from_id, $message_id);
@@ -6933,6 +6945,10 @@ $text_porsant
     $price = $rates['USD'];
     sendmessage($from_id, sprintf($textbotlang['users']['pricearze']['tether-price'], $price), null, 'HTML');
 } elseif ($text == $datatextbot['text_extend'] or $datain == "extendbtn") {
+    if (!check_active_btn($setting['keyboardmain'], "text_extend")) {
+        sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
+        return;
+    }
     $stmt = $pdo->prepare("SELECT * FROM invoice WHERE id_user = :id_user AND (status = 'active' OR status = 'end_of_time'  OR status = 'end_of_volume' OR status = 'sendedwarn' OR Status = 'send_on_hold')");
     $stmt->bindParam(':id_user', $from_id);
     $stmt->execute();

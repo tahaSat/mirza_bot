@@ -3345,6 +3345,22 @@ $caption";
     sendmessage($from_id, "📌 در بخش زیر می توانید لیست ادمین ها را مشاهده کنید همچنین با زدن دکمه ضربدر می توانید یک ادمین را حذف کنید", $keyboardadmin, 'HTML');
 } elseif ($text == "⚙️ تنظیمات عمومی" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['users']['selectoption'], $setting_panel, 'HTML');
+} elseif ($text == "⌨️ تنظیم دکمه‌های منو" && $adminrulecheck['rule'] == "administrator") {
+    $markup = build_main_keyboard_admin_markup($datatextbot, $setting['keyboardmain']);
+    sendmessage($from_id, "⌨️ دکمه‌های منوی اصلی ربات\n\nبرای نمایش یا مخفی کردن هر دکمه روی آن کلیک کنید.", $markup, 'HTML');
+} elseif ($datain == "resetmainbtn" && $adminrulecheck['rule'] == "administrator") {
+    $default = get_default_main_keyboard_json();
+    update("setting", "keyboardmain", $default, null, null);
+    $setting['keyboardmain'] = $default;
+    $markup = build_main_keyboard_admin_markup($datatextbot, $setting['keyboardmain']);
+    Editmessagetext($from_id, $message_id, "⌨️ دکمه‌های منوی اصلی ربات\n\nبرای نمایش یا مخفی کردن هر دکمه روی آن کلیک کنید.", $markup);
+} elseif (preg_match('/^togglemainbtn-(.*)/', $datain, $dataget) && $adminrulecheck['rule'] == "administrator") {
+    $button_id = $dataget[1];
+    $new_keyboard = toggle_main_keyboard_button($setting['keyboardmain'], $button_id);
+    update("setting", "keyboardmain", $new_keyboard, null, null);
+    $setting['keyboardmain'] = $new_keyboard;
+    $markup = build_main_keyboard_admin_markup($datatextbot, $setting['keyboardmain']);
+    Editmessagetext($from_id, $message_id, "⌨️ دکمه‌های منوی اصلی ربات\n\nبرای نمایش یا مخفی کردن هر دکمه روی آن کلیک کنید.", $markup);
 } elseif ($text == "🤙 بخش پشتیبانی" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['users']['selectoption'], $supportcenter, 'HTML');
 } elseif (preg_match('/Confirm_pay_(\w+)/', $datain, $dataget) && ($adminrulecheck['rule'] == "administrator" || $adminrulecheck['rule'] == "Seller")) {

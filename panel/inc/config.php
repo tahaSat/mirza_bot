@@ -3,6 +3,19 @@
 require __DIR__ . '/../../config.php';
 require __DIR__ . '/../../function.php';
 
+function panel_ensure_pdo(): PDO
+{
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo "Database (PDO) is not available. Check config.php credentials and that php-mysql is installed.\n";
+        echo "See logs/php_errors.log on the server for details.\n";
+        exit;
+    }
+    return $pdo;
+}
+
 function db_query(PDO $pdo, string $sql, array $params = []): PDOStatement
 {
     $stmt = $pdo->prepare($sql);
@@ -28,19 +41,20 @@ function require_auth(): void
 {
     if (session_status() === PHP_SESSION_NONE)
         session_start();
-    global $pdo;
     if (empty($_SESSION['admin_user'])) {
         header('Location: login.php');
         exit;
     }
     try {
+        $pdo = panel_ensure_pdo();
         $admin = db_fetch($pdo, "SELECT id_admin FROM admin WHERE username = ?", [$_SESSION['admin_user']]);
         if (!$admin) {
             session_destroy();
             header('Location: login.php');
             exit;
         }
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('panel require_auth: ' . $e->getMessage());
         session_destroy();
         header('Location: login.php');
         exit;

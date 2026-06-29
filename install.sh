@@ -12,6 +12,7 @@ MIRZA_CONF_DIR="/root/confmirza"
 SUPERVISOR_PROG="mirza-polling"
 DEFAULT_DB_NAME="mirza_pr"
 MIRZA_GIT_REPO="${MIRZA_GIT_REPO:-https://github.com/tahaSat/mirza_bot.git}"
+MIRZA_GIT_BRANCH="${MIRZA_GIT_BRANCH:-main}"
 
 if [[ $EUID -ne 0 ]]; then
     echo -e "\033[31m[ERROR]\033[0m Please run this script as \033[1mroot\033[0m."
@@ -297,11 +298,73 @@ resolve_git_repo_url() {
 
 clone_mirza_repo() {
     local git_url="$1"
-    local temp="/tmp/mirza_clone_$$"
-    rm -rf "$temp"
-    echo -e "\033[36mCloning ${git_url} ...\033[0m" >&2
-    git clone --depth 1 "$git_url" "$temp" || die "git clone failed for ${git_url}"
-    echo "$temp"
+    local dest="$2"
+    local branch="${3:-$MIRZA_GIT_BRANCH}"
+    rm -rf "$dest"
+    echo -e "\033[36mCloning ${git_url} (branch: ${branch}) → ${dest}\033[0m" >&2
+    if git clone --depth 1 -b "$branch" "$git_url" "$dest" 2>/dev/null; then
+        return 0
+    fi
+    if [[ "$branch" != "master" ]]; then
+        echo -e "\033[33mBranch '${branch}' not found, trying master...\033[0m" >&2
+        rm -rf "$dest"
+        git clone --depth 1 -b master "$git_url" "$dest" || die "git clone failed for ${git_url}"
+        return 0
+    fi
+    die "git clone failed for ${git_url}"
+}
+
+# rsync exclude: leading / = project root only (keeps panel/inc/config.php)
+rsync_bot_tree() {
+    local source="$1"
+    local dest="$2"
+    rsync -a --delete \
+        --exclude '/config.php' \
+        --exclude '.git' \
+        --exclude 'logs/' \
+        --exclude 'storage/cache/' \
+        "$source/" "$dest/" || die "Failed to sync files to ${dest}"
+}
+
+backup_root_config() {
+    local dest="$1"
+    local backup_file="$2"
+    if [[ -f "$dest/config.php" ]]; then
+        cp "$dest/config.php" "$backup_file"
+        return 0
+    fi
+    return 1
+}
+
+deploy_bot_from_git() {
+    local dest="$1"
+    local git_url="$2"
+    local branch="${MIRZA_GIT_BRANCH:-main}"
+    local config_backup="/tmp/mirza_root_config_$$.php"
+
+    mkdir -p "$(dirname "$dest")"
+    backup_root_config "$dest" "$config_backup" || true
+
+    if [[ -d "$dest/.git" ]]; then
+        echo -e "\033[36mUpdating git checkout in ${dest}...\033[0m"
+        git -C "$dest" fetch origin "$branch" 2>/dev/null || git -C "$dest" fetch origin
+        git -C "$dest" reset --hard "origin/${branch}" 2>/dev/null \
+            || git -C "$dest" pull --ff-only origin "$branch" \
+            || die "git update failed in ${dest}"
+    elif [[ -d "$dest" ]] && [[ -n "$(ls -A "$dest" 2>/dev/null)" ]]; then
+        echo -e "\033[33m${dest} has no .git — backing up and cloning fresh (enables future git pull).\033[0m"
+        local aside="${dest}.pre-git.$(date +%s)"
+        mv "$dest" "$aside"
+        clone_mirza_repo "$git_url" "$dest" "$branch"
+        echo -e "\033[33mPrevious files saved at: ${aside}\033[0m"
+    else
+        clone_mirza_repo "$git_url" "$dest" "$branch"
+    fi
+
+    if [[ -f "$config_backup" ]]; then
+        mv "$config_backup" "$dest/config.php"
+        echo -e "\033[36mRestored server config.php (root only).\033[0m"
+    fi
 }
 
 deploy_bot_files() {
@@ -314,29 +377,19 @@ deploy_bot_files() {
         fi
     fi
 
-    if [[ -z "$source" ]]; then
-        local git_url temp
-        git_url="$(resolve_git_repo_url)"
-        temp="$(clone_mirza_repo "$git_url")"
-        source="$temp"
-    fi
-
-    mkdir -p "$dest"
-    if [[ "$(readlink -f "$source")" == "$(readlink -f "$dest")" ]]; then
-        echo -e "\033[33mSource and install directory are the same — keeping existing files.\033[0m"
+    if [[ -n "$source" ]]; then
+        if [[ "$(readlink -f "$source")" == "$(readlink -f "$dest")" ]]; then
+            echo -e "\033[33mSource and install directory are the same — keeping existing files.\033[0m"
+            return 0
+        fi
+        mkdir -p "$dest"
+        rsync_bot_tree "$source" "$dest"
         return 0
     fi
 
-    rsync -a --delete \
-        --exclude 'config.php' \
-        --exclude '.git' \
-        --exclude 'logs/' \
-        --exclude 'storage/cache/' \
-        "$source/" "$dest/" || die "Failed to copy bot files to ${dest}"
-
-    if [[ "$source" == /tmp/mirza_clone_* ]]; then
-        rm -rf "$source"
-    fi
+    local git_url
+    git_url="$(resolve_git_repo_url)"
+    deploy_bot_from_git "$dest" "$git_url"
 }
 
 install_system_packages() {
@@ -668,6 +721,7 @@ install_bot() {
     echo -e "  Mode:       ${TELEGRAM_MODE_LABEL}"
     echo -e "  Path:       ${BOT_DIR}"
     echo -e "  Database:   ${DB_NAME} / ${DB_USER}"
+    echo -e "  Updates:    cd ${BOT_DIR} && git pull"
 }
 
 install_bot_with_marzban() {
@@ -764,16 +818,18 @@ update_bot() {
     TEMP_CONFIG="/root/mirza_config_backup.php"
     cp "$CONFIG_PATH" "$TEMP_CONFIG"
 
-    if [[ -f "${SCRIPT_DIR}/index.php" ]] && prompt_yes_no "Update from local source ${SCRIPT_DIR}?" "y"; then
-        rsync -a --delete --exclude 'config.php' --exclude 'logs/' --exclude 'storage/cache/' \
-            "${SCRIPT_DIR}/" "${BOT_DIR}/"
+    if [[ -f "${SCRIPT_DIR}/index.php" ]] && prompt_yes_no "Update from local source ${SCRIPT_DIR}?" "n"; then
+        rsync_bot_tree "${SCRIPT_DIR}" "${BOT_DIR}"
+    elif [[ -d "${BOT_DIR}/.git" ]]; then
+        echo -e "\033[36mgit pull in ${BOT_DIR}...\033[0m"
+        git -C "$BOT_DIR" fetch origin "${MIRZA_GIT_BRANCH}" 2>/dev/null || git -C "$BOT_DIR" fetch origin
+        git -C "$BOT_DIR" reset --hard "origin/${MIRZA_GIT_BRANCH}" 2>/dev/null \
+            || git -C "$BOT_DIR" pull --ff-only origin "${MIRZA_GIT_BRANCH}" \
+            || die "git update failed — try: cd ${BOT_DIR} && git pull"
     else
-        local git_url temp
+        local git_url
         git_url="$(resolve_git_repo_url "Git repository URL for update")"
-        temp="$(clone_mirza_repo "$git_url")"
-        rsync -a --delete --exclude 'config.php' --exclude 'logs/' --exclude 'storage/cache/' \
-            "${temp}/" "${BOT_DIR}/"
-        rm -rf "$temp"
+        deploy_bot_from_git "$BOT_DIR" "$git_url"
     fi
 
     mv "$TEMP_CONFIG" "$CONFIG_PATH"

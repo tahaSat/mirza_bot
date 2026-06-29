@@ -11,6 +11,7 @@ MIRZA_APACHE_SITE="${MIRZA_APACHE_SITE:-mirza_bot}"
 MIRZA_CONF_DIR="/root/confmirza"
 SUPERVISOR_PROG="mirza-polling"
 DEFAULT_DB_NAME="mirza_pr"
+MIRZA_GIT_REPO="${MIRZA_GIT_REPO:-https://github.com/tahaSat/mirza_bot.git}"
 
 if [[ $EUID -ne 0 ]]; then
     echo -e "\033[31m[ERROR]\033[0m Please run this script as \033[1mroot\033[0m."
@@ -261,23 +262,38 @@ EOF
     fi
 }
 
+resolve_git_repo_url() {
+    local prompt="${1:-Git repository URL}"
+    local git_url
+    read -r -p "${prompt} [${MIRZA_GIT_REPO}]: " git_url
+    git_url="${git_url:-$MIRZA_GIT_REPO}"
+    [[ -n "$git_url" ]] || die "No git repository URL configured."
+    echo "$git_url"
+}
+
+clone_mirza_repo() {
+    local git_url="$1"
+    local temp="/tmp/mirza_clone_$$"
+    rm -rf "$temp"
+    echo -e "\033[36mCloning ${git_url} ...\033[0m" >&2
+    git clone --depth 1 "$git_url" "$temp" || die "git clone failed for ${git_url}"
+    echo "$temp"
+}
+
 deploy_bot_files() {
     local dest="$1"
     local source=""
 
     if [[ -f "${SCRIPT_DIR}/index.php" && -f "${SCRIPT_DIR}/function.php" ]]; then
-        if prompt_yes_no "Install from local source at ${SCRIPT_DIR}?" "y"; then
+        if prompt_yes_no "Install from local source at ${SCRIPT_DIR}?" "n"; then
             source="$SCRIPT_DIR"
         fi
     fi
 
     if [[ -z "$source" ]]; then
-        local git_url
-        read -r -p "Git repository URL (leave blank to abort): " git_url
-        [[ -n "$git_url" ]] || die "No source directory or git URL provided."
-        local temp="/tmp/mirza_clone_$$"
-        rm -rf "$temp"
-        git clone --depth 1 "$git_url" "$temp" || die "git clone failed"
+        local git_url temp
+        git_url="$(resolve_git_repo_url)"
+        temp="$(clone_mirza_repo "$git_url")"
         source="$temp"
     fi
 
@@ -588,11 +604,6 @@ install_bot() {
     local root_pass
     root_pass="$(get_mysql_root_password)"
 
-    prompt_domain
-    ask_telegram_update_mode
-    ask_optional_telegram_proxy
-    prompt_bot_credentials
-
     if [[ -d "$BOT_DIR" && -f "$BOT_DIR/config.php" ]]; then
         prompt_yes_no "Existing installation found. Remove and reinstall?" || die "Aborted."
         stop_polling_supervisor
@@ -600,6 +611,11 @@ install_bot() {
     fi
 
     run_step "Deploying bot files" deploy_bot_files "$BOT_DIR"
+
+    prompt_domain
+    ask_telegram_update_mode
+    ask_optional_telegram_proxy
+    prompt_bot_credentials
     run_step "Creating database" create_app_database "$root_pass"
     run_step "Writing config.php" write_mirza_config "$BOT_DIR/config.php" \
         "$YOUR_BOT_TOKEN" "$YOUR_CHAT_ID" "$YOUR_BOTNAME" \
@@ -644,12 +660,18 @@ install_bot_with_marzban() {
     run_step "Installing packages" install_system_packages
     ufw allow 88/tcp 2>/dev/null || true
 
+    if [[ -d "$BOT_DIR" && -f "$BOT_DIR/config.php" ]]; then
+        prompt_yes_no "Existing installation found. Remove and reinstall?" || exit 0
+        stop_polling_supervisor
+        rm -rf "$BOT_DIR"
+    fi
+
+    run_step "Deploying bot files" deploy_bot_files "$BOT_DIR"
+
     prompt_domain
     DOMAIN_WITH_PORT="${DOMAIN_NAME}:${MARZ_SSL_PORT}"
     ask_telegram_update_mode
     ask_optional_telegram_proxy
-
-    deploy_bot_files "$BOT_DIR"
 
     # Marzban MySQL via Docker
     local env_file="/opt/marzban/.env"
@@ -722,12 +744,9 @@ update_bot() {
         rsync -a --delete --exclude 'config.php' --exclude 'logs/' --exclude 'storage/cache/' \
             "${SCRIPT_DIR}/" "${BOT_DIR}/"
     else
-        local git_url
-        read -r -p "Git repository URL: " git_url
-        [[ -n "$git_url" ]] || die "No update source."
-        local temp="/tmp/mirza_update_$$"
-        rm -rf "$temp"
-        git clone --depth 1 "$git_url" "$temp"
+        local git_url temp
+        git_url="$(resolve_git_repo_url "Git repository URL for update")"
+        temp="$(clone_mirza_repo "$git_url")"
         rsync -a --delete --exclude 'config.php' --exclude 'logs/' --exclude 'storage/cache/' \
             "${temp}/" "${BOT_DIR}/"
         rm -rf "$temp"

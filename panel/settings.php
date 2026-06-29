@@ -2,13 +2,35 @@
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
 require_auth();
+$pdo = panel_ensure_pdo();
+
+$bot_button_labels = [
+    'text_sell' => 'خرید اشتراک',
+    'text_extend' => 'تمدید',
+    'text_usertest' => 'اکانت تست',
+    'text_wheel_luck' => 'گردونه شانس',
+    'text_Purchased_services' => 'سرویس‌های خریداری‌شده',
+    'accountwallet' => 'کیف پول',
+    'text_affiliates' => 'زیرمجموعه‌گیری',
+    'text_Tariff_list' => 'لیست تعرفه',
+    'text_support' => 'پشتیبانی',
+    'text_help' => 'آموزش',
+];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle_bot_button') {
     csrf_check_post();
     $button_id = $_POST['button_id'] ?? '';
     $setting_row = select('setting', '*', null, null, 'select');
-    $new_keyboard = toggle_main_keyboard_button($setting_row['keyboardmain'], $button_id);
+    $textbot_rows = db_fetchAll($pdo, "SELECT id_text, text FROM textbot WHERE id_text IN ('" . implode("','", array_keys($bot_button_labels)) . "')");
+    $toggle_datatextbot = $bot_button_labels;
+    foreach ($textbot_rows as $row) {
+        if (!empty($row['text'])) {
+            $toggle_datatextbot[$row['id_text']] = $row['text'];
+        }
+    }
+    $new_keyboard = toggle_main_keyboard_button($setting_row['keyboardmain'], $button_id, $toggle_datatextbot);
     update('setting', 'keyboardmain', $new_keyboard, null, null);
+    clearSelectCache('setting');
     flash('success', 'وضعیت دکمه به‌روز شد.');
     header('Location: settings.php?tab=bot');
     exit;
@@ -16,7 +38,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggl
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset_bot_buttons') {
     csrf_check_post();
-    update('setting', 'keyboardmain', get_default_main_keyboard_json(), null, null);
+    $default_keyboard = get_default_main_keyboard_json();
+    update('setting', 'keyboardmain', $default_keyboard, null, null);
+    clearSelectCache('setting');
     flash('success', 'دکمه‌های منو به حالت پیش‌فرض بازگردانده شد.');
     header('Location: settings.php?tab=bot');
     exit;
@@ -50,20 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'chang
 
 $tab = $_GET['tab'] ?? 'appearance';
 
-$bot_button_labels = [
-    'text_sell' => 'خرید اشتراک',
-    'text_extend' => 'تمدید',
-    'text_usertest' => 'اکانت تست',
-    'text_wheel_luck' => 'گردونه شانس',
-    'text_Purchased_services' => 'سرویس‌های خریداری‌شده',
-    'accountwallet' => 'کیف پول',
-    'text_affiliates' => 'زیرمجموعه‌گیری',
-    'text_Tariff_list' => 'لیست تعرفه',
-    'text_support' => 'پشتیبانی',
-    'text_help' => 'آموزش',
-];
-
-$bot_setting = select('setting', 'keyboardmain', null, null, 'select');
+$bot_setting = select('setting', 'keyboardmain', null, null, 'select', ['cache' => false]);
 $bot_keyboardmain = $bot_setting['keyboardmain'] ?? get_default_main_keyboard_json();
 $textbot_rows = db_fetchAll($pdo, "SELECT id_text, text FROM textbot WHERE id_text IN ('" . implode("','", array_keys($bot_button_labels)) . "')");
 $bot_text_labels = $bot_button_labels;

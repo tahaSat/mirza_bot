@@ -2029,6 +2029,184 @@ function build_keyboardmain_from_active_buttons($active_buttons)
     return json_encode($keyboard);
 }
 
+function get_main_keyboard_button_fallback_labels()
+{
+    return [
+        'text_sell' => 'خرید اشتراک',
+        'text_extend' => 'تمدید',
+        'text_usertest' => 'اکانت تست',
+        'text_wheel_luck' => 'گردونه شانس',
+        'text_Purchased_services' => 'سرویس‌های خریداری‌شده',
+        'accountwallet' => 'کیف پول',
+        'text_affiliates' => 'زیرمجموعه‌گیری',
+        'text_Tariff_list' => 'لیست تعرفه',
+        'text_support' => 'پشتیبانی',
+        'text_help' => 'آموزش',
+    ];
+}
+
+function get_main_keyboard_button_label($button_id, $datatextbot)
+{
+    if (is_array($datatextbot) && !empty($datatextbot[$button_id])) {
+        $label = trim((string) $datatextbot[$button_id]);
+        if ($label !== '') {
+            return $label;
+        }
+    }
+
+    $fallbacks = get_main_keyboard_button_fallback_labels();
+    return $fallbacks[$button_id] ?? $button_id;
+}
+
+function attach_main_keyboard_inline_callbacks($keyboard_rows)
+{
+    $callback_map = [
+        'text_sell' => 'buy',
+        'accountwallet' => 'account',
+        'text_Tariff_list' => 'Tariff_list',
+        'text_wheel_luck' => 'wheel_luck',
+        'text_affiliates' => 'affiliatesbtn',
+        'text_extend' => 'extendbtn',
+        'text_support' => 'supportbtns',
+        'text_Purchased_services' => 'backorder',
+        'text_help' => 'helpbtns',
+        'text_usertest' => 'usertestbtn',
+    ];
+    $rows = [];
+    foreach ($keyboard_rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $new_row = [];
+        foreach ($row as $button) {
+            if (!is_array($button)) {
+                continue;
+            }
+            $new_button = $button;
+            $button_id = $button['text'] ?? '';
+            if (isset($callback_map[$button_id])) {
+                $new_button['callback_data'] = $callback_map[$button_id];
+            }
+            $new_row[] = $new_button;
+        }
+        if ($new_row !== []) {
+            $rows[] = $new_row;
+        }
+    }
+    return $rows;
+}
+
+function apply_main_keyboard_button_labels($keyboard_rows, $datatextbot)
+{
+    $labeled = [];
+    foreach ($keyboard_rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $labeled_row = [];
+        foreach ($row as $button) {
+            if (!is_array($button)) {
+                continue;
+            }
+            $button_id = resolve_main_keyboard_button_id($button['text'] ?? '', $datatextbot);
+            if ($button_id === null) {
+                continue;
+            }
+            $label = get_main_keyboard_button_label($button_id, $datatextbot);
+            if ($label === '') {
+                continue;
+            }
+            $new_button = $button;
+            $new_button['text'] = $label;
+            $labeled_row[] = $new_button;
+        }
+        if ($labeled_row !== []) {
+            $labeled[] = $labeled_row;
+        }
+    }
+    return $labeled;
+}
+
+function build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $from_id, array $options = [])
+{
+    $persist = $options['persist'] ?? true;
+    $users = $options['users'] ?? select('user', '*', 'id', $from_id, 'select');
+    if ($users === false || $users === null) {
+        $users = [
+            'agent' => '',
+            'step' => '',
+        ];
+    }
+    $admin_idss = $options['admin_idss'] ?? select('admin', '*', 'id_admin', $from_id, 'count');
+
+    $keyboardmain = normalize_keyboardmain_to_ids($setting['keyboardmain'] ?? '', $datatextbot);
+    if ($persist && $keyboardmain !== ($setting['keyboardmain'] ?? '')) {
+        update('setting', 'keyboardmain', $keyboardmain, null, null);
+        $setting['keyboardmain'] = $keyboardmain;
+    }
+
+    $layout = json_decode($keyboardmain, true);
+    $keyboard_rows = [];
+    if (is_array($layout) && !empty($layout['keyboard']) && is_array($layout['keyboard'])) {
+        $keyboard_rows = $layout['keyboard'];
+    }
+    if ($keyboard_rows === []) {
+        $keyboard_rows = json_decode(get_default_main_keyboard_json(), true)['keyboard'] ?? [];
+    }
+
+    $inline = ($setting['inlinebtnmain'] ?? '') === 'oninline';
+    $extra_row = [];
+    if (intval($admin_idss) !== 0) {
+        $extra_button = ['text' => $textbotlang['Admin']['textpaneladmin']];
+        if ($inline) {
+            $extra_button['callback_data'] = 'admin';
+        }
+        $extra_row[] = $extra_button;
+    }
+    if (($users['agent'] ?? '') !== 'f') {
+        $extra_button = ['text' => $datatextbot['textpanelagent'] ?? 'نمایندگی'];
+        if ($inline) {
+            $extra_button['callback_data'] = 'agentpanel';
+        }
+        $extra_row[] = $extra_button;
+    }
+    if (($users['agent'] ?? '') === 'f' && ($setting['statusagentrequest'] ?? '') === 'onrequestagent') {
+        $extra_button = ['text' => $datatextbot['textrequestagent'] ?? 'درخواست نمایندگی'];
+        if ($inline) {
+            $extra_button['callback_data'] = 'requestagent';
+        }
+        $extra_row[] = $extra_button;
+    }
+
+    if ($inline) {
+        $keyboard_rows = attach_main_keyboard_inline_callbacks($keyboard_rows);
+        $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot);
+        if ($keyboardcustom === []) {
+            $keyboard_rows = json_decode(get_default_main_keyboard_json(), true)['keyboard'] ?? [];
+            $keyboard_rows = attach_main_keyboard_inline_callbacks($keyboard_rows);
+            $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot);
+        }
+        if ($extra_row !== []) {
+            $keyboardcustom[] = $extra_row;
+        }
+        return json_encode(['inline_keyboard' => $keyboardcustom], JSON_UNESCAPED_UNICODE);
+    }
+
+    $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot);
+    if ($keyboardcustom === []) {
+        $keyboard_rows = json_decode(get_default_main_keyboard_json(), true)['keyboard'] ?? [];
+        $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot);
+    }
+    if ($extra_row !== []) {
+        $keyboardcustom[] = $extra_row;
+    }
+
+    return json_encode([
+        'keyboard' => $keyboardcustom,
+        'resize_keyboard' => true,
+    ], JSON_UNESCAPED_UNICODE);
+}
+
 function toggle_main_keyboard_button($keyboardmain_json, $button_id, $datatextbot = null)
 {
     $allowed = get_main_keyboard_button_ids();

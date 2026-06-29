@@ -124,11 +124,11 @@ $pricepayment = select("Payment_report", "price", null, null, "FETCH_COLUMN");
 $listcard = select("card_number", "cardnumber", null, null, "FETCH_COLUMN");
 $topic_id = select("topicid", "*", null, null, "fetchAll");
 $datatextbot = $pdo->query("SELECT id_text, text FROM textbot")->fetchAll(PDO::FETCH_KEY_PAIR);
-$normalized_keyboardmain = normalize_keyboardmain_to_ids($setting['keyboardmain'], $datatextbot);
-if ($normalized_keyboardmain !== $setting['keyboardmain']) {
-    update("setting", "keyboardmain", $normalized_keyboardmain, null, null);
-    $setting['keyboardmain'] = $normalized_keyboardmain;
-}
+$setting = select("setting", "*", null, null, "select", ['cache' => false]);
+$keyboard = build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $from_id, [
+    'users' => $user,
+    'persist' => true,
+]);
 $statusnote = false;
 foreach ($topic_id as $topic) {
     if ($topic['report'] == "reportnight")

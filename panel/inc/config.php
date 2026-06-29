@@ -46,6 +46,7 @@ function require_auth(): void
         exit;
     }
     try {
+        global $pdo;
         $pdo = panel_ensure_pdo();
         $admin = db_fetch($pdo, "SELECT id_admin FROM admin WHERE username = ?", [$_SESSION['admin_user']]);
         if (!$admin) {

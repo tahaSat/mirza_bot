@@ -1,4 +1,4 @@
-<?php
+x<?php
 
 function DirectPaymentbot($order_id,$image = 'images.jpg'){
     global $pdo,$ManagePanel,$textbotlang,$keyboardextendfnished,$keyboard,$Confirm_pay,$from_id,$message_id,$datatextbot;

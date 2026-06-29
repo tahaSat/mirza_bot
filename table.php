@@ -1519,6 +1519,9 @@ try {
 if ($check && $check->rowCount() != 0) {
     $pdo->exec("ALTER TABLE `user` DROP `ref_code`");
 }
-telegram('setwebhook', [
-    'url' => "https://$domainhosts/index.php"
-]);
+global $telegram_polling_mode;
+if (empty($telegram_polling_mode)) {
+    telegram('setwebhook', [
+        'url' => "https://$domainhosts/index.php"
+    ]);
+}

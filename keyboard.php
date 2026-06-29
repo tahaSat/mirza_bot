@@ -95,6 +95,11 @@ $replacements = [
 ];
 $admin_idss = select("admin", "*", "id_admin", $from_id, "count");
 $temp_addtional_key = [];
+$normalized_keyboardmain = normalize_keyboardmain_to_ids($setting['keyboardmain'], $datatextbot);
+if ($normalized_keyboardmain !== $setting['keyboardmain']) {
+    update("setting", "keyboardmain", $normalized_keyboardmain, null, null);
+    $setting['keyboardmain'] = $normalized_keyboardmain;
+}
 $keyboardLayout = json_decode($setting['keyboardmain'], true);
 $keyboardRows = [];
 if (is_array($keyboardLayout) && isset($keyboardLayout['keyboard']) && is_array($keyboardLayout['keyboard'])) {

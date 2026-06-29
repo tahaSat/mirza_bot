@@ -67,10 +67,22 @@ $bot_setting = select('setting', 'keyboardmain', null, null, 'select');
 $bot_keyboardmain = $bot_setting['keyboardmain'] ?? get_default_main_keyboard_json();
 $textbot_rows = db_fetchAll($pdo, "SELECT id_text, text FROM textbot WHERE id_text IN ('" . implode("','", array_keys($bot_button_labels)) . "')");
 $bot_text_labels = $bot_button_labels;
+$bot_datatextbot = [];
 foreach ($textbot_rows as $row) {
     if (!empty($row['text'])) {
         $bot_text_labels[$row['id_text']] = $row['text'];
     }
+    $bot_datatextbot[$row['id_text']] = $row['text'];
+}
+foreach (array_keys($bot_button_labels) as $btn_id) {
+    if (!isset($bot_datatextbot[$btn_id])) {
+        $bot_datatextbot[$btn_id] = $bot_text_labels[$btn_id] ?? $btn_id;
+    }
+}
+$normalized_bot_keyboard = normalize_keyboardmain_to_ids($bot_keyboardmain, $bot_datatextbot);
+if ($normalized_bot_keyboard !== $bot_keyboardmain) {
+    update('setting', 'keyboardmain', $normalized_bot_keyboard, null, null);
+    $bot_keyboardmain = $normalized_bot_keyboard;
 }
 $bot_menu_buttons = [];
 foreach (get_default_main_keyboard_layout() as $row) {
@@ -78,7 +90,7 @@ foreach (get_default_main_keyboard_layout() as $row) {
         $bot_menu_buttons[] = [
             'id' => $btn_id,
             'label' => $bot_text_labels[$btn_id] ?? $btn_id,
-            'active' => check_active_btn($bot_keyboardmain, $btn_id),
+            'active' => check_active_btn($bot_keyboardmain, $btn_id, $bot_datatextbot),
         ];
     }
 }

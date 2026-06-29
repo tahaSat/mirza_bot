@@ -37,12 +37,6 @@ if (isset($chat_member))
 $first_name = sanitizeUserName($first_name);
 $setting = select("setting", "*");
 $ManagePanel = new ManagePanel();
-$keyboard_check = json_decode($setting['keyboardmain'], true);
-if (is_array($keyboard_check) && preg_match('/[\x{600}-\x{6FF}\x{FB50}-\x{FDFF}]/u', $keyboard_check['keyboard'][0][0]['text'])) {
-    $keyboardmain = '{"keyboard":[[{"text":"text_sell"},{"text":"text_extend"}],[{"text":"text_usertest"},{"text":"text_wheel_luck"}],[{"text":"text_Purchased_services"},{"text":"accountwallet"}],[{"text":"text_affiliates"},{"text":"text_Tariff_list"}],[{"text":"text_support"},{"text":"text_help"}]]}';
-    update("setting", "keyboardmain", $keyboardmain, null, null);
-}
-
 #-----------telegram_ip_ranges------------#
 if (!checktelegramip())
     die("Unauthorized access");
@@ -130,6 +124,11 @@ $pricepayment = select("Payment_report", "price", null, null, "FETCH_COLUMN");
 $listcard = select("card_number", "cardnumber", null, null, "FETCH_COLUMN");
 $topic_id = select("topicid", "*", null, null, "fetchAll");
 $datatextbot = $pdo->query("SELECT id_text, text FROM textbot")->fetchAll(PDO::FETCH_KEY_PAIR);
+$normalized_keyboardmain = normalize_keyboardmain_to_ids($setting['keyboardmain'], $datatextbot);
+if ($normalized_keyboardmain !== $setting['keyboardmain']) {
+    update("setting", "keyboardmain", $normalized_keyboardmain, null, null);
+    $setting['keyboardmain'] = $normalized_keyboardmain;
+}
 $statusnote = false;
 foreach ($topic_id as $topic) {
     if ($topic['report'] == "reportnight")

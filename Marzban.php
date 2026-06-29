@@ -2,6 +2,26 @@
 include('config.php');
 require_once 'request.php';
 date_default_timezone_set('Asia/Tehran');
+
+/** PasarGuard (version_panel=1) requires proxy_settings as a JSON object, not null. */
+function marzban_proxy_settings_for_api($proxiesJson)
+{
+    if ($proxiesJson === null || $proxiesJson === '' || $proxiesJson === 'null') {
+        return new stdClass();
+    }
+    $decoded = json_decode($proxiesJson, false);
+    if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
+        return new stdClass();
+    }
+    if (is_object($decoded)) {
+        return $decoded;
+    }
+    if (is_array($decoded)) {
+        return $decoded === [] ? new stdClass() : (object) $decoded;
+    }
+    return new stdClass();
+}
+
 #-----------------------------#
 function token_panel($code_panel, $verify = true)
 {
@@ -230,7 +250,7 @@ function adduser($location, $data_limit, $username_ac, $timestamp, $note = '', $
     }
     if ($marzban_list_get['version_panel'] == "1") {
         $data = array(
-            "proxy_settings" => json_decode($marzban_list_get['proxies']),
+            "proxy_settings" => marzban_proxy_settings_for_api($marzban_list_get['proxies'] ?? null),
             "data_limit" => $data_limit,
             "username" => $username_ac,
             "note" => $note,

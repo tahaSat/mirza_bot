@@ -9484,7 +9484,14 @@ f,n.n2", $backadmin, 'HTML');
     } elseif ($text == "⚙️ تنظیم نود") {
         $textsetprotocol = "📌 برای تنظیم نود یک کاربر در پنل خود ساخته و  نودهایی که میخواهید فعال باشند. را داخل پنل فعال کرده و نام کاربری کاربر را ارسال نمایید";
     } else {
-        $textsetprotocol = "📌 برای تنظیم اینباند  و پروتکل باید یک کانفیگ در پنل خود ساخته و  پروتکل و اینباند هایی که میخواهید فعال باشند. را داخل پنل فعال کرده و نام کاربری کانفیگ را ارسال نمایید";
+        $panelForHint = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
+        if (($panelForHint['type'] ?? '') === 'marzban' && ($panelForHint['version_panel'] ?? '0') === '1') {
+            $textsetprotocol = "📌 پنل پاسارگارد — یکی از این دو را بفرستید:\n"
+                . "• شناسه گروه از PasarGuard → Groups (مثلاً 1 یا 1,2)\n"
+                . "• یا نام کاربری نمونه که در پنل گروه (Groups) دارد";
+        } else {
+            $textsetprotocol = "📌 برای تنظیم اینباند  و پروتکل باید یک کانفیگ در پنل خود ساخته و  پروتکل و اینباند هایی که میخواهید فعال باشند. را داخل پنل فعال کرده و نام کاربری کانفیگ را ارسال نمایید";
+        }
     }
     sendmessage($from_id, $textsetprotocol, $backadmin, 'HTML');
     step("setinboundandprotocol", $from_id);
@@ -9492,6 +9499,13 @@ f,n.n2", $backadmin, 'HTML');
     $panel = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
     if ($panel['type'] == "marzban") {
         if ($panel['version_panel'] == "1") {
+            if (preg_match('/^\s*\d+(\s*,\s*\d+)*\s*$/', $text)) {
+                $groupIds = array_map('intval', preg_split('/\s*,\s*/', trim($text)));
+                update("marzban_panel", "inbounds", json_encode($groupIds), "name_panel", $user['Processing_value']);
+                sendmessage($from_id, "✅ گروه‌های پاسارگارد تنظیم شد: " . implode(', ', $groupIds), $optionMarzban, 'HTML');
+                step("home", $from_id);
+                return;
+            }
             $DataUserOut = getuser($text, $user['Processing_value']);
             if (!empty($DataUserOut['error'])) {
                 sendmessage($from_id, $DataUserOut['error'], null, 'HTML');
@@ -9506,20 +9520,13 @@ f,n.n2", $backadmin, 'HTML');
                 sendmessage($from_id, $textbotlang['users']['stateus']['UserNotFound'], null, 'html');
                 return;
             }
-            foreach ($DataUserOut['proxy_settings'] as $key => &$value) {
-                if ($key == "shadowsocks") {
-                    unset($DataUserOut['proxy_settings'][$key]['password']);
-                } elseif ($key == "trojan") {
-                    unset($DataUserOut['proxy_settings'][$key]['password']);
-                } else {
-                    unset($DataUserOut['proxy_settings'][$key]['id']);
-                }
-                if (count($DataUserOut['proxy_settings'][$key]) == 0) {
-                    $DataUserOut['proxy_settings'][$key] = new stdClass();
-                }
+            if (empty($DataUserOut['group_ids']) || !is_array($DataUserOut['group_ids'])) {
+                sendmessage($from_id, "❌ این کاربر در پاسارگارد هیچ گروهی ندارد. در پنل به او Groups اختصاص دهید، یا مستقیم شناسه گروه بفرستید (مثلاً 1).", null, 'HTML');
+                return;
             }
+            $DataUserOut['proxy_settings'] = marzban_sanitize_proxy_settings_for_storage($DataUserOut['proxy_settings']);
             update("marzban_panel", "inbounds", json_encode($DataUserOut['group_ids']), "name_panel", $user['Processing_value']);
-            update("marzban_panel", "proxies", json_encode($DataUserOut['proxy_settings'], true), "name_panel", $user['Processing_value']);
+            update("marzban_panel", "proxies", json_encode($DataUserOut['proxy_settings'], JSON_FORCE_OBJECT), "name_panel", $user['Processing_value']);
         } else {
             $DataUserOut = getuser($text, $user['Processing_value']);
             if (!empty($DataUserOut['error'])) {
@@ -9570,7 +9577,11 @@ f,n.n2", $backadmin, 'HTML');
     } elseif ($panel['type'] == "mikrotik") {
         sendmessage($from_id, "✅ نام گروه با موفقیت تنظیم گردید.", $option_mikrotik, 'HTML');
     } else {
-        sendmessage($from_id, "✅ اینباند و پروتکل های شما با موفقیت تنظیم گردیدند.", $optionMarzban, 'HTML');
+        if ($panel['type'] == 'marzban' && ($panel['version_panel'] ?? '0') === '1') {
+            sendmessage($from_id, "✅ گروه‌ها و پروتکل‌های پاسارگارد با موفقیت تنظیم شدند.", $optionMarzban, 'HTML');
+        } else {
+            sendmessage($from_id, "✅ اینباند و پروتکل های شما با موفقیت تنظیم گردیدند.", $optionMarzban, 'HTML');
+        }
     }
     step("home", $from_id);
 } elseif ($text == "🔋 وضعیت تمدید" && $adminrulecheck['rule'] == "administrator") {

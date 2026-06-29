@@ -22,6 +22,77 @@ function marzban_proxy_settings_for_api($proxiesJson)
     return new stdClass();
 }
 
+/** Parse stored panel/product inbounds JSON into PasarGuard group IDs. */
+function marzban_resolve_group_ids(array $panel, $name_product = false): ?array
+{
+    $source = null;
+    if (!empty($panel['inbounds']) && $panel['inbounds'] !== 'null') {
+        $source = $panel['inbounds'];
+    }
+    if ($name_product !== false && $name_product !== 'usertest') {
+        $product = select('product', '*', 'name_product', $name_product, 'select');
+        if ($product && !empty($product['inbounds']) && $product['inbounds'] !== 'null') {
+            $source = $product['inbounds'];
+        }
+    }
+    if ($source === null) {
+        return null;
+    }
+    $decoded = json_decode($source, true);
+    if (!is_array($decoded)) {
+        return null;
+    }
+    $ids = [];
+    foreach ($decoded as $item) {
+        if (is_numeric($item)) {
+            $id = (int) $item;
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+    }
+    $ids = array_values(array_unique($ids));
+
+    return $ids === [] ? null : $ids;
+}
+
+function marzban_resolve_proxies_json(array $panel, $name_product = false): ?string
+{
+    $proxies = $panel['proxies'] ?? null;
+    if ($name_product !== false && $name_product !== 'usertest') {
+        $product = select('product', '*', 'name_product', $name_product, 'select');
+        if ($product && !empty($product['proxies']) && $product['proxies'] !== 'null') {
+            $proxies = $product['proxies'];
+        }
+    }
+    return ($proxies === null || $proxies === '' || $proxies === 'null') ? null : $proxies;
+}
+
+function marzban_api_error(string $message, int $status = 400): array
+{
+    return [
+        'status' => $status,
+        'body' => json_encode(['detail' => $message], JSON_UNESCAPED_UNICODE),
+    ];
+}
+
+function marzban_sanitize_proxy_settings_for_storage(array $proxySettings): array
+{
+    foreach ($proxySettings as $key => &$value) {
+        if ($key === 'shadowsocks' || $key === 'trojan') {
+            unset($value['password']);
+        } else {
+            unset($value['id']);
+        }
+        if (is_array($value) && count($value) === 0) {
+            $value = new stdClass();
+        }
+    }
+    unset($value);
+
+    return $proxySettings;
+}
+
 #-----------------------------#
 function token_panel($code_panel, $verify = true)
 {
@@ -235,30 +306,25 @@ function adduser($location, $data_limit, $username_ac, $timestamp, $note = '', $
         return $Check_token;
     }
     $url = $marzban_list_get['url_panel'] . "/api/user";
-    if ($marzban_list_get['inbounds'] != null and $marzban_list_get['inbounds'] != "null") {
-        if ($name_product != false and $name_product != "usertest") {
-            $product = select("product", "*", "name_product", $name_product, "select");
-            if ($product == false || $product['inbounds'] == false) {
-                $inbounds = json_decode($marzban_list_get['inbounds'], true);
-            } else {
-                $inbounds = json_decode($product['inbounds'], true);
-                $marzban_list_get['proxies'] = $product['proxies'];
-            }
-        } else {
-            $inbounds = json_decode($marzban_list_get['inbounds'], true);
-        }
+    $proxiesJson = marzban_resolve_proxies_json($marzban_list_get, $name_product);
+    if ($proxiesJson !== null) {
+        $marzban_list_get['proxies'] = $proxiesJson;
     }
     if ($marzban_list_get['version_panel'] == "1") {
+        $groupIds = marzban_resolve_group_ids($marzban_list_get, $name_product);
+        if ($groupIds === null) {
+            return marzban_api_error(
+                'گروه پاسارگارد تنظیم نشده. در ربات: تنظیم پروتکل و اینباند — شناسه گروه (مثلاً 1 یا 1,2) یا نام کاربری نمونه با گروه فعال را ارسال کنید.'
+            );
+        }
         $data = array(
             "proxy_settings" => marzban_proxy_settings_for_api($marzban_list_get['proxies'] ?? null),
             "data_limit" => $data_limit,
             "username" => $username_ac,
             "note" => $note,
-            "data_limit_reset_strategy" => $data_limit_reset
+            "data_limit_reset_strategy" => $data_limit_reset,
+            "group_ids" => $groupIds,
         );
-        if (isset($inbounds)) {
-            $data['group_ids'] = $inbounds;
-        }
         if ($name_product == "usertest") {
             if ($marzban_list_get['on_hold_test'] == "0") {
                 if ($timestamp == 0) {
@@ -293,6 +359,19 @@ function adduser($location, $data_limit, $username_ac, $timestamp, $note = '', $
             }
         }
     } else {
+        $inbounds = null;
+        if ($marzban_list_get['inbounds'] != null and $marzban_list_get['inbounds'] != "null") {
+            if ($name_product != false and $name_product != "usertest") {
+                $product = select("product", "*", "name_product", $name_product, "select");
+                if ($product == false || $product['inbounds'] == false) {
+                    $inbounds = json_decode($marzban_list_get['inbounds'], true);
+                } else {
+                    $inbounds = json_decode($product['inbounds'], true);
+                }
+            } else {
+                $inbounds = json_decode($marzban_list_get['inbounds'], true);
+            }
+        }
         $data = array(
             "proxies" => json_decode($marzban_list_get['proxies']),
             "data_limit" => $data_limit,

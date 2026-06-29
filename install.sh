@@ -214,8 +214,22 @@ set_bot_permissions() {
     local bot_dir="$1"
     mkdir -p "$bot_dir/logs" "$bot_dir/storage/cache" "$bot_dir/storage/logs"
     chown -R www-data:www-data "$bot_dir"
+    # Keep .git owned by root so `git pull` / install.sh -update work without safe.directory hacks.
+    if [[ -d "$bot_dir/.git" && $EUID -eq 0 ]]; then
+        chown -R root:root "$bot_dir/.git"
+    fi
     chmod -R 755 "$bot_dir"
     chmod -R 775 "$bot_dir/logs" "$bot_dir/storage" "$bot_dir/cronbot" 2>/dev/null || true
+}
+
+git_bot() {
+    local repo_dir="$1"
+    shift
+    if [[ $EUID -eq 0 ]]; then
+        git -c "safe.directory=${repo_dir}" -C "$repo_dir" "$@"
+    else
+        git -C "$repo_dir" "$@"
+    fi
 }
 
 configure_apache_vhost() {
@@ -347,9 +361,9 @@ deploy_bot_from_git() {
 
     if [[ -d "$dest/.git" ]]; then
         echo -e "\033[36mUpdating git checkout in ${dest}...\033[0m"
-        git -C "$dest" fetch origin "$branch" 2>/dev/null || git -C "$dest" fetch origin
-        git -C "$dest" reset --hard "origin/${branch}" 2>/dev/null \
-            || git -C "$dest" pull --ff-only origin "$branch" \
+        git_bot "$dest" fetch origin "$branch" 2>/dev/null || git_bot "$dest" fetch origin
+        git_bot "$dest" reset --hard "origin/${branch}" 2>/dev/null \
+            || git_bot "$dest" pull --ff-only origin "$branch" \
             || die "git update failed in ${dest}"
     elif [[ -d "$dest" ]] && [[ -n "$(ls -A "$dest" 2>/dev/null)" ]]; then
         echo -e "\033[33m${dest} has no .git — backing up and cloning fresh (enables future git pull).\033[0m"
@@ -721,7 +735,7 @@ install_bot() {
     echo -e "  Mode:       ${TELEGRAM_MODE_LABEL}"
     echo -e "  Path:       ${BOT_DIR}"
     echo -e "  Database:   ${DB_NAME} / ${DB_USER}"
-    echo -e "  Updates:    cd ${BOT_DIR} && git pull"
+    echo -e "  Updates:    bash /root/install.sh -update   (or: mirza → option 2)"
 }
 
 install_bot_with_marzban() {
@@ -822,10 +836,10 @@ update_bot() {
         rsync_bot_tree "${SCRIPT_DIR}" "${BOT_DIR}"
     elif [[ -d "${BOT_DIR}/.git" ]]; then
         echo -e "\033[36mgit pull in ${BOT_DIR}...\033[0m"
-        git -C "$BOT_DIR" fetch origin "${MIRZA_GIT_BRANCH}" 2>/dev/null || git -C "$BOT_DIR" fetch origin
-        git -C "$BOT_DIR" reset --hard "origin/${MIRZA_GIT_BRANCH}" 2>/dev/null \
-            || git -C "$BOT_DIR" pull --ff-only origin "${MIRZA_GIT_BRANCH}" \
-            || die "git update failed — try: cd ${BOT_DIR} && git pull"
+        git_bot "$BOT_DIR" fetch origin "${MIRZA_GIT_BRANCH}" 2>/dev/null || git_bot "$BOT_DIR" fetch origin
+        git_bot "$BOT_DIR" reset --hard "origin/${MIRZA_GIT_BRANCH}" 2>/dev/null \
+            || git_bot "$BOT_DIR" pull --ff-only origin "${MIRZA_GIT_BRANCH}" \
+            || die "git update failed — try: git -c safe.directory=${BOT_DIR} -C ${BOT_DIR} pull"
     else
         local git_url
         git_url="$(resolve_git_repo_url "Git repository URL for update")"

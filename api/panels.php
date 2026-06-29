@@ -359,33 +359,53 @@ switch ($data['actions'] ?? '') {
         }
         $panel = select("marzban_panel", "*", 'name_panel', $panel['Location'], "select");
         if ($panel['type'] == "marzban") {
-            $DataUserOut = getuser($data['input'], $panel['name_panel']);
-            if (!empty($DataUserOut['error']))
-                sendJsonResponse(false, $DataUserOut['error'], [], 200);
-            if (!empty($DataUserOut['status']) && $DataUserOut['status'] != 200)
-                sendJsonResponse(false, $DataUserOut['msg'], [], 200);
-            $DataUserOut = json_decode($DataUserOut['body'], true);
-            if ((isset($DataUserOut['msg']) && $DataUserOut['msg'] == "User not found") or !isset($DataUserOut['proxies'])) {
-                sendJsonResponse(false, "User Not Found", [], 200);
-            }
-            foreach ($DataUserOut['proxies'] as $key => &$value) {
-                if ($key == "shadowsocks") {
-                    unset($DataUserOut['proxies'][$key]['password']);
-                } elseif ($key == "trojan") {
-                    unset($DataUserOut['proxies'][$key]['password']);
-                } else {
-                    unset($DataUserOut['proxies'][$key]['id']);
+            if (($panel['version_panel'] ?? '0') === '1') {
+                $DataUserOut = getuser($data['input'], $panel['name_panel']);
+                if (!empty($DataUserOut['error']))
+                    sendJsonResponse(false, $DataUserOut['error'], [], 200);
+                if (!empty($DataUserOut['status']) && $DataUserOut['status'] != 200)
+                    sendJsonResponse(false, $DataUserOut['msg'], [], 200);
+                $DataUserOut = json_decode($DataUserOut['body'], true);
+                if ((isset($DataUserOut['msg']) && $DataUserOut['msg'] == "User not found") or !isset($DataUserOut['proxy_settings']))
+                    sendJsonResponse(false, "User Not Found", [], 200);
+                if (empty($DataUserOut['group_ids']) || !is_array($DataUserOut['group_ids']))
+                    sendJsonResponse(false, "User has no PasarGuard groups", [], 200);
+                $DataUserOut['proxy_settings'] = marzban_sanitize_proxy_settings_for_storage($DataUserOut['proxy_settings']);
+                $stmt = $pdo->prepare("UPDATE panel SET proxies = :proxies WHERE id = :id_panel");
+                $proxy_output = json_encode($DataUserOut['proxy_settings'], JSON_FORCE_OBJECT);
+                $stmt->bindParam(':proxies', $proxy_output);
+                $stmt->bindParam(':id_panel', $data['id']);
+                $stmt->execute();
+                $datainbound = json_encode($DataUserOut['group_ids']);
+            } else {
+                $DataUserOut = getuser($data['input'], $panel['name_panel']);
+                if (!empty($DataUserOut['error']))
+                    sendJsonResponse(false, $DataUserOut['error'], [], 200);
+                if (!empty($DataUserOut['status']) && $DataUserOut['status'] != 200)
+                    sendJsonResponse(false, $DataUserOut['msg'], [], 200);
+                $DataUserOut = json_decode($DataUserOut['body'], true);
+                if ((isset($DataUserOut['msg']) && $DataUserOut['msg'] == "User not found") or !isset($DataUserOut['proxies'])) {
+                    sendJsonResponse(false, "User Not Found", [], 200);
                 }
-                if (count($DataUserOut['proxies'][$key]) == 0) {
-                    $DataUserOut['proxies'][$key] = new stdClass();
+                foreach ($DataUserOut['proxies'] as $key => &$value) {
+                    if ($key == "shadowsocks") {
+                        unset($DataUserOut['proxies'][$key]['password']);
+                    } elseif ($key == "trojan") {
+                        unset($DataUserOut['proxies'][$key]['password']);
+                    } else {
+                        unset($DataUserOut['proxies'][$key]['id']);
+                    }
+                    if (count($DataUserOut['proxies'][$key]) == 0) {
+                        $DataUserOut['proxies'][$key] = new stdClass();
+                    }
                 }
+                $stmt = $pdo->prepare("UPDATE panel SET proxies = :proxies WHERE id = :id_panel");
+                $proxy_output = json_encode($DataUserOut['proxies']);
+                $stmt->bindParam(':proxies', $proxy_output);
+                $stmt->bindParam(':id_panel', $data['id']);
+                $stmt->execute();
+                $datainbound = json_encode($DataUserOut['inbounds']);
             }
-            $stmt = $pdo->prepare("UPDATE panel SET proxies = :proxies WHERE id = :id_panel");
-            $proxy_output = json_encode($DataUserOut['proxies']);
-            $stmt->bindParam(':proxies', $proxy_output);
-            $stmt->bindParam(':id_panel', $data['id']);
-            $stmt->execute();
-            $datainbound = json_encode($DataUserOut['inbounds']);
         } elseif ($panel['type'] == "marzneshin") {
             $userdata = json_decode(getuserm($data['input'], $panel['name_panel'])['body'], true);
             if (isset($userdata['detail']) and $userdata['detail'] == "User not found")

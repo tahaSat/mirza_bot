@@ -20,6 +20,8 @@ if (!$panel) {
 
 $ptype = $panel['type'] ?? 'marzban';
 $features = panel_features_for_type($ptype);
+$isPasarguard = panel_is_pasarguard($panel);
+$pasarguardGroupIds = panel_format_pasarguard_group_ids($panel['inbounds'] ?? null);
 $tab = $_GET['tab'] ?? 'connection';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save') {
@@ -54,6 +56,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
     $toggleInForm = array_flip(panel_toggle_keys_for_tab($tabSaving));
     $toggle = fn(string $postKey, string $dbField, string $onVal, string $offVal) =>
         panel_toggle_field($panel, $postKey, $dbField, $onVal, $offVal, isset($toggleInForm[$postKey]));
+
+    if (array_key_exists('pasarguard_group_ids', $_POST)) {
+        $parsedGroups = panel_parse_pasarguard_group_ids((string) $_POST['pasarguard_group_ids']);
+        if ($parsedGroups === false) {
+            flash('error', 'شناسه گروه پاسارگارد نامعتبر است. فقط اعداد با کاما مجاز است (مثال: 1 یا 1,2).');
+            header('Location: panel.php?id=' . $id . '&tab=connection');
+            exit;
+        }
+    } else {
+        $parsedGroups = null;
+    }
 
     $data = [
         'name_panel' => $newName,
@@ -96,6 +109,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         'maintime' => panel_merge_agent_json_field($panel, 'maintime', 'maintime'),
         'maxtime' => panel_merge_agent_json_field($panel, 'maxtime', 'maxtime'),
     ];
+
+    if (array_key_exists('pasarguard_group_ids', $_POST)) {
+        $data['inbounds'] = $parsedGroups;
+    }
 
     $clearLogin = $url !== ($panel['url_panel'] ?? '')
         || $data['username_panel'] !== ($panel['username_panel'] ?? '')
@@ -221,6 +238,9 @@ include __DIR__ . '/inc/layout_head.php';
     <input type="hidden" name="namecustom" value="<?= htmlspecialchars($panel['namecustom'] ?? '') ?>">
     <input type="hidden" name="agent" value="<?= htmlspecialchars($panel['agent'] ?? 'all') ?>">
     <input type="hidden" name="limit_panel" value="<?= htmlspecialchars($panel['limit_panel'] ?? '') ?>">
+    <?php if ($isPasarguard): ?>
+    <input type="hidden" name="pasarguard_group_ids" value="<?= htmlspecialchars($pasarguardGroupIds) ?>">
+    <?php endif; ?>
     <?php if (($panel['status'] ?? '') === 'active'): ?><input type="hidden" name="status_active" value="1"><?php endif; ?>
     <?php if (($panel['TestAccount'] ?? '') === 'ONTestAccount'): ?><input type="hidden" name="test_on" value="1"><?php endif; ?>
   <?php endif; ?>
@@ -357,6 +377,27 @@ include __DIR__ . '/inc/layout_head.php';
           <div class="field full">
             <label>نام گروه پیش‌فرض (IBSng)</label>
             <input type="text" name="namecustom" class="input" value="<?= htmlspecialchars($panel['namecustom'] ?? '') ?>">
+          </div>
+          <?php endif; ?>
+          <?php if ($isPasarguard): ?>
+          <div class="field full">
+            <label>شناسه گروه پاسارگارد (group_ids)</label>
+            <input type="text" name="pasarguard_group_ids" class="input"
+              value="<?= htmlspecialchars($pasarguardGroupIds) ?>"
+              placeholder="مثال: 1 یا 1, 2"
+              pattern="\d+(\s*,\s*\d+)*"
+              inputmode="numeric"
+              autocomplete="off">
+            <small class="cf" style="display:block;margin-top:6px">
+              از پنل PasarGuard → <strong>Groups</strong> شناسه گروه را بگیرید. هر گروه اینباندهای مشخصی دارد.
+              برای فعال‌سازی حالت پاسارگارد به تب <strong>قابلیت‌ها</strong> بروید و «پنل پاسارگارد» را روشن کنید.
+            </small>
+          </div>
+          <?php elseif ($ptype === 'marzban'): ?>
+          <div class="field full">
+            <div class="notice notice-warn" style="margin:0">
+              برای پاسارگارد، در تب <strong>قابلیت‌ها</strong> گزینه «پنل پاسارگارد» را فعال کنید تا فیلد شناسه گروه نمایش داده شود.
+            </div>
           </div>
           <?php endif; ?>
           <div class="field">
@@ -501,9 +542,15 @@ include __DIR__ . '/inc/layout_head.php';
       <div class="card-head"><div class="card-title">داده‌های فنی (فقط خواندنی)</div></div>
       <div class="card-body">
         <div class="field full">
-          <label>inbounds</label>
+          <label><?= $isPasarguard ? 'group_ids (inbounds)' : 'inbounds' ?></label>
           <textarea class="input" rows="3" readonly><?= htmlspecialchars($panel['inbounds'] ?? '') ?></textarea>
-          <small class="cf">از ربات: ⚙️ تنظیم پروتکل و اینباند — با ارسال نام کاربری کانفیگ</small>
+          <small class="cf">
+            <?php if ($isPasarguard): ?>
+              ویرایش از تب <strong>اتصال</strong> → فیلد «شناسه گروه پاسارگارد»، یا از ربات تلگرام → تنظیم پروتکل و اینباند
+            <?php else: ?>
+              از ربات: ⚙️ تنظیم پروتکل و اینباند — با ارسال نام کاربری کانفیگ
+            <?php endif; ?>
+          </small>
         </div>
         <div class="field full">
           <label>proxies</label>

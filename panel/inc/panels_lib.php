@@ -213,6 +213,53 @@ function panel_format_hide_users(array $ids): string
     return json_encode($ids, JSON_UNESCAPED_UNICODE);
 }
 
+/** Display stored PasarGuard group_ids (marzban_panel.inbounds JSON) as "1, 2". */
+function panel_format_pasarguard_group_ids(?string $inboundsJson): string
+{
+    if ($inboundsJson === null || $inboundsJson === '' || $inboundsJson === 'null') {
+        return '';
+    }
+    $decoded = json_decode($inboundsJson, true);
+    if (!is_array($decoded)) {
+        return '';
+    }
+    $ids = [];
+    foreach ($decoded as $item) {
+        if (is_numeric($item)) {
+            $id = (int) $item;
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+    }
+
+    return implode(', ', $ids);
+}
+
+/**
+ * Parse "1,2" into JSON array for marzban_panel.inbounds.
+ * @return string|null|false JSON string, null if empty, false if invalid
+ */
+function panel_parse_pasarguard_group_ids(string $input): string|false|null
+{
+    $input = trim($input);
+    if ($input === '') {
+        return null;
+    }
+    if (!preg_match('/^\d+(\s*,\s*\d+)*$/', $input)) {
+        return false;
+    }
+    $ids = array_map('intval', preg_split('/\s*,\s*/', $input));
+    $ids = array_values(array_unique(array_filter($ids, fn($id) => $id > 0)));
+
+    return $ids === [] ? null : json_encode($ids);
+}
+
+function panel_is_pasarguard(array $panel): bool
+{
+    return ($panel['type'] ?? '') === 'marzban' && ($panel['version_panel'] ?? '0') === '1';
+}
+
 function panel_invoice_stats(PDO $pdo, string $namePanel): array
 {
     try {

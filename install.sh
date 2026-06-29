@@ -88,6 +88,30 @@ prompt_yes_no() {
     [[ "$reply" =~ ^[Yy]$ ]]
 }
 
+ask_certbot_email() {
+    if [[ -n "${CERTBOT_EMAIL:-}" ]]; then
+        return 0
+    fi
+    echo ""
+    echo -e "\033[1;36mLet's Encrypt\033[0m — email for certificate expiry notices (required by Certbot)."
+    while [[ ! "${CERTBOT_EMAIL:-}" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; do
+        read -r -p "Email address: " CERTBOT_EMAIL
+        [[ "${CERTBOT_EMAIL}" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || echo -e "\033[31mEnter a valid email (or export CERTBOT_EMAIL=... before running).\033[0m"
+    done
+}
+
+run_certbot_apache() {
+    local domain="$1"
+    shift
+    ask_certbot_email
+    certbot --apache \
+        --agree-tos \
+        --non-interactive \
+        --email "$CERTBOT_EMAIL" \
+        "$@" \
+        -d "$domain"
+}
+
 ask_telegram_update_mode() {
     echo ""
     echo -e "\033[1;36mTelegram update delivery\033[0m"
@@ -217,7 +241,7 @@ EOF
         a2ensite "${MIRZA_APACHE_SITE}.conf"
         a2enmod rewrite ssl headers 2>/dev/null || true
         systemctl reload apache2
-        certbot --apache --agree-tos --non-interactive --redirect -d "$domain" || die "Certbot failed for ${domain}"
+        run_certbot_apache "$domain" --redirect || die "Certbot failed for ${domain}. Ensure DNS for ${domain} points to this server, port 80 is open, then run: certbot --apache -d ${domain} -m YOUR_EMAIL --agree-tos"
     else
         # Marzban: Apache HTTPS on alternate port (e.g. 88)
         cat > "$site_conf" <<EOF
@@ -234,7 +258,7 @@ EOF
         a2ensite "${MIRZA_APACHE_SITE}.conf"
         a2enmod rewrite ssl headers 2>/dev/null || true
         systemctl reload apache2
-        certbot --apache --agree-tos --non-interactive --https-port "$ssl_port" --no-redirect -d "$domain" || die "Certbot failed on port ${ssl_port}"
+        run_certbot_apache "$domain" --https-port "$ssl_port" --no-redirect || die "Certbot failed on port ${ssl_port}"
 
         local ssl_conf="/etc/apache2/sites-available/${MIRZA_APACHE_SITE}-ssl.conf"
         cat > "$ssl_conf" <<EOF

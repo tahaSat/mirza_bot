@@ -2485,18 +2485,75 @@ function parseConfigs($input)
     return $configs;
 }
 
+function referral_ensure_schema(): void
+{
+    static $ready = false;
+    if ($ready) {
+        return;
+    }
+
+    global $pdo;
+
+    if (!($pdo instanceof PDO)) {
+        return;
+    }
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS referral_campaign (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(32) NOT NULL,
+        title VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+        description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+        code_product VARCHAR(100) NOT NULL,
+        panel_name VARCHAR(255) NOT NULL,
+        required_invites INT UNSIGNED NOT NULL DEFAULT 1,
+        status VARCHAR(20) NOT NULL DEFAULT 'inactive',
+        new_users_only TINYINT(1) NOT NULL DEFAULT 1,
+        created_at VARCHAR(50) NOT NULL,
+        UNIQUE KEY uniq_referral_code (code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS referral_invite (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        campaign_id INT UNSIGNED NOT NULL,
+        referrer_id BIGINT NOT NULL,
+        invited_user_id BIGINT NOT NULL,
+        created_at VARCHAR(50) NOT NULL,
+        UNIQUE KEY uniq_campaign_invited (campaign_id, invited_user_id),
+        KEY idx_campaign_referrer (campaign_id, referrer_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS referral_reward (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        campaign_id INT UNSIGNED NOT NULL,
+        user_id BIGINT NOT NULL,
+        id_invoice VARCHAR(100) NOT NULL,
+        granted_at VARCHAR(50) NOT NULL,
+        UNIQUE KEY uniq_campaign_user_reward (campaign_id, user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+
+    addFieldToTable('setting', 'referralstatus', 'offreferral', 'VARCHAR(200)');
+
+    $stmt = $pdo->prepare("INSERT IGNORE INTO textbot (id_text, text) VALUES ('text_referral', ?)");
+    $stmt->execute(['🎁 دعوت دوستان']);
+
+    $ready = true;
+}
+
 function referral_get_campaign_by_code($code)
 {
+    referral_ensure_schema();
     return select("referral_campaign", "*", "code", $code, "select");
 }
 
 function referral_get_campaign_by_id($id)
 {
+    referral_ensure_schema();
     return select("referral_campaign", "*", "id", $id, "select");
 }
 
 function referral_get_active_campaigns()
 {
+    referral_ensure_schema();
     global $pdo;
     $stmt = $pdo->prepare("SELECT * FROM referral_campaign WHERE status = 'active' ORDER BY id DESC");
     $stmt->execute();
@@ -2505,6 +2562,7 @@ function referral_get_active_campaigns()
 
 function referral_count_invites($campaign_id, $referrer_id)
 {
+    referral_ensure_schema();
     global $pdo;
     $stmt = $pdo->prepare("SELECT COUNT(*) FROM referral_invite WHERE campaign_id = ? AND referrer_id = ?");
     $stmt->execute([(int) $campaign_id, (string) $referrer_id]);
@@ -2513,6 +2571,7 @@ function referral_count_invites($campaign_id, $referrer_id)
 
 function referral_has_reward($campaign_id, $user_id)
 {
+    referral_ensure_schema();
     global $pdo;
     $stmt = $pdo->prepare("SELECT id FROM referral_reward WHERE campaign_id = ? AND user_id = ? LIMIT 1");
     $stmt->execute([(int) $campaign_id, (string) $user_id]);

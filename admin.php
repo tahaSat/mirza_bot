@@ -3229,6 +3229,7 @@ $caption";
 } elseif ($text == "🏬 تنظیمات فروشگاه" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['users']['selectoption'], $shopkeyboard, 'HTML');
 } elseif ($text == "🎁 کمپین‌های دعوت" && $adminrulecheck['rule'] == "administrator") {
+    referral_ensure_schema();
     $all_campaigns_stmt = $pdo->query("SELECT * FROM referral_campaign ORDER BY id DESC LIMIT 20");
     $all_campaigns = $all_campaigns_stmt ? $all_campaigns_stmt->fetchAll(PDO::FETCH_ASSOC) : [];
     $master = ($setting['referralstatus'] ?? 'offreferral') === 'onreferral' ? 'فعال' : 'غیرفعال';

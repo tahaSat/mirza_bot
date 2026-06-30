@@ -6,6 +6,7 @@ require_once __DIR__ . '/inc/panels_lib.php';
 require_auth();
 require_administrator();
 $pdo = panel_ensure_pdo();
+referral_ensure_schema();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle_master') {
     csrf_check_post();

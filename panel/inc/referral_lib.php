@@ -13,6 +13,7 @@ function referral_lib_products(PDO $pdo): array
 
 function referral_lib_list_campaigns(PDO $pdo): array
 {
+    referral_ensure_schema();
     $rows = db_fetchAll($pdo, "SELECT * FROM referral_campaign ORDER BY id DESC");
     foreach ($rows as &$row) {
         $row['stats'] = referral_lib_campaign_stats($pdo, (int) $row['id']);
@@ -57,6 +58,7 @@ function referral_lib_validate_code(string $code): bool
 
 function referral_lib_save_campaign(PDO $pdo, array $data, ?int $id = null): void
 {
+    referral_ensure_schema();
     $product = db_fetch($pdo, "SELECT * FROM product WHERE code_product = ?", [$data['code_product'] ?? '']);
     if (!$product) {
         throw new InvalidArgumentException('محصول انتخاب‌شده یافت نشد.');
@@ -118,6 +120,7 @@ function referral_lib_toggle_status(PDO $pdo, int $id): void
 
 function referral_lib_toggle_master(PDO $pdo): string
 {
+    referral_ensure_schema();
     $setting = select('setting', 'referralstatus', null, null, 'select', ['cache' => false]);
     $current = $setting['referralstatus'] ?? 'offreferral';
     $new = $current === 'onreferral' ? 'offreferral' : 'onreferral';

@@ -1975,7 +1975,8 @@ function get_default_main_keyboard_layout()
         ['text_usertest', 'text_wheel_luck'],
         ['text_Purchased_services', 'accountwallet'],
         ['text_affiliates', 'text_Tariff_list'],
-        ['text_support', 'text_help'],
+        ['text_referral', 'text_support'],
+        ['text_help'],
     ];
 }
 
@@ -2032,30 +2033,75 @@ function build_keyboardmain_from_active_buttons($active_buttons)
 function get_main_keyboard_button_fallback_labels()
 {
     return [
-        'text_sell' => 'خرید اشتراک',
-        'text_extend' => 'تمدید',
-        'text_usertest' => 'اکانت تست',
-        'text_wheel_luck' => 'گردونه شانس',
-        'text_Purchased_services' => 'سرویس‌های خریداری‌شده',
-        'accountwallet' => 'کیف پول',
-        'text_affiliates' => 'زیرمجموعه‌گیری',
-        'text_Tariff_list' => 'لیست تعرفه',
-        'text_support' => 'پشتیبانی',
-        'text_help' => 'آموزش',
+        'text_sell' => '🔐 خرید اشتراک',
+        'text_extend' => '♻️ تمدید سرویس',
+        'text_usertest' => '🔑 اکانت تست',
+        'text_wheel_luck' => '🎲 گردونه شانس',
+        'text_Purchased_services' => '🛍 سرویس های من',
+        'accountwallet' => '🏦 کیف پول + شارژ',
+        'text_affiliates' => '👥 زیر مجموعه گیری',
+        'text_referral' => '🎁 دعوت دوستان',
+        'text_Tariff_list' => '💵 تعرفه اشتراک ها',
+        'text_support' => '☎️ پشتیبانی',
+        'text_help' => '📚 آموزش',
     ];
+}
+
+function is_main_keyboard_internal_id($text)
+{
+    return in_array($text, get_main_keyboard_button_ids(), true);
 }
 
 function get_main_keyboard_button_label($button_id, $datatextbot)
 {
+    $fallbacks = get_main_keyboard_button_fallback_labels();
+    $fallback = $fallbacks[$button_id] ?? $button_id;
+
+    if (!is_array($datatextbot) || empty($datatextbot[$button_id])) {
+        return $fallback;
+    }
+
+    $label = trim((string) $datatextbot[$button_id]);
+    if ($label === '' || is_main_keyboard_internal_id($label)) {
+        return $fallback;
+    }
+
+    // Menu buttons must stay short; long/multi-line textbot entries are message copy, not labels.
+    if (str_contains($label, "\n") || mb_strlen($label) > 32) {
+        return $fallback;
+    }
+
+    return $label;
+}
+
+function user_text_matches_main_button($text, $button_id, $datatextbot)
+{
+    if ($text === '' || $text === null) {
+        return false;
+    }
+
+    $candidates = [
+        $button_id,
+        get_main_keyboard_button_label($button_id, $datatextbot),
+        get_main_keyboard_button_fallback_labels()[$button_id] ?? '',
+    ];
+
     if (is_array($datatextbot) && !empty($datatextbot[$button_id])) {
-        $label = trim((string) $datatextbot[$button_id]);
-        if ($label !== '') {
-            return $label;
+        $raw = trim((string) $datatextbot[$button_id]);
+        if ($raw !== '') {
+            $candidates[] = $raw;
+            $first_line = trim(strtok($raw, "\n"));
+            if ($first_line !== '') {
+                $candidates[] = $first_line;
+            }
         }
     }
 
-    $fallbacks = get_main_keyboard_button_fallback_labels();
-    return $fallbacks[$button_id] ?? $button_id;
+    $candidates = array_values(array_unique(array_filter($candidates, static function ($value) {
+        return $value !== '';
+    })));
+
+    return in_array($text, $candidates, true);
 }
 
 function attach_main_keyboard_inline_callbacks($keyboard_rows)
@@ -2066,6 +2112,7 @@ function attach_main_keyboard_inline_callbacks($keyboard_rows)
         'text_Tariff_list' => 'Tariff_list',
         'text_wheel_luck' => 'wheel_luck',
         'text_affiliates' => 'affiliatesbtn',
+        'text_referral' => 'referralbtn',
         'text_extend' => 'extendbtn',
         'text_support' => 'supportbtns',
         'text_Purchased_services' => 'backorder',
@@ -2436,4 +2483,376 @@ function parseConfigs($input)
     }
 
     return $configs;
+}
+
+function referral_get_campaign_by_code($code)
+{
+    return select("referral_campaign", "*", "code", $code, "select");
+}
+
+function referral_get_campaign_by_id($id)
+{
+    return select("referral_campaign", "*", "id", $id, "select");
+}
+
+function referral_get_active_campaigns()
+{
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT * FROM referral_campaign WHERE status = 'active' ORDER BY id DESC");
+    $stmt->execute();
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function referral_count_invites($campaign_id, $referrer_id)
+{
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM referral_invite WHERE campaign_id = ? AND referrer_id = ?");
+    $stmt->execute([(int) $campaign_id, (string) $referrer_id]);
+    return (int) $stmt->fetchColumn();
+}
+
+function referral_has_reward($campaign_id, $user_id)
+{
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT id FROM referral_reward WHERE campaign_id = ? AND user_id = ? LIMIT 1");
+    $stmt->execute([(int) $campaign_id, (string) $user_id]);
+    return (bool) $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+/** Each user's referral identifier is their Telegram numeric ID (auto, no manual code). */
+function referral_get_user_code($user_id)
+{
+    return (string) $user_id;
+}
+
+function referral_resolve_campaign($campaign_key)
+{
+    if (ctype_digit((string) $campaign_key)) {
+        return referral_get_campaign_by_id((int) $campaign_key);
+    }
+    return referral_get_campaign_by_code($campaign_key);
+}
+
+function referral_build_link($campaign_id, $referrer_id)
+{
+    global $usernamebot;
+    $campaign_id = (int) $campaign_id;
+    $referrer_id = referral_get_user_code($referrer_id);
+    return "https://t.me/$usernamebot?start=ref_{$campaign_id}_{$referrer_id}";
+}
+
+function referral_validate_campaign_code($code)
+{
+    return (bool) preg_match('/^[A-Za-z0-9]{2,20}$/', (string) $code);
+}
+
+function referral_auto_campaign_code($campaign_id)
+{
+    return 'REF' . (int) $campaign_id;
+}
+
+function provision_free_service($user_id, $product, $panel, $note = 'referral_reward')
+{
+    global $pdo, $connect, $textbotlang, $setting, $admin_ids, $errorreport, $datatextbot;
+
+    if (!is_array($product) || !is_array($panel)) {
+        return ['ok' => false, 'invoice_id' => null, 'msg' => 'invalid product or panel'];
+    }
+
+    if (!class_exists('ManagePanel')) {
+        require_once __DIR__ . '/panels.php';
+    }
+    $ManagePanel = new ManagePanel();
+
+    $user_info = select("user", "*", "id", $user_id, "select");
+    if (!$user_info) {
+        return ['ok' => false, 'invoice_id' => null, 'msg' => 'user not found'];
+    }
+
+    $usernameinvoice = select("invoice", "username", null, null, "FETCH_COLUMN");
+    if (!is_array($usernameinvoice)) {
+        $usernameinvoice = [];
+    }
+
+    $randomString = bin2hex(random_bytes(4));
+    $username_ac = generateUsername(
+        $user_info['id'],
+        $panel['MethodUsername'],
+        $user_info['username'],
+        $randomString,
+        '',
+        $panel['namecustom'],
+        $user_info['namecustom']
+    );
+    $username_ac = strtolower((string) $username_ac);
+
+    $DataUserOut = $ManagePanel->DataUser($panel['name_panel'], $username_ac);
+    if (isset($DataUserOut['username']) || in_array($username_ac, $usernameinvoice, true)) {
+        return ['ok' => false, 'invoice_id' => null, 'msg' => 'username exists'];
+    }
+
+    $notifctions = json_encode(['volume' => false, 'time' => false]);
+    $date = time();
+    $Status = "active";
+    $price = 0;
+    $stmt = $connect->prepare("INSERT IGNORE INTO invoice (id_user, id_invoice, username, time_sell, Service_location, name_product, price_product, Volume, Service_time, Status, note, refral, notifctions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $refral = '0';
+    $stmt->bind_param(
+        "sssssssssssss",
+        $user_id,
+        $randomString,
+        $username_ac,
+        $date,
+        $panel['name_panel'],
+        $product['name_product'],
+        $price,
+        $product['Volume_constraint'],
+        $product['Service_time'],
+        $Status,
+        $note,
+        $refral,
+        $notifctions
+    );
+    $stmt->execute();
+    $stmt->close();
+
+    $datetimestep = strtotime("+" . $product['Service_time'] . "days");
+    if (intval($product['Service_time']) == 0) {
+        $datetimestep = 0;
+    } else {
+        $datetimestep = strtotime(date("Y-m-d H:i:s", $datetimestep));
+    }
+
+    $datac = [
+        'expire' => $datetimestep,
+        'data_limit' => intval($product['Volume_constraint']) * pow(1024, 3),
+        'from_id' => $user_id,
+        'username' => $user_info['username'],
+        'type' => 'buy',
+    ];
+
+    $dataoutput = $ManagePanel->createUser($panel['name_panel'], $product['code_product'], $username_ac, $datac);
+    if (!isset($dataoutput['username']) || $dataoutput['username'] === null || $dataoutput['username'] === '') {
+        $errorMessage = $dataoutput['msg'] ?? 'unknown error';
+        if (is_array($errorMessage) || is_object($errorMessage)) {
+            $errorMessage = json_encode($errorMessage, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        if (strlen($setting['Channel_Report'] ?? '') > 0) {
+            telegram('sendmessage', [
+                'chat_id' => $setting['Channel_Report'],
+                'message_thread_id' => $errorreport ?? 0,
+                'text' => "⭕️ خطای ساخت هدیه دعوت\n{$errorMessage}\nکاربر: {$user_id}",
+                'parse_mode' => "HTML",
+            ]);
+        }
+        return ['ok' => false, 'invoice_id' => $randomString, 'msg' => (string) $errorMessage];
+    }
+
+    update("invoice", "Status", "active", "username", $username_ac);
+
+    $output_config_link = $panel['sublink'] == "onsublink" ? ($dataoutput['subscription_url'] ?? '') : "";
+    $config = "";
+    if ($panel['config'] == "onconfig" && is_array($dataoutput['configs'] ?? null)) {
+        foreach ($dataoutput['configs'] as $link) {
+            $config .= "\n" . $link;
+        }
+    }
+
+    if (!is_array($datatextbot)) {
+        $datatextbot = $pdo->query("SELECT id_text, text FROM textbot")->fetchAll(PDO::FETCH_KEY_PAIR);
+    }
+
+    $textafterpay = $datatextbot['textafterpay'] ?? '';
+    $textafterpay = $panel['type'] == "Manualsale" ? ($datatextbot['textmanual'] ?? $textafterpay) : $textafterpay;
+    $textafterpay = $panel['type'] == "WGDashboard" ? ($datatextbot['text_wgdashboard'] ?? $textafterpay) : $textafterpay;
+    $textafterpay = ($panel['type'] == "ibsng" || $panel['type'] == "mikrotik") ? ($datatextbot['textafterpayibsng'] ?? $textafterpay) : $textafterpay;
+
+    $service_time = $product['Service_time'];
+    $volume = $product['Volume_constraint'];
+    if (intval($service_time) == 0) {
+        $service_time = $textbotlang['users']['stateus']['Unlimited'] ?? 'نامحدود';
+    }
+    if (intval($volume) == 0) {
+        $volume = $textbotlang['users']['stateus']['Unlimited'] ?? 'نامحدود';
+    }
+
+    $textcreatuser = str_replace('{username}', "<code>{$dataoutput['username']}</code>", $textafterpay);
+    $textcreatuser = str_replace('{name_service}', $product['name_product'], $textcreatuser);
+    $textcreatuser = str_replace('{location}', $panel['name_panel'], $textcreatuser);
+    $textcreatuser = str_replace('{day}', $service_time, $textcreatuser);
+    $textcreatuser = str_replace('{volume}', $volume, $textcreatuser);
+    $textcreatuser = str_replace('{config}', "<code>{$output_config_link}</code>", $textcreatuser);
+    $textcreatuser = str_replace('{links}', $config, $textcreatuser);
+    $textcreatuser = str_replace('{links2}', $output_config_link, $textcreatuser);
+    if (intval($product['Volume_constraint']) == 0) {
+        $textcreatuser = str_replace('گیگابایت', "", $textcreatuser);
+    }
+    if (in_array($panel['type'], ['Manualsale', 'ibsng', 'mikrotik'], true)) {
+        $textcreatuser = str_replace('{password}', $dataoutput['subscription_url'] ?? '', $textcreatuser);
+        update("invoice", "user_info", $dataoutput['subscription_url'] ?? '', "id_invoice", $randomString);
+    }
+
+    $Shoppinginfo = json_encode([
+        'inline_keyboard' => [
+            [['text' => $textbotlang['users']['help']['btninlinebuy'] ?? 'راهنما', 'callback_data' => "helpbtn"]],
+        ],
+    ]);
+
+    sendMessageService($panel, $dataoutput['configs'] ?? [], $output_config_link, $dataoutput['username'], $Shoppinginfo, $textcreatuser, $randomString, $user_id);
+
+    if ($panel['MethodUsername'] == "متن دلخواه + عدد ترتیبی" || $panel['MethodUsername'] == "نام کاربری + عدد به ترتیب" || $panel['MethodUsername'] == "آیدی عددی+عدد ترتیبی" || $panel['MethodUsername'] == "متن دلخواه نماینده + عدد ترتیبی") {
+        $value = intval($user_info['number_username']) + 1;
+        update("user", "number_username", $value, "id", $user_id);
+        if ($panel['MethodUsername'] == "متن دلخواه + عدد ترتیبی" || $panel['MethodUsername'] == "متن دلخواه نماینده + عدد ترتیبی") {
+            $value = intval($setting['numbercount']) + 1;
+            update("setting", "numbercount", $value);
+        }
+    }
+
+    return ['ok' => true, 'invoice_id' => $randomString, 'msg' => 'ok', 'username' => $dataoutput['username']];
+}
+
+function referral_check_and_grant_reward($campaign, $referrer_id)
+{
+    global $setting, $pdo, $buyreport, $usernamebot;
+
+    if (!is_array($campaign)) {
+        return false;
+    }
+
+    $campaign_id = (int) $campaign['id'];
+    if (referral_has_reward($campaign_id, $referrer_id)) {
+        return false;
+    }
+
+    $invite_count = referral_count_invites($campaign_id, $referrer_id);
+    if ($invite_count < (int) $campaign['required_invites']) {
+        return false;
+    }
+
+    $product = select("product", "*", "code_product", $campaign['code_product'], "select");
+    $panel = select("marzban_panel", "*", "name_panel", $campaign['panel_name'], "select");
+    if (!$product || !$panel) {
+        return false;
+    }
+
+    $result = provision_free_service($referrer_id, $product, $panel, 'referral_reward_' . $campaign['code']);
+    if (!$result['ok']) {
+        return false;
+    }
+
+    $granted_at = date('Y/m/d H:i:s');
+    $stmt = $pdo->prepare("INSERT INTO referral_reward (campaign_id, user_id, id_invoice, granted_at) VALUES (?, ?, ?, ?)");
+    $stmt->execute([$campaign_id, (string) $referrer_id, $result['invoice_id'], $granted_at]);
+
+    $reward_text = "<b>🎉 تبریک! هدیه دعوت دریافت شد</b>\n\n";
+    $reward_text .= "کمپین: <b>{$campaign['title']}</b>\n";
+    $reward_text .= "سرویس: <b>{$product['name_product']}</b>\n";
+    $reward_text .= "نام کاربری: <code>{$result['username']}</code>";
+    sendmessage($referrer_id, $reward_text, null, 'HTML');
+
+    if (strlen($setting['Channel_Report'] ?? '') > 0) {
+        telegram('sendmessage', [
+            'chat_id' => $setting['Channel_Report'],
+            'message_thread_id' => $buyreport ?? 0,
+            'text' => "🎁 هدیه دعوت\nکمپین: {$campaign['title']}\nکاربر: {$referrer_id}\nسرویس: {$product['name_product']}",
+            'parse_mode' => "HTML",
+        ]);
+    }
+
+    return true;
+}
+
+function handle_referral_start($campaign_key, $referrer_id, $invited_user_id, $was_new_user, $invited_username = '')
+{
+    global $setting, $pdo, $users_ids, $keyboard;
+
+    $referrer_id = referral_get_user_code($referrer_id);
+    $campaign = referral_resolve_campaign($campaign_key);
+    if (!$campaign || ($campaign['status'] ?? '') !== 'active') {
+        return ['ok' => false, 'reason' => 'inactive'];
+    }
+    if (($setting['referralstatus'] ?? 'offreferral') !== 'onreferral') {
+        return ['ok' => false, 'reason' => 'disabled'];
+    }
+    if ((string) $referrer_id === (string) $invited_user_id) {
+        sendmessage($invited_user_id, "❌ نمی‌توانید از لینک دعوت خودتان استفاده کنید.", null, 'HTML');
+        return ['ok' => false, 'reason' => 'self'];
+    }
+    if (!in_array((string) $referrer_id, array_map('strval', $users_ids), true)) {
+        return ['ok' => false, 'reason' => 'invalid_referrer'];
+    }
+    if (intval($campaign['new_users_only'] ?? 1) === 1 && !$was_new_user) {
+        sendmessage($invited_user_id, "❌ این لینک دعوت فقط برای کاربران جدید معتبر است.", $keyboard, 'HTML');
+        return ['ok' => false, 'reason' => 'not_new_user'];
+    }
+
+    $stmt = $pdo->prepare("SELECT id FROM referral_invite WHERE campaign_id = ? AND invited_user_id = ? LIMIT 1");
+    $stmt->execute([(int) $campaign['id'], (string) $invited_user_id]);
+    if ($stmt->fetch(PDO::FETCH_ASSOC)) {
+        return ['ok' => false, 'reason' => 'already_invited'];
+    }
+
+    $created_at = date('Y/m/d H:i:s');
+    $stmt = $pdo->prepare("INSERT INTO referral_invite (campaign_id, referrer_id, invited_user_id, created_at) VALUES (?, ?, ?, ?)");
+    try {
+        $stmt->execute([(int) $campaign['id'], (string) $referrer_id, (string) $invited_user_id, $created_at]);
+    } catch (Exception $e) {
+        return ['ok' => false, 'reason' => 'duplicate'];
+    }
+
+    $referrer = select("user", "*", "id", $referrer_id, "select");
+    $referrer_name = $referrer['username'] ?? $referrer_id;
+    sendmessage($invited_user_id, "<b>🎉 خوش آمدید!</b>\n\nشما با دعوت <b>@{$referrer_name}</b> وارد ربات شدید.", $keyboard, 'HTML');
+
+    $invite_count = referral_count_invites($campaign['id'], $referrer_id);
+    $required = (int) $campaign['required_invites'];
+    sendmessage($referrer_id, "✅ یک دعوت جدید ثبت شد!\n\nکمپین: <b>{$campaign['title']}</b>\nپیشرفت: {$invite_count} / {$required}", null, 'HTML');
+
+    referral_check_and_grant_reward($campaign, $referrer_id);
+
+    return ['ok' => true, 'reason' => 'registered', 'count' => $invite_count];
+}
+
+function referral_render_user_message($campaign, $user_id)
+{
+    global $usernamebot;
+
+    if (!is_array($campaign)) {
+        return '';
+    }
+
+    $user_id = referral_get_user_code($user_id);
+    $link = referral_build_link($campaign['id'], $user_id);
+    $invite_count = referral_count_invites($campaign['id'], $user_id);
+    $required = (int) $campaign['required_invites'];
+    $rewarded = referral_has_reward($campaign['id'], $user_id);
+
+    $product = select("product", "*", "code_product", $campaign['code_product'], "select");
+    $product_name = $product['name_product'] ?? $campaign['code_product'];
+
+    $text = "<b>🎁 {$campaign['title']}</b>\n\n";
+    if (!empty($campaign['description']) && $campaign['description'] !== 'none') {
+        $text .= $campaign['description'] . "\n\n";
+    }
+    $text .= "🎯 هدف: <b>{$required}</b> دعوت\n";
+    $text .= "🏆 جایزه: <b>{$product_name}</b>\n";
+    $text .= "📊 پیشرفت شما: <b>{$invite_count} / {$required}</b>\n\n";
+    $text .= "🆔 کد دعوت شما: <code>{$user_id}</code>\n";
+    $text .= "🔗 لینک اختصاصی:\n<code>{$link}</code>\n";
+
+    if ($rewarded) {
+        $text .= "\n✅ جایزه این کمپین قبلاً برای شما فعال شده است.";
+    } elseif ($invite_count >= $required) {
+        $text .= "\n⏳ جایزه در حال آماده‌سازی است...";
+    }
+
+    $keyboard_rows = [
+        [['text' => "🔗 اشتراک‌گذاری لینک", 'url' => "https://t.me/share/url?url=" . urlencode($link)]],
+    ];
+
+    return [
+        'text' => $text,
+        'keyboard' => json_encode(['inline_keyboard' => $keyboard_rows], JSON_UNESCAPED_UNICODE),
+    ];
 }

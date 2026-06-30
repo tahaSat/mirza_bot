@@ -266,6 +266,7 @@ timeauto_not_verify,status_keyboard_config,cron_status
         addFieldToTable("setting", "Bot_Status", "botstatuson", "VARCHAR(200)");
         addFieldToTable("setting", "roll_Status", "rolleon", "VARCHAR(200)");
         addFieldToTable("setting", "verifystart", "offverify", "VARCHAR(200)");
+        addFieldToTable("setting", "referralstatus", "offreferral", "VARCHAR(200)");
     }
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());
@@ -830,6 +831,7 @@ try {
         ['text_dec_Tariff_list', 'تنظیم نشده است'],
         ['text_Account_op', '🎛 حساب کاربری'],
         ['text_affiliates', '👥 زیر مجموعه گیری'],
+        ['text_referral', '🎁 دعوت دوستان'],
         ['text_pishinvoice', $text_invoice],
         ['accountwallet', '🏦 کیف پول + شارژ'],
         ['carttocart', '💳 کارت به کارت'],
@@ -1477,6 +1479,69 @@ try {
         )ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_bin");
         if (!$result) {
             echo "table affiliates" . mysqli_error($connect);
+        }
+    }
+} catch (Exception $e) {
+    file_put_contents('error_log', $e->getMessage());
+}
+try {
+    $result = $connect->query("SHOW TABLES LIKE 'referral_campaign'");
+    $table_exists = ($result->num_rows > 0);
+    if (!$table_exists) {
+        $result = $connect->query("CREATE TABLE referral_campaign (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(32) NOT NULL,
+        title VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+        description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+        code_product VARCHAR(100) NOT NULL,
+        panel_name VARCHAR(255) NOT NULL,
+        required_invites INT UNSIGNED NOT NULL DEFAULT 1,
+        status VARCHAR(20) NOT NULL DEFAULT 'inactive',
+        new_users_only TINYINT(1) NOT NULL DEFAULT 1,
+        created_at VARCHAR(50) NOT NULL,
+        UNIQUE KEY uniq_referral_code (code)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        if (!$result) {
+            echo "table referral_campaign" . mysqli_error($connect);
+        }
+    }
+} catch (Exception $e) {
+    file_put_contents('error_log', $e->getMessage());
+}
+try {
+    $result = $connect->query("SHOW TABLES LIKE 'referral_invite'");
+    $table_exists = ($result->num_rows > 0);
+    if (!$table_exists) {
+        $result = $connect->query("CREATE TABLE referral_invite (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        campaign_id INT UNSIGNED NOT NULL,
+        referrer_id BIGINT NOT NULL,
+        invited_user_id BIGINT NOT NULL,
+        created_at VARCHAR(50) NOT NULL,
+        UNIQUE KEY uniq_campaign_invited (campaign_id, invited_user_id),
+        KEY idx_campaign_referrer (campaign_id, referrer_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        if (!$result) {
+            echo "table referral_invite" . mysqli_error($connect);
+        }
+    }
+} catch (Exception $e) {
+    file_put_contents('error_log', $e->getMessage());
+}
+try {
+    $result = $connect->query("SHOW TABLES LIKE 'referral_reward'");
+    $table_exists = ($result->num_rows > 0);
+    if (!$table_exists) {
+        $result = $connect->query("CREATE TABLE referral_reward (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        campaign_id INT UNSIGNED NOT NULL,
+        user_id BIGINT NOT NULL,
+        id_invoice VARCHAR(100) NOT NULL,
+        granted_at VARCHAR(50) NOT NULL,
+        UNIQUE KEY uniq_campaign_user_reward (campaign_id, user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        if (!$result) {
+            echo "table referral_reward" . mysqli_error($connect);
         }
     }
 } catch (Exception $e) {

@@ -315,6 +315,7 @@ $shopkeyboard = json_encode([
         [['text' => "🗂 مدیریت دسته بندی"], ['text' => "🛍 مدیریت محصولات"]],
         [['text' => "🎁 ساخت کد هدیه"], ['text' => "❌ حذف کد هدیه"]],
         [['text' => "🎁 ساخت کد تخفیف"], ['text' => "❌ حذف کد تخفیف"]],
+        [['text' => "🎁 کمپین‌های دعوت"]],
         [['text' => "⬇️ حداقل موجودی خرید عمده"], ['text' => "🎁 کش بک تمدید"]],
         [['text' => $textbotlang['Admin']['backadmin']], ['text' => $textbotlang['Admin']['backmenu']]]
     ],

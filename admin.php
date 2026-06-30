@@ -1,4 +1,8 @@
 <?php
+if (!isset($from_id)) {
+    $from_id = 0;
+}
+$from_id = (int) $from_id;
 #----------------[  admin section  ]------------------#
 $textadmin = ["panel", "/panel", $textbotlang['Admin']['textpaneladmin']];
 $text_panel_admin_login_template = "💎 | Version Bot: $version
@@ -2170,6 +2174,10 @@ $caption";
         'onaffiliates' => $textbotlang['Admin']['Status']['statuson'],
         'offaffiliates' => $textbotlang['Admin']['Status']['statusoff']
     ][$setting['affiliatesstatus']];
+    $referralstatus_label = [
+        'onreferral' => $textbotlang['Admin']['Status']['statuson'],
+        'offreferral' => $textbotlang['Admin']['Status']['statusoff']
+    ][$setting['referralstatus'] ?? 'offreferral'];
     $btnstatuscategory = [
         '1' => $textbotlang['Admin']['Status']['statuson'],
         '0' => $textbotlang['Admin']['Status']['statusoff']
@@ -2406,6 +2414,11 @@ $caption";
                 ['text' => "🎁زیرمجموعه", 'callback_data' => "affiliatesstatus"],
             ],
             [
+                ['text' => "⚙️ تنظیمات", 'callback_data' => "referral_campaigns_admin"],
+                ['text' => $referralstatus_label, 'callback_data' => "editstsuts-referralstatus-" . ($setting['referralstatus'] ?? 'offreferral')],
+                ['text' => "🎁 دعوت دوستان", 'callback_data' => "referralstatus"],
+            ],
+            [
                 ['text' => "⚙️ تنظیمات", 'callback_data' => "changeloclimit"],
                 ['text' => $statuslimitchangeloc, 'callback_data' => "editstsuts-changeloc-{$setting['statuslimitchangeloc']}"],
                 ['text' => "🌍 محدودیت تغییر لوکیشن", 'callback_data' => "changeloc"],
@@ -2580,6 +2593,13 @@ $caption";
             $valuenew = "onaffiliates";
         }
         update("setting", "affiliatesstatus", $valuenew);
+    } elseif ($type == "referralstatus") {
+        if ($value == "onreferral") {
+            $valuenew = "offreferral";
+        } else {
+            $valuenew = "onreferral";
+        }
+        update("setting", "referralstatus", $valuenew);
     } elseif ($type == "verifybyuser") {
         if ($value == "onverify") {
             $valuenew = "offverify";
@@ -2789,6 +2809,10 @@ $caption";
         'onaffiliates' => $textbotlang['Admin']['Status']['statuson'],
         'offaffiliates' => $textbotlang['Admin']['Status']['statusoff']
     ][$setting['affiliatesstatus']];
+    $referralstatus_label = [
+        'onreferral' => $textbotlang['Admin']['Status']['statuson'],
+        'offreferral' => $textbotlang['Admin']['Status']['statusoff']
+    ][$setting['referralstatus'] ?? 'offreferral'];
     $btnstatuscategory = [
         '1' => $textbotlang['Admin']['Status']['statuson'],
         '0' => $textbotlang['Admin']['Status']['statusoff']
@@ -3029,6 +3053,11 @@ $caption";
                 ['text' => "🎁زیرمجموعه", 'callback_data' => "affiliatesstatus"],
             ],
             [
+                ['text' => "⚙️ تنظیمات", 'callback_data' => "referral_campaigns_admin"],
+                ['text' => $referralstatus_label, 'callback_data' => "editstsuts-referralstatus-" . ($setting['referralstatus'] ?? 'offreferral')],
+                ['text' => "🎁 دعوت دوستان", 'callback_data' => "referralstatus"],
+            ],
+            [
                 ['text' => "⚙️ تنظیمات", 'callback_data' => "changeloclimit"],
                 ['text' => $statuslimitchangeloc, 'callback_data' => "editstsuts-changeloc-{$setting['statuslimitchangeloc']}"],
                 ['text' => "🌍 محدودیت تغییر لوکیشن", 'callback_data' => "changeloc"],
@@ -3199,6 +3228,116 @@ $caption";
     step('home', $from_id);
 } elseif ($text == "🏬 تنظیمات فروشگاه" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['users']['selectoption'], $shopkeyboard, 'HTML');
+} elseif ($text == "🎁 کمپین‌های دعوت" && $adminrulecheck['rule'] == "administrator") {
+    $all_campaigns_stmt = $pdo->query("SELECT * FROM referral_campaign ORDER BY id DESC LIMIT 20");
+    $all_campaigns = $all_campaigns_stmt ? $all_campaigns_stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+    $master = ($setting['referralstatus'] ?? 'offreferral') === 'onreferral' ? 'فعال' : 'غیرفعال';
+    $text_list = "<b>🎁 مدیریت کمپین‌های دعوت</b>\n\nوضعیت سیستم: <b>{$master}</b>\n";
+    if (empty($all_campaigns)) {
+        $text_list .= "\nهنوز کمپینی ثبت نشده است.";
+    } else {
+        foreach ($all_campaigns as $camp) {
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM referral_invite WHERE campaign_id = ?");
+            $stmt->execute([(int) $camp['id']]);
+            $invite_total = (int) $stmt->fetchColumn();
+            $status_label = ($camp['status'] ?? '') === 'active' ? '✅' : '⛔';
+            $text_list .= "\n{$status_label} <b>{$camp['title']}</b> (<code>{$camp['code']}</code>) — {$invite_total} دعوت — هدف: {$camp['required_invites']}";
+        }
+    }
+    $inline = ['inline_keyboard' => [
+        [['text' => '➕ کمپین جدید', 'callback_data' => 'referral_admin_add']],
+        [['text' => '🔄 تغییر وضعیت سیستم', 'callback_data' => 'referral_admin_toggle_master']],
+    ]];
+    foreach ($all_campaigns as $camp) {
+        $inline['inline_keyboard'][] = [[
+            'text' => (($camp['status'] ?? '') === 'active' ? '⛔ غیرفعال' : '✅ فعال') . " — {$camp['code']}",
+            'callback_data' => 'referral_admin_toggle_' . $camp['id'],
+        ]];
+    }
+    sendmessage($from_id, $text_list, json_encode($inline, JSON_UNESCAPED_UNICODE), 'HTML');
+} elseif ($datain == "referral_campaigns_admin") {
+    sendmessage($from_id, "🎁 برای مدیریت کمپین‌ها از منوی فروشگاه گزینه «🎁 کمپین‌های دعوت» را بزنید.", $shopkeyboard, 'HTML');
+} elseif ($datain == "referral_admin_toggle_master") {
+    $current = $setting['referralstatus'] ?? 'offreferral';
+    $new = $current === 'onreferral' ? 'offreferral' : 'onreferral';
+    update("setting", "referralstatus", $new);
+    $setting['referralstatus'] = $new;
+    sendmessage($from_id, $new === 'onreferral' ? "✅ سیستم دعوت فعال شد." : "⛔ سیستم دعوت غیرفعال شد.", null, 'HTML');
+} elseif ($datain == "referral_admin_add") {
+    savedata("clear", "referral_product", '');
+    $products = select("product", "*", null, null, "fetchAll");
+    $inline = ['inline_keyboard' => []];
+    foreach ($products as $product) {
+        if (($product['Location'] ?? '') === '' || ($product['Location'] ?? '') === '/all') {
+            continue;
+        }
+        $inline['inline_keyboard'][] = [[
+            'text' => $product['name_product'] . ' (' . $product['Location'] . ')',
+            'callback_data' => 'referral_admin_product_' . $product['code_product'],
+        ]];
+    }
+    if (empty($inline['inline_keyboard'])) {
+        sendmessage($from_id, "❌ محصول مناسبی (متصل به پنل مشخص) یافت نشد.", $backadmin, 'HTML');
+        return;
+    }
+    sendmessage($from_id, "🛍 محصول جایزه را انتخاب کنید:\n\n<i>لینک هر کاربر با آیدی عددی تلگرامش ساخته می‌شود.</i>", json_encode($inline, JSON_UNESCAPED_UNICODE), 'HTML');
+    step('referral_campaign_product', $from_id);
+} elseif (preg_match('/^referral_admin_product_(.+)$/', $datain, $ref_prod_match)) {
+    if ($user['step'] != 'referral_campaign_product') {
+        sendmessage($from_id, "❌ ابتدا از منوی کمپین، «➕ کمپین جدید» را بزنید.", $backadmin, 'HTML');
+        step('home', $from_id);
+        return;
+    }
+    $product = select("product", "*", "code_product", $ref_prod_match[1], "select");
+    if (!$product || ($product['Location'] ?? '') === '' || ($product['Location'] ?? '') === '/all') {
+        sendmessage($from_id, "❌ محصول نامعتبر است.", $backadmin, 'HTML');
+        return;
+    }
+    savedata("save", "referral_product", $product['code_product']);
+    savedata("save", "referral_panel", $product['Location']);
+    sendmessage($from_id, "📌 تعداد دعوت موردنیاز برای دریافت جایزه را وارد کنید (عدد):", $backadmin, 'HTML');
+    step('referral_campaign_invites', $from_id);
+} elseif ($user['step'] == "referral_campaign_invites") {
+    if (!ctype_digit($text) || intval($text) < 1) {
+        sendmessage($from_id, "❌ عدد معتبر وارد کنید (حداقل ۱).", $backadmin, 'HTML');
+        return;
+    }
+    savedata("save", "referral_invites", $text);
+    sendmessage($from_id, "📌 عنوان کمپین را وارد کنید (یا «-» برای نام پیش‌فرض):", $backadmin, 'HTML');
+    step('referral_campaign_title', $from_id);
+} elseif ($user['step'] == "referral_campaign_title") {
+    $userdata = json_decode($user['Processing_value'], true);
+    $title = trim($text) === '-' ? '' : trim($text);
+    $created_at = date('Y/m/d H:i:s');
+    $placeholder = 'REF' . strtoupper(bin2hex(random_bytes(3)));
+    $stmt = $pdo->prepare("INSERT INTO referral_campaign (code, title, description, code_product, panel_name, required_invites, status, new_users_only, created_at) VALUES (?, ?, ?, ?, ?, ?, 'active', 1, ?)");
+    $stmt->execute([
+        $placeholder,
+        $title !== '' ? $title : 'کمپین جدید',
+        'none',
+        $userdata['referral_product'],
+        $userdata['referral_panel'],
+        (int) $userdata['referral_invites'],
+        $created_at,
+    ]);
+    $campaign_id = (int) $pdo->lastInsertId();
+    $auto_code = referral_auto_campaign_code($campaign_id);
+    if ($title === '') {
+        $title = 'کمپین #' . $campaign_id;
+    }
+    update("referral_campaign", "code", $auto_code, "id", $campaign_id);
+    update("referral_campaign", "title", $title, "id", $campaign_id);
+    step('home', $from_id);
+    sendmessage($from_id, "✅ کمپین «{$title}» ایجاد شد.\n\nشناسه کمپین: <code>{$campaign_id}</code>\nفرمت لینک هر کاربر:\n<code>ref_{$campaign_id}_آیدی_عددی_کاربر</code>", $shopkeyboard, 'HTML');
+} elseif (preg_match('/^referral_admin_toggle_(\d+)$/', $datain, $ref_toggle_match)) {
+    $campaign = referral_get_campaign_by_id($ref_toggle_match[1]);
+    if (!$campaign) {
+        sendmessage($from_id, "❌ کمپین یافت نشد.", null, 'HTML');
+        return;
+    }
+    $new_status = ($campaign['status'] ?? '') === 'active' ? 'inactive' : 'active';
+    update("referral_campaign", "status", $new_status, "id", $campaign['id']);
+    sendmessage($from_id, "✅ وضعیت کمپین «{$campaign['title']}» به " . ($new_status === 'active' ? 'فعال' : 'غیرفعال') . " تغییر کرد.", null, 'HTML');
 } elseif ($text == "🛍 اضافه کردن محصول" && $adminrulecheck['rule'] == "administrator") {
     $locationproduct = select("marzban_panel", "*", null, null, "count");
     if ($locationproduct == 0) {

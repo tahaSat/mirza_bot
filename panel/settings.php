@@ -4,18 +4,7 @@ require_once __DIR__ . '/inc/icons.php';
 require_auth();
 $pdo = panel_ensure_pdo();
 
-$bot_button_labels = [
-    'text_sell' => 'خرید اشتراک',
-    'text_extend' => 'تمدید',
-    'text_usertest' => 'اکانت تست',
-    'text_wheel_luck' => 'گردونه شانس',
-    'text_Purchased_services' => 'سرویس‌های خریداری‌شده',
-    'accountwallet' => 'کیف پول',
-    'text_affiliates' => 'زیرمجموعه‌گیری',
-    'text_Tariff_list' => 'لیست تعرفه',
-    'text_support' => 'پشتیبانی',
-    'text_help' => 'آموزش',
-];
+$bot_button_labels = get_main_keyboard_button_fallback_labels();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle_bot_button') {
     csrf_check_post();
@@ -100,7 +89,7 @@ foreach (get_default_main_keyboard_layout() as $row) {
     foreach ($row as $btn_id) {
         $bot_menu_buttons[] = [
             'id' => $btn_id,
-            'label' => $bot_text_labels[$btn_id] ?? $btn_id,
+            'label' => get_main_keyboard_button_label($btn_id, $bot_datatextbot),
             'active' => check_active_btn($bot_keyboardmain, $btn_id, $bot_datatextbot),
         ];
     }

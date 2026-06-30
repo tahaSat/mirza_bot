@@ -66,6 +66,7 @@ if (!in_array($from_id, $users_ids) && $setting['statusnewuser'] == "onnewuser")
     }
 }
 $date = time();
+$was_new_user = ($from_id != 0 && !in_array($from_id, $users_ids));
 if ($from_id != 0) {
     if ($setting['verifystart'] != "onverify") {
         $valueverify = 1;
@@ -220,7 +221,10 @@ if (floor($TimeLastMessage / 60) >= 1) {
 
 if (strpos($text, "/start ") !== false && $user['step'] != "gettextSystemMessage") {
     $affiliatesid = explode(" ", $text)[1];
-    if (!in_array($affiliatesid, ['start', "usertest", "/start", "buy", "help"])) {
+    if (preg_match('/^ref_(\d+)_(\d+)$/', $affiliatesid, $referral_match)
+        || preg_match('/^ref_([A-Za-z][A-Za-z0-9]*)_(\d+)$/', $affiliatesid, $referral_match)) {
+        handle_referral_start($referral_match[1], $referral_match[2], $from_id, $was_new_user, $username);
+    } elseif (!in_array($affiliatesid, ['start', "usertest", "/start", "buy", "help"])) {
         isValidInvitationCode($setting, $from_id, $user['verify']);
         if ($setting['affiliatesstatus'] == "offaffiliates") {
             sendmessage($from_id, $textbotlang['users']['affiliates']['offaffiliates'], $keyboard, 'HTML');
@@ -428,8 +432,8 @@ if ($text == "/start" || $datain == "start" || $text == "start") {
     sendmessage($from_id, $datatextbot['text_start'], $keyboard, 'html');
     update("user", "number", $user_phone, "id", $from_id);
     step('home', $from_id);
-} elseif ($text == $datatextbot['text_Purchased_services'] || $datain == "backorder" || $text == "/services") {
-    if (($text == $datatextbot['text_Purchased_services'] || $text == "/services") && !check_active_btn($setting['keyboardmain'], "text_Purchased_services")) {
+} elseif (user_text_matches_main_button($text, 'text_Purchased_services', $datatextbot) || $datain == "backorder" || $text == "/services") {
+    if ((user_text_matches_main_button($text, 'text_Purchased_services', $datatextbot) || $text == "/services") && !check_active_btn($setting['keyboardmain'], "text_Purchased_services")) {
         sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
         return;
     }
@@ -3070,7 +3074,7 @@ $textconnect
     $stmt->bind_param("ssssss", $from_id, $nameloc['username'], $value, $type, $dateacc, $price);
     $stmt->execute();
     $stmt->close();
-} elseif ($text == $datatextbot['text_usertest'] || $datain == "usertestbtn" || $text == "usertest") {
+} elseif (user_text_matches_main_button($text, 'text_usertest', $datatextbot) || $datain == "usertestbtn" || $text == "usertest") {
     if (!check_active_btn($setting['keyboardmain'], "text_usertest")) {
         sendmessage($from_id, "📌 سرویس تست در حال حاضر در دسترس نیست .", null, 'HTML');
         return;
@@ -3094,7 +3098,7 @@ $textconnect
         sendmessage($from_id, $datatextbot['textselectlocation'], $list_marzban_usertest, 'html');
     }
 }
-if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $datain, $dataget) || ($text == $datatextbot['text_usertest'] || $datain == "usertestbtn" || $text == "usertest")) {
+if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $datain, $dataget) || (user_text_matches_main_button($text, 'text_usertest', $datatextbot) || $datain == "usertestbtn" || $text == "usertest")) {
     if (!check_active_btn($setting['keyboardmain'], "text_usertest")) {
         sendmessage($from_id, "📌 سرویس تست در حال حاضر در دسترس نیست .", null, 'HTML');
         return;
@@ -3300,7 +3304,7 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
             'reply_markup' => $Response
         ]);
     }
-} elseif ($text == $datatextbot['text_help'] || $datain == "helpbtn" || $datain == "helpbtns" || $text == "/help" || $text == "help") {
+} elseif (user_text_matches_main_button($text, 'text_help', $datatextbot) || $datain == "helpbtn" || $datain == "helpbtns" || $text == "/help" || $text == "help") {
     if (!check_active_btn($setting['keyboardmain'], "text_help")) {
         sendmessage($from_id, $textbotlang['users']['help']['disablehelp'], null, 'HTML');
         return;
@@ -3410,7 +3414,7 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
             sendmessage($from_id, $helpdata['Description_os'], $backinfoss, 'HTML');
         }
     }
-} elseif ($text == $datatextbot['text_support'] || $datain == "supportbtns" || $text == "/support") {
+} elseif (user_text_matches_main_button($text, 'text_support', $datatextbot) || $datain == "supportbtns" || $text == "/support") {
     if (!check_active_btn($setting['keyboardmain'], "text_support")) {
         sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
         return;
@@ -3550,7 +3554,7 @@ $text";
     sendmessage($from_id, "✅  پیام شما برای این درخواست با موفقیت ارسال گردید پس از بررسی پاسخ داده خواهد شد.", null, 'HTML');
 } elseif ($datain == "fqQuestions") {
     sendmessage($from_id, $datatextbot['text_dec_fq'], null, 'HTML');
-} elseif ($text == $datatextbot['accountwallet'] || $datain == "account" || $text == "/wallet") {
+} elseif (user_text_matches_main_button($text, 'accountwallet', $datatextbot) || $datain == "account" || $text == "/wallet") {
     if (!check_active_btn($setting['keyboardmain'], "accountwallet")) {
         sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
         return;
@@ -3629,7 +3633,7 @@ $textinvite
     }
     step('home', $from_id);
     return;
-} elseif (($text == $datatextbot['text_sell'] || $datain == "buy" || $datain == "buyback" || $text == "/buy" || $text == "buy") && $statusnote) {
+} elseif ((user_text_matches_main_button($text, 'text_sell', $datatextbot) || $datain == "buy" || $datain == "buyback" || $text == "/buy" || $text == "buy") && $statusnote) {
     if ($setting['get_number'] == "onAuthenticationphone" && $user['step'] != "get_number" && $user['number'] == "none") {
         sendmessage($from_id, $textbotlang['users']['number']['Confirming'], $request_contact, 'HTML');
         step('get_number', $from_id);
@@ -3650,7 +3654,7 @@ $textinvite
     }
     step("statusnamecustom", $from_id);
     return;
-} elseif ($text == $datatextbot['text_sell'] || $datain == "buy" || $datain == "buybacktow" || $datain == "buyback" || $text == "/buy" || $text == "buy" || $user['step'] == "statusnamecustom") {
+} elseif (user_text_matches_main_button($text, 'text_sell', $datatextbot) || $datain == "buy" || $datain == "buybacktow" || $datain == "buyback" || $text == "/buy" || $text == "buy" || $user['step'] == "statusnamecustom") {
     if (!check_active_btn($setting['keyboardmain'], "text_sell")) {
         sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
         return;
@@ -6416,7 +6420,7 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
             'parse_mode' => "HTML"
         ]);
     }
-} elseif ($text == $datatextbot['text_Tariff_list'] || $datain == "Tariff_list") {
+} elseif (user_text_matches_main_button($text, 'text_Tariff_list', $datatextbot) || $datain == "Tariff_list") {
     if (!check_active_btn($setting['keyboardmain'], "text_Tariff_list")) {
         sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
         return;
@@ -6425,7 +6429,7 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
 } elseif ($datain == "colselist") {
     deletemessage($from_id, $message_id);
     sendmessage($from_id, $textbotlang['users']['back'], $keyboard, 'HTML');
-} elseif ($text == $datatextbot['text_affiliates'] || $datain == "affiliatesbtn") {
+} elseif (user_text_matches_main_button($text, 'text_affiliates', $datatextbot) || $datain == "affiliatesbtn") {
     if (!check_active_btn($setting['keyboardmain'], "text_affiliates")) {
         sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
         return;
@@ -6493,6 +6497,43 @@ $text_porsant
 ";
 
     sendmessage($from_id, $textaffiliates, $keyboard_share, 'HTML');
+} elseif (user_text_matches_main_button($text, 'text_referral', $datatextbot) || $datain == "referralbtn") {
+    if (!check_active_btn($setting['keyboardmain'], "text_referral")) {
+        sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
+        return;
+    }
+    if (($setting['referralstatus'] ?? 'offreferral') !== 'onreferral') {
+        sendmessage($from_id, "📛 بخش دعوت دوستان در حال حاضر غیرفعال است.", null, 'HTML');
+        return;
+    }
+    $campaigns = referral_get_active_campaigns();
+    if (count($campaigns) === 0) {
+        sendmessage($from_id, "📛 در حال حاضر کمپین دعوتی فعالی وجود ندارد.", null, 'HTML');
+        return;
+    }
+    if (count($campaigns) === 1) {
+        $view = referral_render_user_message($campaigns[0], $from_id);
+        sendmessage($from_id, $view['text'], $view['keyboard'], 'HTML');
+        return;
+    }
+    $inline = ['inline_keyboard' => []];
+    foreach ($campaigns as $campaign) {
+        $inline['inline_keyboard'][] = [
+            ['text' => $campaign['title'], 'callback_data' => 'referral_campaign_' . $campaign['id']],
+        ];
+    }
+    sendmessage($from_id, "🎁 یک کمپین دعوت را انتخاب کنید:", json_encode($inline, JSON_UNESCAPED_UNICODE), 'HTML');
+} elseif (preg_match('/^referral_campaign_(\d+)$/', $datain, $referral_campaign_match)) {
+    $campaign = referral_get_campaign_by_id($referral_campaign_match[1]);
+    if (!$campaign || ($campaign['status'] ?? '') !== 'active') {
+        sendmessage($from_id, "❌ این کمپین دیگر فعال نیست.", null, 'HTML');
+        return;
+    }
+    $view = referral_render_user_message($campaign, $from_id);
+    if ($message_id) {
+        deletemessage($from_id, $message_id);
+    }
+    sendmessage($from_id, $view['text'], $view['keyboard'], 'HTML');
 } elseif ($datain == "get_gift_start") {
     $gift_status = select("affiliates", "*", null, null, "select");
     if ($gift_status['Discount'] == "offDiscountaffiliates") {
@@ -6834,7 +6875,7 @@ $text_porsant
     }
 } elseif ($text == "/privacy") {
     sendmessage($from_id, $datatextbot['text_roll'], null, 'HTML');
-} elseif ($text == $datatextbot['text_wheel_luck'] || $datain == "wheel_luck" || $text == "/gift") {
+} elseif (user_text_matches_main_button($text, 'text_wheel_luck', $datatextbot) || $datain == "wheel_luck" || $text == "/gift") {
     if (!check_active_btn($setting['keyboardmain'], "text_wheel_luck")) {
         sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
         return;
@@ -6943,7 +6984,7 @@ $text_porsant
     }
     $price = $rates['USD'];
     sendmessage($from_id, sprintf($textbotlang['users']['pricearze']['tether-price'], $price), null, 'HTML');
-} elseif ($text == $datatextbot['text_extend'] or $datain == "extendbtn") {
+} elseif (user_text_matches_main_button($text, 'text_extend', $datatextbot) or $datain == "extendbtn") {
     if (!check_active_btn($setting['keyboardmain'], "text_extend")) {
         sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');
         return;

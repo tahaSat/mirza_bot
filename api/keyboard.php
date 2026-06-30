@@ -18,6 +18,7 @@ $datatextbot = array(
     'text_sell' => '',
     'text_Tariff_list' => '',
     'text_affiliates' => '',
+    'text_referral' => '',
     'text_wheel_luck' => '',
     'text_extend' => ''
 
@@ -45,6 +46,7 @@ $list_keyboard = array(
     'text_Purchased_services',
     'accountwallet',
     'text_affiliates',
+    'text_referral',
     'text_Tariff_list',
     'text_support',
     'text_help',

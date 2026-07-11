@@ -41,10 +41,11 @@ function marzban_usertest_reference_product(array $panel): ?array
          WHERE (Location = :name_panel OR Location = '/all')
            AND inbounds IS NOT NULL AND inbounds != '' AND inbounds != 'null'
            AND proxies IS NOT NULL AND proxies != '' AND proxies != 'null'
-         ORDER BY CASE WHEN Location = :name_panel THEN 0 ELSE 1 END, id ASC
+         ORDER BY CASE WHEN Location = :panel_exact THEN 0 ELSE 1 END, id ASC
          LIMIT 1"
     );
     $stmt->bindValue(':name_panel', $namePanel);
+    $stmt->bindValue(':panel_exact', $namePanel);
     $stmt->execute();
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     $cache[$namePanel] = $row;

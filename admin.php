@@ -32,10 +32,6 @@ $miniAppInstructionText = <<<HTML
 HTML;
 
 if (in_array($text, $textadmin) || $datain == "admin") {
-    if (($user['step'] ?? '') === 'createusertest') {
-        step('home', $from_id);
-        $user['step'] = 'home';
-    }
     if ($datain == "admin")
         deletemessage($from_id, $message_id);
     if ($buyreport == "0" || $otherservice == "0" || $otherreport == "0" || $paymentreports == "0" || $reporttest == "0" || $errorreport == "0") {
@@ -84,7 +80,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
         return;
     }
     step('home', $from_id);
-    if (in_array($user['step'], ["updatetime", "val_usertest", "getlimitnew", "GetusernameNew", "GeturlNew", "protocolset", "updatemethodusername", "GetNameNew", "getprotocol", "getprotocolremove", "GetpaawordNew", "updateextendmethod", "setpricechangelocation", "createusertest"])) {
+    if (in_array($user['step'], ["updatetime", "val_usertest", "getlimitnew", "GetusernameNew", "GeturlNew", "protocolset", "updatemethodusername", "GetNameNew", "getprotocol", "getprotocolremove", "GetpaawordNew", "updateextendmethod", "setpricechangelocation"])) {
         $typepanel = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
         outtypepanel($typepanel['type'], $textbotlang['Admin']['Back-menu']);
     } elseif (in_array($user['step'], ["selectloc", "get_limit", "selectlocedite", "GetPriceExtra", "GetPriceexstratime", "GetPricecustomtime", "GetPricecustomvolume", "get_code", "get_codesell", "minbalancebulk"])) {

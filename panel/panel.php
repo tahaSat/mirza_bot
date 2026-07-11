@@ -391,7 +391,6 @@ include __DIR__ . '/inc/layout_head.php';
             <small class="cf" style="display:block;margin-top:6px">
               از پنل PasarGuard → <strong>Groups</strong> شناسه گروه را بگیرید. هر گروه اینباندهای مشخصی دارد.
               برای فعال‌سازی حالت پاسارگارد به تب <strong>قابلیت‌ها</strong> بروید و «پنل پاسارگارد» را روشن کنید.
-              <strong>اکانت تست</strong> از تنظیمات اینباند/پروتکل اولین محصول همین پنل استفاده می‌کند (همان چندسروری که برای خرید تنظیم کرده‌اید).
             </small>
           </div>
           <?php elseif ($ptype === 'marzban'): ?>

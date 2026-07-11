@@ -3098,10 +3098,7 @@ $textconnect
         sendmessage($from_id, $datatextbot['textselectlocation'], $list_marzban_usertest, 'html');
     }
 }
-$usertestLocationPick = preg_match('/locationtest_(.*)/', $datain, $dataget);
-$usertestEntry = user_text_matches_main_button($text, 'text_usertest', $datatextbot) || $datain == "usertestbtn" || $text == "usertest";
-$usertestUsernameSubmit = ($user['step'] == "createusertest" && preg_match('~(?!_)^[a-z][a-z\d_]{2,32}(?<!_)$~i', $text));
-if ($usertestLocationPick || $usertestEntry || $usertestUsernameSubmit) {
+if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $datain, $dataget) || (user_text_matches_main_button($text, 'text_usertest', $datatextbot) || $datain == "usertestbtn" || $text == "usertest")) {
     if (!check_active_btn($setting['keyboardmain'], "text_usertest")) {
         sendmessage($from_id, "📌 سرویس تست در حال حاضر در دسترس نیست .", null, 'HTML');
         return;

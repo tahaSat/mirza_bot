@@ -379,37 +379,19 @@ function adduser($location, $data_limit, $username_ac, $timestamp, $note = '', $
             "data_limit_reset_strategy" => $data_limit_reset,
             "group_ids" => $groupIds,
         );
-        if ($name_product == "usertest") {
-            if ($marzban_list_get['on_hold_test'] == "0") {
-                if ($timestamp == 0) {
-                    $data["expire"] = 0;
-                } else {
-                    $data["expire"] = date('c', $timestamp);
-                }
+        if ($marzban_list_get['conecton'] == "offconecton") {
+            if ($timestamp == 0) {
+                $data["expire"] = 0;
             } else {
-                if ($timestamp == 0) {
-                    $data["expire"] = 0;
-                } else {
-                    $data["expire"] = 0;
-                    $data["status"] = "on_hold";
-                    $data["on_hold_expire_duration"] = $timestamp - time();
-                }
+                $data["expire"] = date('c', $timestamp);
             }
         } else {
-            if ($marzban_list_get['conecton'] == "offconecton") {
-                if ($timestamp == 0) {
-                    $data["expire"] = 0;
-                } else {
-                    $data["expire"] = date('c', $timestamp);
-                }
+            if ($timestamp == 0) {
+                $data["expire"] = 0;
             } else {
-                if ($timestamp == 0) {
-                    $data["expire"] = 0;
-                } else {
-                    $data["expire"] = 0;
-                    $data["status"] = "on_hold";
-                    $data["on_hold_expire_duration"] = $timestamp - time();
-                }
+                $data["expire"] = 0;
+                $data["status"] = "on_hold";
+                $data["on_hold_expire_duration"] = $timestamp - time();
             }
         }
     } else {
@@ -437,37 +419,19 @@ function adduser($location, $data_limit, $username_ac, $timestamp, $note = '', $
         if (isset($inbounds)) {
             $data['inbounds'] = $inbounds;
         }
-        if ($name_product == "usertest") {
-            if ($marzban_list_get['on_hold_test'] == "0") {
-                if ($timestamp == 0) {
-                    $data["expire"] = 0;
-                } else {
-                    $data["expire"] = $timestamp;
-                }
+        if ($marzban_list_get['conecton'] == "offconecton") {
+            if ($timestamp == 0) {
+                $data["expire"] = 0;
             } else {
-                if ($timestamp == 0) {
-                    $data["expire"] = 0;
-                } else {
-                    $data["expire"] = 0;
-                    $data["status"] = "on_hold";
-                    $data["on_hold_expire_duration"] = $timestamp - time();
-                }
+                $data["expire"] = $timestamp;
             }
         } else {
-            if ($marzban_list_get['conecton'] == "offconecton") {
-                if ($timestamp == 0) {
-                    $data["expire"] = 0;
-                } else {
-                    $data["expire"] = $timestamp;
-                }
+            if ($timestamp == 0) {
+                $data["expire"] = 0;
             } else {
-                if ($timestamp == 0) {
-                    $data["expire"] = 0;
-                } else {
-                    $data["expire"] = 0;
-                    $data["status"] = "on_hold";
-                    $data["on_hold_expire_duration"] = $timestamp - time();
-                }
+                $data["expire"] = 0;
+                $data["status"] = "on_hold";
+                $data["on_hold_expire_duration"] = $timestamp - time();
             }
         }
     }

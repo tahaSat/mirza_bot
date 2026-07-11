@@ -22,20 +22,35 @@ function marzban_proxy_settings_for_api($proxiesJson)
     return new stdClass();
 }
 
-/** Parse stored panel/product inbounds JSON into PasarGuard group IDs. */
-function marzban_resolve_group_ids(array $panel, $name_product = false): ?array
+/** First product on a panel that has PasarGuard group_ids / inbounds configured. */
+function marzban_first_product_for_panel(array $panel): ?array
 {
-    $source = null;
-    if (!empty($panel['inbounds']) && $panel['inbounds'] !== 'null') {
-        $source = $panel['inbounds'];
+    global $pdo;
+    if (!isset($pdo) || !$pdo instanceof PDO) {
+        return null;
     }
-    if ($name_product !== false && $name_product !== 'usertest') {
-        $product = select('product', '*', 'name_product', $name_product, 'select');
-        if ($product && !empty($product['inbounds']) && $product['inbounds'] !== 'null') {
-            $source = $product['inbounds'];
-        }
+    $namePanel = $panel['name_panel'] ?? '';
+    if ($namePanel === '') {
+        return null;
     }
-    if ($source === null) {
+    $stmt = $pdo->prepare(
+        "SELECT * FROM product
+         WHERE (Location = :name_panel OR Location = '/all')
+           AND inbounds IS NOT NULL AND inbounds != '' AND inbounds != 'null'
+         ORDER BY id ASC
+         LIMIT 1"
+    );
+    $stmt->bindValue(':name_panel', $namePanel, PDO::PARAM_STR);
+    $stmt->execute();
+    $product = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $product ?: null;
+}
+
+/** Parse stored panel/product inbounds JSON into PasarGuard group IDs. */
+function marzban_parse_group_ids_json(?string $source): ?array
+{
+    if ($source === null || $source === '' || $source === 'null') {
         return null;
     }
     $decoded = json_decode($source, true);
@@ -56,6 +71,33 @@ function marzban_resolve_group_ids(array $panel, $name_product = false): ?array
     return $ids === [] ? null : $ids;
 }
 
+/** Resolve PasarGuard group_ids for panel/product (or test-account fallback). */
+function marzban_resolve_group_ids(array $panel, $name_product = false): ?array
+{
+    $source = null;
+    if (!empty($panel['inbounds']) && $panel['inbounds'] !== 'null') {
+        $source = $panel['inbounds'];
+    }
+    if ($name_product !== false && $name_product !== 'usertest') {
+        $product = select('product', '*', 'name_product', $name_product, 'select');
+        if ($product && !empty($product['inbounds']) && $product['inbounds'] !== 'null') {
+            $source = $product['inbounds'];
+        }
+    } elseif ($name_product === 'usertest') {
+        $panelGroupIds = marzban_parse_group_ids_json($source);
+        if ($panelGroupIds !== null) {
+            return $panelGroupIds;
+        }
+        $product = marzban_first_product_for_panel($panel);
+        if ($product) {
+            return marzban_parse_group_ids_json($product['inbounds'] ?? null);
+        }
+
+        return null;
+    }
+    return marzban_parse_group_ids_json($source);
+}
+
 function marzban_resolve_proxies_json(array $panel, $name_product = false): ?string
 {
     $proxies = $panel['proxies'] ?? null;
@@ -64,6 +106,16 @@ function marzban_resolve_proxies_json(array $panel, $name_product = false): ?str
         if ($product && !empty($product['proxies']) && $product['proxies'] !== 'null') {
             $proxies = $product['proxies'];
         }
+    } elseif ($name_product === 'usertest') {
+        if ($proxies !== null && $proxies !== '' && $proxies !== 'null') {
+            return $proxies;
+        }
+        $product = marzban_first_product_for_panel($panel);
+        if ($product && !empty($product['proxies']) && $product['proxies'] !== 'null') {
+            return $product['proxies'];
+        }
+
+        return null;
     }
     return ($proxies === null || $proxies === '' || $proxies === 'null') ? null : $proxies;
 }
@@ -371,9 +423,15 @@ function adduser($location, $data_limit, $username_ac, $timestamp, $note = '', $
             } else {
                 $inbounds = json_decode($marzban_list_get['inbounds'], true);
             }
+        } elseif ($name_product == "usertest") {
+            $product = marzban_first_product_for_panel($marzban_list_get);
+            if ($product && !empty($product['inbounds']) && $product['inbounds'] !== 'null') {
+                $inbounds = json_decode($product['inbounds'], true);
+            }
         }
+        $proxiesJson = marzban_resolve_proxies_json($marzban_list_get, $name_product);
         $data = array(
-            "proxies" => json_decode($marzban_list_get['proxies']),
+            "proxies" => json_decode($proxiesJson !== null ? $proxiesJson : ($marzban_list_get['proxies'] ?? 'null')),
             "data_limit" => $data_limit,
             "username" => $username_ac,
             "note" => $note,

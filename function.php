@@ -2915,3 +2915,35 @@ function referral_render_user_message($campaign, $user_id)
         'keyboard' => json_encode(['inline_keyboard' => $keyboard_rows], JSON_UNESCAPED_UNICODE),
     ];
 }
+
+function get_support_admin_ids()
+{
+    $admin_ids = select("admin", "id_admin", null, null, "FETCH_COLUMN");
+    if (!is_array($admin_ids)) {
+        return [];
+    }
+
+    $support_admins = [];
+    foreach ($admin_ids as $id_admin) {
+        $admin = select("admin", "*", "id_admin", $id_admin, "select");
+        if (!$admin || $admin['rule'] === 'Seller') {
+            continue;
+        }
+        $support_admins[] = $id_admin;
+    }
+
+    return $support_admins;
+}
+
+function notify_support_admins($text, $keyboard, $photo = false, $video = false, $photoid = null, $videoid = null)
+{
+    foreach (get_support_admin_ids() as $id_admin) {
+        if ($photo && $photoid) {
+            sendphoto($id_admin, $photoid, null);
+        }
+        if ($video && $videoid) {
+            sendvideo($id_admin, $videoid, null);
+        }
+        sendmessage($id_admin, $text, $keyboard, 'HTML');
+    }
+}

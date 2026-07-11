@@ -3448,12 +3448,6 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
     $stmt->bindParam(':time', $time);
     $stmt->bindParam(':status', $status);
     $stmt->execute();
-    if ($photo) {
-        sendphoto($departeman['idsupport'], $photoid, null);
-    }
-    if ($video) {
-        sendvideo($departeman['idsupport'], $videoid, null);
-    }
     $textsuppoer = "
     📣 پشتیبان عزیز یک پیام از سمت کاربر برای شما ارسال گردید.
 
@@ -3471,11 +3465,18 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
             ],
         ]
     ]);
-    sendmessage($departeman['idsupport'], $textsuppoer, $Response, 'HTML');
+    notify_support_admins($textsuppoer, $Response, $photo, $video, $photoid, $videoid);
     sendmessage($from_id, "✅ پیام شما با موفقیت ارسال و پس از بررسی به شما پاسخ داده خواهد شد.", $keyboard, 'HTML');
     step("home", $from_id);
-    step("home", $departeman['idsupport']);
 } elseif (preg_match('/Responsesupport_(\w+)/', $datain, $dataget)) {
+    if (!in_array($from_id, $admin_ids)) {
+        return;
+    }
+    $adminrulecheck = select("admin", "*", "id_admin", $from_id, "select");
+    if (!$adminrulecheck || $adminrulecheck['rule'] == "Seller") {
+        sendmessage($from_id, "❌ شما دسترسی پاسخ به پیام پشتیبانی را ندارید.", null, 'HTML');
+        return;
+    }
     $idtraking = $dataget[1];
     $trakingdetail = select("support_message", "*", "Tracking", $idtraking);
     if ($trakingdetail['status'] == "Answered") {
@@ -3544,13 +3545,7 @@ $text";
             ],
         ]
     ]);
-    if ($photo) {
-        sendphoto($trakingdetail['idsupport'], $photoid, null);
-    }
-    if ($video) {
-        sendvideo($trakingdetail['idsupport'], $videoid, null);
-    }
-    sendmessage($trakingdetail['idsupport'], $textsuppoer, $Response, 'HTML');
+    notify_support_admins($textsuppoer, $Response, $photo, $video, $photoid, $videoid);
     sendmessage($from_id, "✅  پیام شما برای این درخواست با موفقیت ارسال گردید پس از بررسی پاسخ داده خواهد شد.", null, 'HTML');
 } elseif ($datain == "fqQuestions") {
     sendmessage($from_id, $datatextbot['text_dec_fq'], null, 'HTML');
@@ -6739,10 +6734,7 @@ $text_porsant
             ],
         ]
     ]);
-    foreach ($admin_ids as $id_admin) {
-        $adminrulecheck = select("admin", "*", "id_admin", $id_admin, "select");
-        if ($adminrulecheck['rule'] == "Seller")
-            continue;
+    foreach (get_support_admin_ids() as $id_admin) {
         if ($text) {
             $textsendadmin = sprintf($textbotlang['Admin']['MessageBulk']['usermessage'], $from_id, $username, $caption . $text);
             sendmessage($id_admin, $textsendadmin, $Response, 'HTML');

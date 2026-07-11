@@ -22,7 +22,7 @@ function marzban_proxy_settings_for_api($proxiesJson)
     return new stdClass();
 }
 
-/** First product on a panel that has PasarGuard group_ids / inbounds configured. */
+/** First product on a panel with PasarGuard inbounds and/or proxy settings configured. */
 function marzban_first_product_for_panel(array $panel): ?array
 {
     global $pdo;
@@ -36,7 +36,10 @@ function marzban_first_product_for_panel(array $panel): ?array
     $stmt = $pdo->prepare(
         "SELECT * FROM product
          WHERE (Location = :name_panel OR Location = '/all')
-           AND inbounds IS NOT NULL AND inbounds != '' AND inbounds != 'null'
+           AND (
+             (inbounds IS NOT NULL AND inbounds != '' AND inbounds != 'null')
+             OR (proxies IS NOT NULL AND proxies != '' AND proxies != 'null')
+           )
          ORDER BY id ASC
          LIMIT 1"
     );
@@ -45,6 +48,23 @@ function marzban_first_product_for_panel(array $panel): ?array
     $product = $stmt->fetch(PDO::FETCH_ASSOC);
 
     return $product ?: null;
+}
+
+/**
+ * For test accounts, reuse the first configured product on the panel so
+ * group_ids and proxy_settings match normal purchases on that panel.
+ */
+function marzban_resolve_settings_product_name(array $panel, $name_product = false)
+{
+    if ($name_product !== 'usertest') {
+        return $name_product;
+    }
+    $product = marzban_first_product_for_panel($panel);
+    if ($product && !empty($product['name_product'])) {
+        return $product['name_product'];
+    }
+
+    return $name_product;
 }
 
 /** Parse stored panel/product inbounds JSON into PasarGuard group IDs. */
@@ -71,7 +91,7 @@ function marzban_parse_group_ids_json(?string $source): ?array
     return $ids === [] ? null : $ids;
 }
 
-/** Resolve PasarGuard group_ids for panel/product (or test-account fallback). */
+/** Resolve PasarGuard group_ids for panel/product. */
 function marzban_resolve_group_ids(array $panel, $name_product = false): ?array
 {
     $source = null;
@@ -83,18 +103,8 @@ function marzban_resolve_group_ids(array $panel, $name_product = false): ?array
         if ($product && !empty($product['inbounds']) && $product['inbounds'] !== 'null') {
             $source = $product['inbounds'];
         }
-    } elseif ($name_product === 'usertest') {
-        $panelGroupIds = marzban_parse_group_ids_json($source);
-        if ($panelGroupIds !== null) {
-            return $panelGroupIds;
-        }
-        $product = marzban_first_product_for_panel($panel);
-        if ($product) {
-            return marzban_parse_group_ids_json($product['inbounds'] ?? null);
-        }
-
-        return null;
     }
+
     return marzban_parse_group_ids_json($source);
 }
 
@@ -106,17 +116,8 @@ function marzban_resolve_proxies_json(array $panel, $name_product = false): ?str
         if ($product && !empty($product['proxies']) && $product['proxies'] !== 'null') {
             $proxies = $product['proxies'];
         }
-    } elseif ($name_product === 'usertest') {
-        if ($proxies !== null && $proxies !== '' && $proxies !== 'null') {
-            return $proxies;
-        }
-        $product = marzban_first_product_for_panel($panel);
-        if ($product && !empty($product['proxies']) && $product['proxies'] !== 'null') {
-            return $product['proxies'];
-        }
-
-        return null;
     }
+
     return ($proxies === null || $proxies === '' || $proxies === 'null') ? null : $proxies;
 }
 
@@ -358,12 +359,13 @@ function adduser($location, $data_limit, $username_ac, $timestamp, $note = '', $
         return $Check_token;
     }
     $url = $marzban_list_get['url_panel'] . "/api/user";
-    $proxiesJson = marzban_resolve_proxies_json($marzban_list_get, $name_product);
+    $settingsProduct = marzban_resolve_settings_product_name($marzban_list_get, $name_product);
+    $proxiesJson = marzban_resolve_proxies_json($marzban_list_get, $settingsProduct);
     if ($proxiesJson !== null) {
         $marzban_list_get['proxies'] = $proxiesJson;
     }
     if ($marzban_list_get['version_panel'] == "1") {
-        $groupIds = marzban_resolve_group_ids($marzban_list_get, $name_product);
+        $groupIds = marzban_resolve_group_ids($marzban_list_get, $settingsProduct);
         if ($groupIds === null) {
             return marzban_api_error(
                 'گروه پاسارگارد تنظیم نشده. در ربات: تنظیم پروتکل و اینباند — شناسه گروه (مثلاً 1 یا 1,2) یا نام کاربری نمونه با گروه فعال را ارسال کنید.'
@@ -413,8 +415,8 @@ function adduser($location, $data_limit, $username_ac, $timestamp, $note = '', $
     } else {
         $inbounds = null;
         if ($marzban_list_get['inbounds'] != null and $marzban_list_get['inbounds'] != "null") {
-            if ($name_product != false and $name_product != "usertest") {
-                $product = select("product", "*", "name_product", $name_product, "select");
+            if ($settingsProduct != false and $settingsProduct != "usertest") {
+                $product = select("product", "*", "name_product", $settingsProduct, "select");
                 if ($product == false || $product['inbounds'] == false) {
                     $inbounds = json_decode($marzban_list_get['inbounds'], true);
                 } else {
@@ -423,13 +425,8 @@ function adduser($location, $data_limit, $username_ac, $timestamp, $note = '', $
             } else {
                 $inbounds = json_decode($marzban_list_get['inbounds'], true);
             }
-        } elseif ($name_product == "usertest") {
-            $product = marzban_first_product_for_panel($marzban_list_get);
-            if ($product && !empty($product['inbounds']) && $product['inbounds'] !== 'null') {
-                $inbounds = json_decode($product['inbounds'], true);
-            }
         }
-        $proxiesJson = marzban_resolve_proxies_json($marzban_list_get, $name_product);
+        $proxiesJson = marzban_resolve_proxies_json($marzban_list_get, $settingsProduct);
         $data = array(
             "proxies" => json_decode($proxiesJson !== null ? $proxiesJson : ($marzban_list_get['proxies'] ?? 'null')),
             "data_limit" => $data_limit,

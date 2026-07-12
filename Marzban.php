@@ -121,6 +121,21 @@ function marzban_resolve_proxies_json(array $panel, $name_product = false): ?str
     return ($proxies === null || $proxies === '' || $proxies === 'null') ? null : $proxies;
 }
 
+/** Resolve PasarGuard hwid_limit from product. */
+function marzban_resolve_hwid_limit($name_product = false): ?int
+{
+    if ($name_product === false || $name_product === 'usertest') {
+        return null;
+    }
+    $product = select('product', '*', 'name_product', $name_product, 'select');
+    if (!$product || $product['hwid_limit'] === null || $product['hwid_limit'] === '') {
+        return null;
+    }
+    $limit = (int) $product['hwid_limit'];
+
+    return $limit > 0 ? $limit : null;
+}
+
 function marzban_api_error(string $message, int $status = 400): array
 {
     return [
@@ -379,6 +394,10 @@ function adduser($location, $data_limit, $username_ac, $timestamp, $note = '', $
             "data_limit_reset_strategy" => $data_limit_reset,
             "group_ids" => $groupIds,
         );
+        $hwidLimit = marzban_resolve_hwid_limit($settingsProduct);
+        if ($hwidLimit !== null) {
+            $data['hwid_limit'] = $hwidLimit;
+        }
         if ($marzban_list_get['conecton'] == "offconecton") {
             if ($timestamp == 0) {
                 $data["expire"] = 0;

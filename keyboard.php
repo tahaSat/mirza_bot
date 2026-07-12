@@ -881,6 +881,7 @@ $change_product = json_encode([
         [['text' => "نام محصول"], ['text' => "نوع کاربری"]],
         [['text' => "نوع ریست حجم"], ['text' => "یادداشت"]],
         [['text' => "موقعیت محصول"], ['text' => "دسته بندی"]],
+        [['text' => "محدودیت دستگاه (HWID)"]],
         [['text' => "🎛 تنظیم اینباند"], ['text' => "نمایش برای خرید اول"]],
         [['text' => "مخفی کردن پنل"], ['text' => "حذف کلی پنل های مخفی"]],
         [['text' => $textbotlang['Admin']['backadmin']], ['text' => $textbotlang['Admin']['backmenu']]]

@@ -472,7 +472,8 @@ try {
         inbounds TEXT NULL,
         proxies TEXT NULL,
         category varchar(400) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
-        hide_panel TEXT  NOT NULL)
+        hide_panel TEXT  NOT NULL,
+        hwid_limit INT NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
         if (!$result) {
             echo "table product" . mysqli_error($connect);
@@ -488,6 +489,7 @@ try {
         addFieldToTable("product", "data_limit_reset", "no_reset", "varchar(100)");
         addFieldToTable("product", "agent", "f", "varchar(50)");
         addFieldToTable("product", "code_product", null, "varchar(50)");
+        addFieldToTable("product", "hwid_limit", null, "INT");
     }
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());

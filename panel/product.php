@@ -17,11 +17,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
     exit;
   }
   $code = bin2hex(random_bytes(2));
+  $hwid_limit = trim($_POST['hwid_limit'] ?? '');
+  $hwid_limit = ($hwid_limit === '' || $hwid_limit === '-') ? null : (int) $hwid_limit;
+  if ($hwid_limit !== null && $hwid_limit <= 0) {
+    flash('error', 'محدودیت دستگاه باید عدد مثبت باشد یا خالی بماند.');
+    header('Location: product.php');
+    exit;
+  }
   try {
     db_query(
       $pdo,
-      "INSERT INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status) VALUES (?,?,?,?,?,?,?,'no_reset',?,?,'{}','0')",
-      [$name, $code, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '']
+      "INSERT INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status,hwid_limit) VALUES (?,?,?,?,?,?,?,'no_reset',?,?,'{}','0',?)",
+      [$name, $code, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit]
     );
     flash('success', 'محصول «' . $name . '» اضافه شد.');
   } catch (Exception $e) {
@@ -36,11 +43,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
   $pid = (int) ($_POST['edit_id'] ?? 0);
   $name = trim($_POST['name_product'] ?? '');
   if ($pid && $name !== '') {
+    $hwid_limit = trim($_POST['hwid_limit'] ?? '');
+    $hwid_limit = ($hwid_limit === '' || $hwid_limit === '-') ? null : (int) $hwid_limit;
+    if ($hwid_limit !== null && $hwid_limit <= 0) {
+      flash('error', 'محدودیت دستگاه باید عدد مثبت باشد یا خالی بماند.');
+      header('Location: product.php');
+      exit;
+    }
     try {
       db_query(
         $pdo,
-        "UPDATE product SET name_product=?,price_product=?,Volume_constraint=?,Service_time=?,Location=?,agent=?,note=?,category=? WHERE id=?",
-        [$name, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $pid]
+        "UPDATE product SET name_product=?,price_product=?,Volume_constraint=?,Service_time=?,Location=?,agent=?,note=?,category=?,hwid_limit=? WHERE id=?",
+        [$name, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit, $pid]
       );
       flash('success', 'محصول ویرایش شد.');
     } catch (Exception $e) {
@@ -86,6 +100,13 @@ try {
 } catch (Exception $e) {
 }
 $products = db_fetchAll($pdo, "SELECT * FROM product ORDER BY id");
+
+$pasarguardPanels = [];
+foreach ($panels as $pl) {
+  if (($pl['type'] ?? '') === 'marzban' && ($pl['version_panel'] ?? '0') === '1') {
+    $pasarguardPanels[$pl['name_panel'] ?? ''] = true;
+  }
+}
 
 $pageTitle = 'محصولات';
 $pageLede = 'فهرست محصولات قابل فروش و مدیریت آن‌ها.';
@@ -137,6 +158,7 @@ include __DIR__ . '/inc/layout_head.php';
             <th>حجم</th>
             <th>مدت</th>
             <th>پنل</th>
+            <th>HWID</th>
             <th>دسته</th>
             <th>کد</th>
             <th>عملیات</th>
@@ -152,6 +174,14 @@ include __DIR__ . '/inc/layout_head.php';
               <td class="cn"><?= htmlspecialchars($p['Volume_constraint'] ?? '—') ?> <span class="cf">GB</span></td>
               <td class="cn"><?= htmlspecialchars($p['Service_time'] ?? '—') ?> <span class="cf">روز</span></td>
               <td class="cf"><?= htmlspecialchars(trunc($p['Location'] ?? '—', 16)) ?></td>
+              <td class="cn"><?php
+                $loc = $p['Location'] ?? '';
+                if (isset($pasarguardPanels[$loc])) {
+                  echo ($p['hwid_limit'] === null || $p['hwid_limit'] === '') ? '—' : htmlspecialchars((string) $p['hwid_limit']);
+                } else {
+                  echo '<span class="cf">—</span>';
+                }
+              ?></td>
               <td><?php if (!empty($p['category'])): ?><span
                     class="tag tag-info"><?= htmlspecialchars($p['category']) ?></span><?php else: ?><span
                     class="cf">—</span><?php endif; ?></td>
@@ -231,6 +261,11 @@ include __DIR__ . '/inc/layout_head.php';
               <option value="n2">نماینده پیشرفته</option>
             </select>
           </div>
+          <div class="field" id="add_hwid_field" style="display:none">
+            <label>محدودیت دستگاه (HWID)</label>
+            <input type="number" name="hwid_limit" id="add_hwid_limit" class="input" placeholder="خالی = بدون محدودیت" min="1">
+            <small class="cf" style="display:block;margin-top:4px">فقط برای پنل پاسارگارد — حداکثر تعداد دستگاه مجاز</small>
+          </div>
           <div class="field full">
             <label>توضیحات</label>
             <input type="text" name="note_product" class="input" placeholder="توضیحات اختیاری">
@@ -300,6 +335,11 @@ include __DIR__ . '/inc/layout_head.php';
               <option value="n2">نماینده پیشرفته</option>
             </select>
           </div>
+          <div class="field" id="edit_hwid_field" style="display:none">
+            <label>محدودیت دستگاه (HWID)</label>
+            <input type="number" name="hwid_limit" id="edit_hwid_limit" class="input" placeholder="خالی = بدون محدودیت" min="1">
+            <small class="cf" style="display:block;margin-top:4px">فقط برای پنل پاسارگارد — حداکثر تعداد دستگاه مجاز</small>
+          </div>
           <div class="field full">
             <label>توضیحات</label>
             <input type="text" name="note_product" id="edit_note" class="input">
@@ -314,6 +354,9 @@ include __DIR__ . '/inc/layout_head.php';
   </div>
 </div>
 
+<script>
+window.PASARGUARD_PANELS = <?= json_encode($pasarguardPanels, JSON_UNESCAPED_UNICODE) ?>;
+</script>
 <script src="js/product.js"></script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

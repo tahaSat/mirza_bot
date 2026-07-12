@@ -3442,6 +3442,26 @@ $caption";
     step('endstep', $from_id);
 } elseif ($user['step'] == "getnote") {
     savedata("save", "data_limit_reset", $text);
+    $userdata = json_decode($user['Processing_value'], true);
+    $panel = select("marzban_panel", "*", "name_panel", $userdata['Location'], "select");
+    if ($panel && $panel['type'] == 'marzban' && ($panel['version_panel'] ?? '0') === '1') {
+        sendmessage($from_id, "📌 محدودیت دستگاه (HWID) را ارسال کنید.\nعدد مثبت = حداکثر دستگاه مجاز\n«-» = بدون محدودیت", $backadmin, 'HTML');
+        step('get_hwid_limit', $from_id);
+        return;
+    }
+    sendmessage($from_id, " 🗒 یادداشت را برای محصول ارسال کنید.این یادداشت در پیش فاکتور کاربر نشان داده می شود.", $backadmin, 'HTML');
+    step('endstep', $from_id);
+} elseif ($user['step'] == "get_hwid_limit") {
+    $hwid_limit = null;
+    $trimmed = trim($text);
+    if ($trimmed !== '' && $trimmed !== '-') {
+        if (!ctype_digit($trimmed) || (int) $trimmed <= 0) {
+            sendmessage($from_id, "❌ مقدار نامعتبر. عدد مثبت یا «-» برای بدون محدودیت ارسال کنید.", $backadmin, 'HTML');
+            return;
+        }
+        $hwid_limit = (int) $trimmed;
+    }
+    savedata("save", "hwid_limit", $hwid_limit);
     sendmessage($from_id, " 🗒 یادداشت را برای محصول ارسال کنید.این یادداشت در پیش فاکتور کاربر نشان داده می شود.", $backadmin, 'HTML');
     step('endstep', $from_id);
 } elseif ($user['step'] == "endstep") {
@@ -3450,7 +3470,8 @@ $caption";
     $varhide_panel = "{}";
     if (!isset($userdata['category']))
         $userdata['category'] = null;
-    $stmt = $pdo->prepare("INSERT IGNORE INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status) VALUES (:name_product,:code_product,:price_product,:Volume_constraint,:Service_time,:Location,:agent,:data_limit_reset,:note,:category,:hide_panel,'0')");
+    $hwid_limit = isset($userdata['hwid_limit']) ? $userdata['hwid_limit'] : null;
+    $stmt = $pdo->prepare("INSERT IGNORE INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status,hwid_limit) VALUES (:name_product,:code_product,:price_product,:Volume_constraint,:Service_time,:Location,:agent,:data_limit_reset,:note,:category,:hide_panel,'0',:hwid_limit)");
     $stmt->bindParam(':name_product', $userdata['name_product']);
     $stmt->bindParam(':code_product', $randomString);
     $stmt->bindParam(':price_product', $userdata['price_product']);
@@ -3462,6 +3483,7 @@ $caption";
     $stmt->bindParam(':category', $userdata['category'], PDO::PARAM_STR);
     $stmt->bindParam(':note', $text, PDO::PARAM_STR);
     $stmt->bindParam(':hide_panel', $varhide_panel, PDO::PARAM_STR);
+    $stmt->bindValue(':hwid_limit', $hwid_limit, $hwid_limit === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
     $stmt->execute();
     sendmessage($from_id, $textbotlang['Admin']['Product']['SaveProduct'], $shopkeyboard, 'HTML');
     step('home', $from_id);
@@ -3709,6 +3731,7 @@ $caption";
     $panel = select("marzban_panel", "*", "code_panel", $user['Processing_value_one'], "select");
     $info_product = mysqli_fetch_assoc(mysqli_query($connect, "SELECT * FROM product WHERE id = '$id_product'  AND agent = '{$user['Processing_value_tow']}' AND (Location = '{$panel['name_panel']}' OR Location = '/all') LIMIT 1"));
     $count_invoice = select("invoice", "*", "name_product", $info_product['name_product'], "count");
+    $hwidDisplay = ($info_product['hwid_limit'] === null || $info_product['hwid_limit'] === '') ? 'بدون محدودیت' : $info_product['hwid_limit'];
     $infoproduct = "
 📌 اطلاعات محصول در حال ویرایش:
 نام محصول :  {$info_product['name_product']}
@@ -3718,6 +3741,7 @@ $caption";
 زمان محصول : {$info_product['Service_time']}
 نوع کاربری محصول : {$info_product['agent']}
 ریست دوره ای حجم محصول : {$info_product['data_limit_reset']}
+محدودیت دستگاه (HWID) : {$hwidDisplay}
 یادداشت محصول : {$info_product['note']}
 دسته بندی محصول : {$info_product['category']}
 تعداد محصول فروخته شده : $count_invoice عدد
@@ -3753,6 +3777,28 @@ $caption";
     $stmt->bindParam(':agent', $user['Processing_value_tow']);
     $stmt->execute();
     sendmessage($from_id, "✅ یادداشت محصول بروزرسانی شد", $shopkeyboard, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "محدودیت دستگاه (HWID)" && $adminrulecheck['rule'] == "administrator") {
+    sendmessage($from_id, "محدودیت دستگاه (HWID) جدید را ارسال کنید.\nعدد مثبت = حداکثر دستگاه مجاز\n«-» = بدون محدودیت", $backadmin, 'HTML');
+    step('change_hwid_limit', $from_id);
+} elseif ($user['step'] == "change_hwid_limit") {
+    $hwid_limit = null;
+    $trimmed = trim($text);
+    if ($trimmed !== '' && $trimmed !== '-') {
+        if (!ctype_digit($trimmed) || (int) $trimmed <= 0) {
+            sendmessage($from_id, "❌ مقدار نامعتبر. عدد مثبت یا «-» برای بدون محدودیت ارسال کنید.", $backadmin, 'HTML');
+            return;
+        }
+        $hwid_limit = (int) $trimmed;
+    }
+    $panel = select("marzban_panel", "*", "code_panel", $user['Processing_value_one'], "select");
+    $stmt = $pdo->prepare("UPDATE product SET hwid_limit = :hwid_limit WHERE id = :name_product AND (Location = :Location OR Location = '/all') AND agent = :agent");
+    $stmt->bindValue(':hwid_limit', $hwid_limit, $hwid_limit === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+    $stmt->bindParam(':name_product', $user['Processing_value']);
+    $stmt->bindParam(':Location', $panel['name_panel']);
+    $stmt->bindParam(':agent', $user['Processing_value_tow']);
+    $stmt->execute();
+    sendmessage($from_id, "✅ محدودیت دستگاه (HWID) محصول بروزرسانی شد", $change_product, 'HTML');
     step('home', $from_id);
 } elseif ($text == "دسته بندی" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, "نام دسته بندی جدید را انتخاب کنید", KeyboardCategoryadmin(), 'HTML');
@@ -9989,30 +10035,59 @@ elseif ($text == "🫣 مخفی کردن پنل برای یک کاربر" && $ad
             return;
         }
         $DataUserOut = json_decode($DataUserOut['body'], true);
-        if ((isset($DataUserOut['msg']) && $DataUserOut['msg'] == "User not found") or !isset($DataUserOut['proxies'])) {
-            sendmessage($from_id, $textbotlang['users']['stateus']['UserNotFound'], null, 'html');
-            return;
-        }
-        foreach ($DataUserOut['proxies'] as $key => &$value) {
-            if ($key == "shadowsocks") {
-                unset($DataUserOut['proxies'][$key]['password']);
-            } elseif ($key == "trojan") {
-                unset($DataUserOut['proxies'][$key]['password']);
-            } else {
-                unset($DataUserOut['proxies'][$key]['id']);
+        if (($marzban_list_get['version_panel'] ?? '0') === '1') {
+            if ((isset($DataUserOut['msg']) && $DataUserOut['msg'] == "User not found") or !isset($DataUserOut['proxy_settings'])) {
+                sendmessage($from_id, $textbotlang['users']['stateus']['UserNotFound'], null, 'html');
+                return;
             }
-            if (count($DataUserOut['proxies'][$key]) == 0) {
-                $DataUserOut['proxies'][$key] = new stdClass();
+            if (empty($DataUserOut['group_ids']) || !is_array($DataUserOut['group_ids'])) {
+                sendmessage($from_id, "❌ این کاربر در پاسارگارد هیچ گروهی ندارد.", null, 'HTML');
+                return;
             }
+            $DataUserOut['proxy_settings'] = marzban_sanitize_proxy_settings_for_storage($DataUserOut['proxy_settings']);
+            $proxies_json = json_encode($DataUserOut['proxy_settings'], JSON_FORCE_OBJECT);
+            $datainbound = json_encode($DataUserOut['group_ids']);
+            $stmt = $pdo->prepare("UPDATE product SET proxies = :proxies WHERE id = :name_product AND (Location = :Location OR Location = '/all') AND agent = :agent");
+            $stmt->bindParam(':proxies', $proxies_json);
+            $stmt->bindParam(':name_product', $user['Processing_value']);
+            $stmt->bindParam(':Location', $marzban_list_get['name_panel']);
+            $stmt->bindParam(':agent', $user['Processing_value_tow']);
+            $stmt->execute();
+            if (isset($DataUserOut['hwid_limit']) && $DataUserOut['hwid_limit'] !== null && (int) $DataUserOut['hwid_limit'] > 0) {
+                $hwid_limit = (int) $DataUserOut['hwid_limit'];
+                $stmt = $pdo->prepare("UPDATE product SET hwid_limit = :hwid_limit WHERE id = :name_product AND (Location = :Location OR Location = '/all') AND agent = :agent");
+                $stmt->bindParam(':hwid_limit', $hwid_limit, PDO::PARAM_INT);
+                $stmt->bindParam(':name_product', $user['Processing_value']);
+                $stmt->bindParam(':Location', $marzban_list_get['name_panel']);
+                $stmt->bindParam(':agent', $user['Processing_value_tow']);
+                $stmt->execute();
+            }
+        } else {
+            if ((isset($DataUserOut['msg']) && $DataUserOut['msg'] == "User not found") or !isset($DataUserOut['proxies'])) {
+                sendmessage($from_id, $textbotlang['users']['stateus']['UserNotFound'], null, 'html');
+                return;
+            }
+            foreach ($DataUserOut['proxies'] as $key => &$value) {
+                if ($key == "shadowsocks") {
+                    unset($DataUserOut['proxies'][$key]['password']);
+                } elseif ($key == "trojan") {
+                    unset($DataUserOut['proxies'][$key]['password']);
+                } else {
+                    unset($DataUserOut['proxies'][$key]['id']);
+                }
+                if (count($DataUserOut['proxies'][$key]) == 0) {
+                    $DataUserOut['proxies'][$key] = new stdClass();
+                }
+            }
+            $stmt = $pdo->prepare("UPDATE product SET proxies = :proxies WHERE id = :name_product AND (Location = :Location OR Location = '/all') AND agent = :agent");
+            $proxies_json = json_encode($DataUserOut['proxies']);
+            $stmt->bindParam(':proxies', $proxies_json);
+            $stmt->bindParam(':name_product', $user['Processing_value']);
+            $stmt->bindParam(':Location', $marzban_list_get['name_panel']);
+            $stmt->bindParam(':agent', $user['Processing_value_tow']);
+            $stmt->execute();
+            $datainbound = json_encode($DataUserOut['inbounds']);
         }
-        $stmt = $pdo->prepare("UPDATE product SET proxies = :proxies WHERE id = :name_product AND (Location = :Location OR Location = '/all') AND agent = :agent");
-        $proxies_json = json_encode($DataUserOut['proxies']);
-        $stmt->bindParam(':proxies', $proxies_json);
-        $stmt->bindParam(':name_product', $user['Processing_value']);
-        $stmt->bindParam(':Location', $marzban_list_get['name_panel']);
-        $stmt->bindParam(':agent', $user['Processing_value_tow']);
-        $stmt->execute();
-        $datainbound = json_encode($DataUserOut['inbounds']);
     } elseif ($marzban_list_get['type'] == "marzneshin") {
         $userdata = json_decode(getuserm($text, $marzban_list_get['name_panel'])['body'], true);
         if (isset($userdata['detail']) and $userdata['detail'] == "User not found") {

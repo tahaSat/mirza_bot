@@ -257,6 +257,16 @@ switch ($data['actions'] ?? '') {
                 'one_buy_status' => empty($data['one_buy_status']) ? 0 : $data['one_buy_status'],
                 'hide_panel' => empty($data['hide_panel']) ? "{}" : $data['hide_panel'],
             ];
+            if (array_key_exists('hwid_limit', $data)) {
+                $hwidRaw = $data['hwid_limit'];
+                if ($hwidRaw === '' || $hwidRaw === '-' || $hwidRaw === null) {
+                    $productData['hwid_limit'] = null;
+                } elseif (!is_numeric($hwidRaw) || (int) $hwidRaw <= 0) {
+                    sendJsonResponse(false, "Invalid hwid_limit", [], 200);
+                } else {
+                    $productData['hwid_limit'] = (int) $hwidRaw;
+                }
+            }
 
             // Insert product into database
             $columns = implode(',', array_keys($productData));
@@ -314,6 +324,16 @@ switch ($data['actions'] ?? '') {
                 'one_buy_status' => isset($data['one_buy_status']) ? $data['one_buy_status'] : $product['one_buy_status'],
                 'hide_panel' => isset($data['hide_panel']) ? json_encode($data['hide_panel']) : $product['hide_panel'],
             ];
+            if (array_key_exists('hwid_limit', $data)) {
+                $hwidRaw = $data['hwid_limit'];
+                if ($hwidRaw === '' || $hwidRaw === '-' || $hwidRaw === null) {
+                    $productData['hwid_limit'] = null;
+                } elseif (!is_numeric($hwidRaw) || (int) $hwidRaw <= 0) {
+                    sendJsonResponse(false, "Invalid hwid_limit", [], 200);
+                } else {
+                    $productData['hwid_limit'] = (int) $hwidRaw;
+                }
+            }
             $setParts = [];
             foreach ($productData as $key => $value) {
                 $setParts[] = "{$key} = :{$key}";
@@ -386,6 +406,13 @@ switch ($data['actions'] ?? '') {
                 $DataUserOut['proxy_settings'] = marzban_sanitize_proxy_settings_for_storage($DataUserOut['proxy_settings']);
                 $proxy_output = json_encode($DataUserOut['proxy_settings'], JSON_FORCE_OBJECT);
                 $datainbound = json_encode($DataUserOut['group_ids']);
+                if (isset($DataUserOut['hwid_limit']) && $DataUserOut['hwid_limit'] !== null && (int) $DataUserOut['hwid_limit'] > 0) {
+                    $hwid_limit = (int) $DataUserOut['hwid_limit'];
+                    $stmt = $pdo->prepare("UPDATE product SET hwid_limit = :hwid_limit WHERE id = :id_product");
+                    $stmt->bindParam(':hwid_limit', $hwid_limit, PDO::PARAM_INT);
+                    $stmt->bindParam(':id_product', $data['id']);
+                    $stmt->execute();
+                }
             } else {
                 $DataUserOut = getuser($data['input'], $panel['name_panel']);
                 if (!empty($DataUserOut['error']))

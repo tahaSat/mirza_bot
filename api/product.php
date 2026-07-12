@@ -253,6 +253,7 @@ switch ($data['actions'] ?? '') {
                 'data_limit_reset' => empty($data['data_limit_reset']) ? "no_reset" : $data['data_limit_reset'],
                 'inbounds' => empty($data['note']) ? null : $data['inbounds'],
                 'proxies' => empty($data['proxies']) ? null : $data['proxies'],
+                'template_id' => !empty($data['template_id']) ? (int) $data['template_id'] : null,
                 'category' => empty($data['category']) ? null : $data['category'],
                 'one_buy_status' => empty($data['one_buy_status']) ? 0 : $data['one_buy_status'],
                 'hide_panel' => empty($data['hide_panel']) ? "{}" : $data['hide_panel'],
@@ -310,6 +311,9 @@ switch ($data['actions'] ?? '') {
                 'data_limit_reset' => isset($data['data_limit_reset']) ? $data['data_limit_reset'] : $product['data_limit_reset'],
                 'inbounds' => isset($data['inbounds']) ? $data['inbounds'] : $product['inbounds'],
                 'proxies' => isset($data['proxies']) ? $data['proxies'] : $product['proxies'],
+                'template_id' => array_key_exists('template_id', $data)
+                    ? (!empty($data['template_id']) ? (int) $data['template_id'] : null)
+                    : ($product['template_id'] ?? null),
                 'category' => isset($data['category']) ? $data['category'] : $product['category'],
                 'one_buy_status' => isset($data['one_buy_status']) ? $data['one_buy_status'] : $product['one_buy_status'],
                 'hide_panel' => isset($data['hide_panel']) ? json_encode($data['hide_panel']) : $product['hide_panel'],
@@ -373,6 +377,23 @@ switch ($data['actions'] ?? '') {
         $panel = select("marzban_panel", "*", 'name_panel', $product['Location'], "select");
         if ($panel['type'] == "marzban") {
             if (($panel['version_panel'] ?? '0') === '1') {
+                if (preg_match('/^template\s*:?\s*(\d+)$/i', trim((string) $data['input']), $templateMatch)) {
+                    $templateId = (int) $templateMatch[1];
+                    $stmt = $pdo->prepare("UPDATE product SET template_id = :template_id, inbounds = NULL, proxies = NULL WHERE id = :id_product");
+                    $stmt->bindParam(':template_id', $templateId, PDO::PARAM_INT);
+                    $stmt->bindParam(':id_product', $data['id']);
+                    $stmt->execute();
+                    sendJsonResponse(true, "successfully", [], 200);
+                }
+                if (preg_match('/^\s*\d+(\s*,\s*\d+)*\s*$/', (string) $data['input'])) {
+                    $groupIds = array_map('intval', preg_split('/\s*,\s*/', trim((string) $data['input'])));
+                    $datainbound = json_encode($groupIds);
+                    $stmt = $pdo->prepare("UPDATE product SET template_id = NULL, inbounds = :inbounds WHERE id = :id_product");
+                    $stmt->bindParam(':inbounds', $datainbound);
+                    $stmt->bindParam(':id_product', $data['id']);
+                    $stmt->execute();
+                    sendJsonResponse(true, "successfully", [], 200);
+                }
                 $DataUserOut = getuser($data['input'], $panel['name_panel']);
                 if (!empty($DataUserOut['error']))
                     sendJsonResponse(false, $DataUserOut['error'], [], 200);
@@ -411,7 +432,7 @@ switch ($data['actions'] ?? '') {
                 $proxy_output = json_encode($DataUserOut['proxies']);
                 $datainbound = json_encode($DataUserOut['inbounds']);
             }
-            $stmt = $pdo->prepare("UPDATE product SET proxies = :proxies WHERE id = :id_product");
+            $stmt = $pdo->prepare("UPDATE product SET proxies = :proxies, template_id = NULL WHERE id = :id_product");
             $stmt->bindParam(':proxies', $proxy_output);
             $stmt->bindParam(':id_product', $data['id']);
             $stmt->execute();
@@ -461,7 +482,7 @@ switch ($data['actions'] ?? '') {
         if (!$product) {
             sendJsonResponse(false, "product not found", [], 200);
         }
-        $stmt = $pdo->prepare("UPDATE product SET inbounds = NULL,proxies = NULL WHERE id = :id_product ");
+        $stmt = $pdo->prepare("UPDATE product SET inbounds = NULL, proxies = NULL, template_id = NULL WHERE id = :id_product ");
         $stmt->bindParam(':id_product', $data['id']);
         $stmt->execute();
         sendJsonResponse(true, "successfully", [], 200);

@@ -39,6 +39,7 @@ function marzban_first_product_for_panel(array $panel): ?array
            AND (
              (inbounds IS NOT NULL AND inbounds != '' AND inbounds != 'null')
              OR (proxies IS NOT NULL AND proxies != '' AND proxies != 'null')
+             OR (template_id IS NOT NULL AND template_id > 0)
            )
          ORDER BY id ASC
          LIMIT 1"
@@ -106,6 +107,48 @@ function marzban_resolve_group_ids(array $panel, $name_product = false): ?array
     }
 
     return marzban_parse_group_ids_json($source);
+}
+
+/** Resolve PasarGuard user_template_id from product. */
+function marzban_resolve_template_id(array $panel, $name_product = false): ?int
+{
+    if (($panel['version_panel'] ?? '0') !== '1') {
+        return null;
+    }
+    if ($name_product === false || $name_product === 'usertest') {
+        return null;
+    }
+    $product = select('product', '*', 'name_product', $name_product, 'select');
+    if (!$product || empty($product['template_id'])) {
+        return null;
+    }
+    $templateId = (int) $product['template_id'];
+
+    return $templateId > 0 ? $templateId : null;
+}
+
+/** Apply purchase volume/time limits after creating a PasarGuard user from template. */
+function marzban_apply_purchase_limits(array $panel, int $data_limit, int $timestamp, string $data_limit_reset): array
+{
+    $data = [
+        'data_limit' => $data_limit,
+        'data_limit_reset_strategy' => $data_limit_reset,
+    ];
+    if ($panel['conecton'] == 'offconecton') {
+        if ($timestamp == 0) {
+            $data['expire'] = 0;
+        } else {
+            $data['expire'] = date('c', $timestamp);
+        }
+    } elseif ($timestamp == 0) {
+        $data['expire'] = 0;
+    } else {
+        $data['expire'] = 0;
+        $data['status'] = 'on_hold';
+        $data['on_hold_expire_duration'] = $timestamp - time();
+    }
+
+    return $data;
 }
 
 function marzban_resolve_proxies_json(array $panel, $name_product = false): ?string
@@ -365,6 +408,39 @@ function adduser($location, $data_limit, $username_ac, $timestamp, $note = '', $
         $marzban_list_get['proxies'] = $proxiesJson;
     }
     if ($marzban_list_get['version_panel'] == "1") {
+        $templateId = marzban_resolve_template_id($marzban_list_get, $settingsProduct);
+        if ($templateId !== null) {
+            $createData = [
+                'username' => $username_ac,
+                'user_template_id' => $templateId,
+            ];
+            if ($note !== '') {
+                $createData['note'] = $note;
+            }
+            $url = $marzban_list_get['url_panel'] . '/api/user/from_template';
+            $headers = array(
+                'accept: application/json',
+                'Content-Type: application/json'
+            );
+            $req = new CurlRequest($url);
+            $req->setHeaders($headers);
+            $req->setBearerToken($Check_token['access_token']);
+            $response = $req->post(json_encode($createData));
+            if (!empty($response['error'])) {
+                return $response;
+            }
+            $created = json_decode($response['body'] ?? '', true);
+            if (!empty($created['detail']) || empty($created['username'])) {
+                return $response;
+            }
+            $modifyData = marzban_apply_purchase_limits(
+                $marzban_list_get,
+                $data_limit,
+                $timestamp,
+                $data_limit_reset
+            );
+            return Modifyuser($location, $username_ac, $modifyData);
+        }
         $groupIds = marzban_resolve_group_ids($marzban_list_get, $settingsProduct);
         if ($groupIds === null) {
             return marzban_api_error(

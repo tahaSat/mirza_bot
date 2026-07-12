@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../function.php';
+addFieldToTable('product', 'template_id', null, 'INT(11)');
 require_once __DIR__ . '/../botapi.php';
 require_once __DIR__ . '/../panels.php';
 

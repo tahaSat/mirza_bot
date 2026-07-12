@@ -3,8 +3,6 @@
 require __DIR__ . '/../../config.php';
 require __DIR__ . '/../../function.php';
 
-addFieldToTable('product', 'template_id', null, 'INT(11)');
-
 function panel_ensure_pdo(): PDO
 {
     global $pdo;

@@ -17,12 +17,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
     exit;
   }
   $code = bin2hex(random_bytes(2));
-  $templateId = trim($_POST['template_id'] ?? '') !== '' ? (int) $_POST['template_id'] : null;
   try {
     db_query(
       $pdo,
-      "INSERT INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status,template_id) VALUES (?,?,?,?,?,?,?,'no_reset',?,?,'{}','0',?)",
-      [$name, $code, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $templateId]
+      "INSERT INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status) VALUES (?,?,?,?,?,?,?,'no_reset',?,?,'{}','0')",
+      [$name, $code, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '']
     );
     flash('success', 'محصول «' . $name . '» اضافه شد.');
   } catch (Exception $e) {
@@ -37,12 +36,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
   $pid = (int) ($_POST['edit_id'] ?? 0);
   $name = trim($_POST['name_product'] ?? '');
   if ($pid && $name !== '') {
-    $templateId = trim($_POST['template_id'] ?? '') !== '' ? (int) $_POST['template_id'] : null;
     try {
       db_query(
         $pdo,
-        "UPDATE product SET name_product=?,price_product=?,Volume_constraint=?,Service_time=?,Location=?,agent=?,note=?,category=?,template_id=? WHERE id=?",
-        [$name, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $templateId, $pid]
+        "UPDATE product SET name_product=?,price_product=?,Volume_constraint=?,Service_time=?,Location=?,agent=?,note=?,category=? WHERE id=?",
+        [$name, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $pid]
       );
       flash('success', 'محصول ویرایش شد.');
     } catch (Exception $e) {
@@ -139,7 +137,6 @@ include __DIR__ . '/inc/layout_head.php';
             <th>حجم</th>
             <th>مدت</th>
             <th>پنل</th>
-            <th>تمپلیت</th>
             <th>دسته</th>
             <th>کد</th>
             <th>عملیات</th>
@@ -155,7 +152,6 @@ include __DIR__ . '/inc/layout_head.php';
               <td class="cn"><?= htmlspecialchars($p['Volume_constraint'] ?? '—') ?> <span class="cf">GB</span></td>
               <td class="cn"><?= htmlspecialchars($p['Service_time'] ?? '—') ?> <span class="cf">روز</span></td>
               <td class="cf"><?= htmlspecialchars(trunc($p['Location'] ?? '—', 16)) ?></td>
-              <td class="cn"><?= !empty($p['template_id']) ? (int) $p['template_id'] : '—' ?></td>
               <td><?php if (!empty($p['category'])): ?><span
                     class="tag tag-info"><?= htmlspecialchars($p['category']) ?></span><?php else: ?><span
                     class="cf">—</span><?php endif; ?></td>
@@ -219,23 +215,13 @@ include __DIR__ . '/inc/layout_head.php';
           </div>
           <div class="field">
             <label>پنل</label>
-            <select name="namepanel" class="select panel-select" data-template-target="add_template_wrap">
+            <select name="namepanel" class="select">
               <option value="">— انتخاب نشده —</option>
-              <?php foreach ($panels as $pl):
-                $panelName = $pl['name_panel'] ?? $pl['id'];
-                $isPg = ($pl['type'] ?? '') === 'marzban' && ($pl['version_panel'] ?? '0') === '1';
-              ?>
-                <option value="<?= htmlspecialchars($panelName) ?>" data-pasarguard="<?= $isPg ? '1' : '0' ?>">
-                  <?= htmlspecialchars($panelName) ?>
+              <?php foreach ($panels as $pl): ?>
+                <option value="<?= htmlspecialchars($pl['name_panel'] ?? $pl['id']) ?>">
+                  <?= htmlspecialchars($pl['name_panel'] ?? $pl['id']) ?>
                 </option><?php endforeach; ?>
             </select>
-          </div>
-          <div class="field full" id="add_template_wrap" style="display:none">
-            <label>شناسه تمپلیت پاسارگارد (user_template_id)</label>
-            <input type="number" name="template_id" class="input" min="1" placeholder="مثلاً 3">
-            <p class="cf" style="margin-top:6px;font-size:.78rem">
-              از پنل PasarGuard → <strong>Templates</strong> شناسه تمپلیت را بگیرید. اگر تمپلیت تنظیم شود، ساخت اشتراک با همان تمپلیت انجام می‌شود.
-            </p>
           </div>
           <div class="field">
             <label>نمایندگی</label>
@@ -298,23 +284,13 @@ include __DIR__ . '/inc/layout_head.php';
           </div>
           <div class="field">
             <label>پنل</label>
-            <select name="namepanel" id="edit_panel" class="select panel-select" data-template-target="edit_template_wrap">
+            <select name="namepanel" id="edit_panel" class="select">
               <option value="">— انتخاب نشده —</option>
-              <?php foreach ($panels as $pl):
-                $panelName = $pl['name_panel'] ?? $pl['id'];
-                $isPg = ($pl['type'] ?? '') === 'marzban' && ($pl['version_panel'] ?? '0') === '1';
-              ?>
-                <option value="<?= htmlspecialchars($panelName) ?>" data-pasarguard="<?= $isPg ? '1' : '0' ?>">
-                  <?= htmlspecialchars($panelName) ?>
+              <?php foreach ($panels as $pl): ?>
+                <option value="<?= htmlspecialchars($pl['name_panel'] ?? $pl['id']) ?>">
+                  <?= htmlspecialchars($pl['name_panel'] ?? $pl['id']) ?>
                 </option><?php endforeach; ?>
             </select>
-          </div>
-          <div class="field full" id="edit_template_wrap" style="display:none">
-            <label>شناسه تمپلیت پاسارگارد (user_template_id)</label>
-            <input type="number" name="template_id" id="edit_template_id" class="input" min="1" placeholder="مثلاً 3">
-            <p class="cf" style="margin-top:6px;font-size:.78rem">
-              برای محصولات پاسارگارد می‌توانید به‌جای group_id از تمپلیت استفاده کنید.
-            </p>
           </div>
           <div class="field">
             <label>نمایندگی</label>

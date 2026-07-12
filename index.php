@@ -8,7 +8,6 @@ require_once 'config.php';
 require_once 'botapi.php';
 require_once 'jdf.php';
 require_once 'function.php';
-addFieldToTable('product', 'template_id', null, 'INT(11)');
 require_once 'keyboard.php';
 require_once 'vendor/autoload.php';
 require_once 'panels.php';

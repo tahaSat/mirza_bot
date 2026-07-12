@@ -488,7 +488,6 @@ try {
         addFieldToTable("product", "data_limit_reset", "no_reset", "varchar(100)");
         addFieldToTable("product", "agent", "f", "varchar(50)");
         addFieldToTable("product", "code_product", null, "varchar(50)");
-        addFieldToTable("product", "template_id", null, "INT(11)");
     }
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());

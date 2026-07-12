@@ -9973,66 +9973,12 @@ elseif ($text == "🫣 مخفی کردن پنل برای یک کاربر" && $ad
 📆 تاریخ خرید :  {$paymentUser['time']}";
     sendmessage($from_id, $text_order, null, 'HTML');
 } elseif ($text == "🎛 تنظیم اینباند") {
-    sendmessage($from_id, "📌 برای پنل پاسارگارد یکی از این‌ها را بفرستید:\n• template:5 (شناسه تمپلیت از PasarGuard → Templates)\n• 1 یا 1,2 (شناسه گروه)\n• یا نام کاربری نمونه\n\nبرای مرزبان/مرزنشین نام کاربری کانفیگ؛ برای ثنایی/علیرضا شناسه اینباند.", $backadmin, 'HTML');
+    sendmessage($from_id, "📌 در صورتی که پنل مرزبان  یا مرزنشین هستید یک نام کاربری کانفیگ از پنل کپی و ارسال نمایید در غیراینصورت برای پنل های ثنایی و علیرضا شناسه اینباند را ارسال نمایید", $backadmin, 'HTML');
     step("getdatainboundproduct", $from_id);
 } elseif ($user['step'] == "getdatainboundproduct") {
     $marzban_list_get = select("marzban_panel", "*", "code_panel", $user['Processing_value_one']);
     $datainbound = "";
     if ($marzban_list_get['type'] == "marzban") {
-        if (($marzban_list_get['version_panel'] ?? '0') === '1') {
-            if (preg_match('/^template\s*:?\s*(\d+)$/i', trim($text), $templateMatch)) {
-                $templateId = (int) $templateMatch[1];
-                $stmt = $pdo->prepare("UPDATE product SET template_id = :template_id, inbounds = NULL, proxies = NULL WHERE id = :name_product AND (Location = :Location OR Location = '/all') AND agent = :agent");
-                $stmt->bindParam(':template_id', $templateId, PDO::PARAM_INT);
-                $stmt->bindParam(':name_product', $user['Processing_value']);
-                $stmt->bindParam(':Location', $marzban_list_get['name_panel']);
-                $stmt->bindParam(':agent', $user['Processing_value_tow']);
-                $stmt->execute();
-                sendmessage($from_id, "✅ تمپلیت پاسارگارد برای محصول تنظیم شد: " . $templateId, $shopkeyboard, 'HTML');
-                step('home', $from_id);
-                return;
-            }
-            if (preg_match('/^\s*\d+(\s*,\s*\d+)*\s*$/', $text)) {
-                $groupIds = array_map('intval', preg_split('/\s*,\s*/', trim($text)));
-                $datainbound = json_encode($groupIds);
-                $stmt = $pdo->prepare("UPDATE product SET template_id = NULL, inbounds = :inbounds WHERE id = :name_product AND (Location = :Location OR Location = '/all') AND agent = :agent");
-                $stmt->bindParam(':inbounds', $datainbound);
-                $stmt->bindParam(':name_product', $user['Processing_value']);
-                $stmt->bindParam(':Location', $marzban_list_get['name_panel']);
-                $stmt->bindParam(':agent', $user['Processing_value_tow']);
-                $stmt->execute();
-                sendmessage($from_id, "✅ گروه‌های پاسارگارد برای محصول تنظیم شد: " . implode(', ', $groupIds), $shopkeyboard, 'HTML');
-                step('home', $from_id);
-                return;
-            }
-            $DataUserOut = getuser($text, $marzban_list_get['name_panel']);
-            if (!empty($DataUserOut['error'])) {
-                sendmessage($from_id, $DataUserOut['error'], null, 'HTML');
-                return;
-            }
-            if (!empty($DataUserOut['status']) && $DataUserOut['status'] != 200) {
-                sendmessage($from_id, "❌  خطایی رخ داده است کد خطا :  {$DataUserOut['status']}", null, 'HTML');
-                return;
-            }
-            $DataUserOut = json_decode($DataUserOut['body'], true);
-            if ((isset($DataUserOut['msg']) && $DataUserOut['msg'] == "User not found") or !isset($DataUserOut['proxy_settings'])) {
-                sendmessage($from_id, $textbotlang['users']['stateus']['UserNotFound'], null, 'html');
-                return;
-            }
-            if (empty($DataUserOut['group_ids']) || !is_array($DataUserOut['group_ids'])) {
-                sendmessage($from_id, "❌ این کاربر در پاسارگارد هیچ گروهی ندارد. template:5 یا شناسه گروه (مثلاً 1) بفرستید.", null, 'HTML');
-                return;
-            }
-            $DataUserOut['proxy_settings'] = marzban_sanitize_proxy_settings_for_storage($DataUserOut['proxy_settings']);
-            $stmt = $pdo->prepare("UPDATE product SET proxies = :proxies, template_id = NULL WHERE id = :name_product AND (Location = :Location OR Location = '/all') AND agent = :agent");
-            $proxies_json = json_encode($DataUserOut['proxy_settings'], JSON_FORCE_OBJECT);
-            $stmt->bindParam(':proxies', $proxies_json);
-            $stmt->bindParam(':name_product', $user['Processing_value']);
-            $stmt->bindParam(':Location', $marzban_list_get['name_panel']);
-            $stmt->bindParam(':agent', $user['Processing_value_tow']);
-            $stmt->execute();
-            $datainbound = json_encode($DataUserOut['group_ids']);
-        } else {
         $DataUserOut = getuser($text, $marzban_list_get['name_panel']);
         if (!empty($DataUserOut['error'])) {
             sendmessage($from_id, $DataUserOut['error'], null, 'HTML');
@@ -10067,7 +10013,6 @@ elseif ($text == "🫣 مخفی کردن پنل برای یک کاربر" && $ad
         $stmt->bindParam(':agent', $user['Processing_value_tow']);
         $stmt->execute();
         $datainbound = json_encode($DataUserOut['inbounds']);
-        }
     } elseif ($marzban_list_get['type'] == "marzneshin") {
         $userdata = json_decode(getuserm($text, $marzban_list_get['name_panel'])['body'], true);
         if (isset($userdata['detail']) and $userdata['detail'] == "User not found") {

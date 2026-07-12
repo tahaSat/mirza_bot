@@ -2947,3 +2947,19 @@ function notify_support_admins($text, $keyboard, $photo = false, $video = false,
         sendmessage($id_admin, $text, $keyboard, 'HTML');
     }
 }
+
+function product_ensure_hwid_limit_column(): void
+{
+    static $ensured = false;
+    if ($ensured) {
+        return;
+    }
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        return;
+    }
+    addFieldToTable('product', 'hwid_limit', null, 'INT');
+    $ensured = true;
+}
+
+product_ensure_hwid_limit_column();

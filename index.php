@@ -1471,7 +1471,7 @@ $textconnect
         ]);
         $productextend = ['inline_keyboard' => []];
         $statusshowprice = select("shopSetting", "*", "Namevalue", "statusshowprice", "select")['value'];
-        while ($result = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
             $hide_panel = json_decode($result['hide_panel'], true);
             if (in_array($nameloc['Service_location'], $hide_panel))
                 continue;
@@ -1544,7 +1544,7 @@ $textconnect
     $productextend = ['inline_keyboard' => []];
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
     $statusshowprice = select("shopSetting", "*", "Namevalue", "statusshowprice", "select")['value'];
-    while ($result = $stmt->fetch(PDO::FETCH_ASSOC)) {
+    foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
         if (intval($user['pricediscount']) != 0) {
             $resultper = ($result['price_product'] * $user['pricediscount']) / 100;
             $result['price_product'] = $result['price_product'] - $resultper;

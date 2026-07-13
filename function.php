@@ -2948,6 +2948,64 @@ function notify_support_admins($text, $keyboard, $photo = false, $video = false,
     }
 }
 
+function product_ensure_sort_order_column(): void
+{
+    static $ensured = false;
+    if ($ensured) {
+        return;
+    }
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        return;
+    }
+    try {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product' AND COLUMN_NAME = 'sort_order'");
+        $stmt->execute();
+        if ((int) $stmt->fetchColumn() === 0) {
+            $pdo->exec('ALTER TABLE product ADD sort_order INT NOT NULL DEFAULT 0');
+            $pdo->exec('UPDATE product SET sort_order = id WHERE sort_order = 0');
+        }
+    } catch (Throwable $e) {
+        error_log('product_ensure_sort_order_column: ' . $e->getMessage());
+    }
+    $ensured = true;
+}
+
+function product_sort_value(array $product): int
+{
+    $sort = (int) ($product['sort_order'] ?? 0);
+    if ($sort > 0) {
+        return $sort;
+    }
+    return (int) ($product['id'] ?? 0);
+}
+
+function sortProductsByOrder(array $products): array
+{
+    usort($products, function ($a, $b) {
+        $cmp = product_sort_value($a) <=> product_sort_value($b);
+        if ($cmp !== 0) {
+            return $cmp;
+        }
+        return (int) ($a['id'] ?? 0) <=> (int) ($b['id'] ?? 0);
+    });
+    return $products;
+}
+
+function product_next_sort_order(): int
+{
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        return 1;
+    }
+    try {
+        $row = $pdo->query('SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM product')->fetch();
+        return (int) ($row['n'] ?? 1);
+    } catch (Throwable $e) {
+        return 1;
+    }
+}
+
 function product_ensure_hwid_limit_column(): void
 {
     static $ensured = false;
@@ -2963,3 +3021,4 @@ function product_ensure_hwid_limit_column(): void
 }
 
 product_ensure_hwid_limit_column();
+product_ensure_sort_order_column();

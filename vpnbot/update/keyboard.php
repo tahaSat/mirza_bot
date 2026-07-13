@@ -1,5 +1,7 @@
 <?php
 
+$from_id = (int) ($from_id ?? 0);
+
 $botinfo = select("botsaz", "*", "bot_token", $ApiToken, "select");
 $userbot = select("user", "*", "id", $botinfo['id_user'], "select");
 $hide_panel = json_decode($botinfo['hide_panel'], true);
@@ -185,7 +187,7 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
     $stmt = $pdo->prepare($query);
     $stmt->execute();
     $valuetow = $valuetow != null ? "-$valuetow" : "";
-    while ($result = $stmt->fetch(PDO::FETCH_ASSOC)) {
+    foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
         $productlist = json_decode(file_get_contents('product.json'), true);
         $productlist_name = json_decode(file_get_contents('product_name.json'), true);
         if (isset($productlist[$result['code_product']])) $result['price_product'] = $productlist[$result['code_product']];

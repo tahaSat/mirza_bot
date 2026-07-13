@@ -1388,7 +1388,7 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
     } else {
         $valuetow = "";
     }
-    while ($result = $stmt->fetch(PDO::FETCH_ASSOC)) {
+    foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
         $hide_panel = json_decode($result['hide_panel'], true);
         if (in_array($location, $hide_panel))
             continue;

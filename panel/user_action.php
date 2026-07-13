@@ -132,7 +132,7 @@ switch ($action) {
             break;
         }
         db_query($pdo, "UPDATE user SET pricediscount = ? WHERE id = ?", [$percent, $id]);
-        flash('success', "درصد تخفیف کاربر به $percent٪ تنظیم شد.");
+        flash('success', 'درصد تخفیف کاربر به ' . $percent . '٪ تنظیم شد.');
         break;
 
     case 'confirm_number':

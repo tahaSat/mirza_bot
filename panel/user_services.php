@@ -25,6 +25,18 @@ $total = panel_count_user_services($pdo, $id);
 $services = panel_fetch_user_services($pdo, $id, $perPage, $offset);
 $totalPages = max(1, (int) ceil($total / $perPage));
 
+$panels = [];
+$products = [];
+try {
+    $panels = db_fetchAll($pdo, "SELECT name_panel FROM marzban_panel WHERE status = 'active' ORDER BY name_panel");
+    if (!$panels) {
+        $panels = db_fetchAll($pdo, "SELECT name_panel FROM marzban_panel ORDER BY name_panel");
+    }
+    $products = db_fetchAll($pdo, "SELECT name_product, Location FROM product ORDER BY name_product");
+} catch (Throwable $e) {
+    error_log('user_services.php: ' . $e->getMessage());
+}
+
 $displayName = panel_user_display_name($user);
 $pageTitle = 'سرویس‌های ' . $displayName;
 $activeNav = 'users';
@@ -47,6 +59,9 @@ include __DIR__ . '/inc/layout_head.php';
             <div class="card-title">سرویس‌های <?= htmlspecialchars($displayName) ?></div>
             <div class="card-subtitle">مثل لیست «سرویس‌های خریداری‌شده» در ربات تلگرام</div>
         </div>
+        <button type="button" class="btn btn-primary btn-sm" onclick="openModal('addServiceModal')">
+            <?= icon('plus', 13) ?> افزودن سرویس
+        </button>
     </div>
 
     <div class="tbl-wrap">
@@ -61,7 +76,7 @@ include __DIR__ . '/inc/layout_head.php';
                     <th>زمان</th>
                     <th>تاریخ خرید</th>
                     <th>وضعیت</th>
-                    <th></th>
+                    <th style="width:88px"></th>
                 </tr>
             </thead>
             <tbody>
@@ -70,6 +85,9 @@ include __DIR__ . '/inc/layout_head.php';
                         <td colspan="9">
                             <div class="empty" style="padding:36px">
                                 <p>این کاربر سرویس فعالی ندارد</p>
+                                <button type="button" class="btn btn-primary btn-sm" style="margin-top:12px" onclick="openModal('addServiceModal')">
+                                    <?= icon('plus', 13) ?> افزودن اولین سرویس
+                                </button>
                             </div>
                         </td>
                     </tr>
@@ -96,10 +114,18 @@ include __DIR__ . '/inc/layout_head.php';
                             <td class="cf"><?= safe_date($svc['time_sell'] ?? null, 'Y/m/d') ?></td>
                             <td><span class="tag <?= $tagClass ?>"><?= $label ?></span></td>
                             <td>
-                                <a href="invoice.php?q=<?= urlencode($svc['username'] ?? '') ?>" class="btn btn-ghost btn-sm btn-icon"
-                                    title="جستجو در سفارشات">
-                                    <?= icon('search', 13) ?>
-                                </a>
+                                <div style="display:flex;gap:4px">
+                                    <a href="invoice.php?q=<?= urlencode($svc['username'] ?? '') ?>" class="btn btn-ghost btn-sm btn-icon"
+                                        title="جستجو در سفارشات">
+                                        <?= icon('search', 13) ?>
+                                    </a>
+                                    <button type="button" class="btn btn-no btn-sm btn-icon btn-remove-service"
+                                        title="حذف سرویس"
+                                        data-invoice="<?= htmlspecialchars($svc['id_invoice'] ?? '') ?>"
+                                        data-username="<?= htmlspecialchars($svc['username'] ?? '') ?>">
+                                        <?= icon('trash', 13) ?>
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                     <?php endforeach; endif; ?>
@@ -121,5 +147,77 @@ include __DIR__ . '/inc/layout_head.php';
         </div>
     <?php endif; ?>
 </div>
+
+<div class="modal-veil" id="addServiceModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h3>افزودن سرویس برای کاربر</h3>
+            <button type="button" class="modal-x" onclick="closeModal('addServiceModal')"><?= icon('close', 14) ?></button>
+        </div>
+        <form method="POST" action="user_service_action.php" id="addServiceForm">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="add_service">
+                <input type="hidden" name="user_id" value="<?= $id ?>">
+                <div class="field">
+                    <label>نام کاربری سرویس</label>
+                    <input type="text" name="username" class="input cm" pattern="[A-Za-z0-9_]{3,32}" minlength="3" maxlength="32" required
+                        placeholder="مثلاً user_5016" autocomplete="off">
+                    <span class="field-hint">۳ تا ۳۲ کاراکتر — حروف انگلیسی، عدد و _</span>
+                </div>
+                <div class="field">
+                    <label>پنل / لوکیشن</label>
+                    <select name="panel" id="servicePanel" class="select" required>
+                        <option value="">انتخاب پنل...</option>
+                        <?php foreach ($panels as $p): ?>
+                            <option value="<?= htmlspecialchars($p['name_panel']) ?>"><?= htmlspecialchars($p['name_panel']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>محصول</label>
+                    <select name="product" id="serviceProduct" class="select" required disabled>
+                        <option value="">ابتدا پنل را انتخاب کنید</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-primary"><?= icon('plus', 13) ?> ایجاد سرویس</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('addServiceModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="removeServiceModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h3>حذف سرویس</h3>
+            <button type="button" class="modal-x" onclick="closeModal('removeServiceModal')"><?= icon('close', 14) ?></button>
+        </div>
+        <form method="POST" action="user_service_action.php" id="removeServiceForm">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="remove_service">
+                <input type="hidden" name="user_id" value="<?= $id ?>">
+                <input type="hidden" name="id_invoice" id="removeInvoiceId" value="">
+                <p id="removeServiceText" style="font-size:.88rem;color:var(--mute);line-height:1.7;margin-bottom:14px"></p>
+                <label style="display:flex;align-items:center;gap:8px;font-size:.85rem;cursor:pointer">
+                    <input type="checkbox" name="refund" value="1" style="width:16px;height:16px">
+                    بازگشت مبلغ سرویس به کیف پول کاربر
+                </label>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-no"><?= icon('trash', 13) ?> حذف سرویس</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('removeServiceModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+window.__serviceProducts = <?= json_encode($products, JSON_UNESCAPED_UNICODE) ?>;
+</script>
+<script src="js/user_services.js"></script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

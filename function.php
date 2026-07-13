@@ -1449,11 +1449,6 @@ function savedata($type, $namefiled, $valuefiled)
         update("user", "Processing_value", json_encode($dataperevieos), "id", $from_id);
     }
 }
-function productOrderBySql(): string
-{
-    return ' ORDER BY sort_order ASC, id ASC';
-}
-
 function addFieldToTable($tableName, $fieldName, $defaultValue = null, $datatype = "VARCHAR(500)")
 {
     global $pdo;

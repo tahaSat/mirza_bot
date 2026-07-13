@@ -24,17 +24,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
     header('Location: product.php');
     exit;
   }
-  $sort_order = trim($_POST['sort_order'] ?? '');
-  $sort_order = ($sort_order === '') ? 0 : (int) $sort_order;
-  if ($sort_order <= 0) {
-    $next = db_fetch($pdo, "SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM product");
-    $sort_order = (int) ($next['n'] ?? 1);
-  }
   try {
     db_query(
       $pdo,
-      "INSERT INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status,hwid_limit,sort_order) VALUES (?,?,?,?,?,?,?,'no_reset',?,?,'{}','0',?,?)",
-      [$name, $code, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit, $sort_order]
+      "INSERT INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status,hwid_limit) VALUES (?,?,?,?,?,?,?,'no_reset',?,?,'{}','0',?)",
+      [$name, $code, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit]
     );
     flash('success', 'محصول «' . $name . '» اضافه شد.');
   } catch (Exception $e) {
@@ -56,12 +50,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
       header('Location: product.php');
       exit;
     }
-    $sort_order = (int) ($_POST['sort_order'] ?? 0);
     try {
       db_query(
         $pdo,
-        "UPDATE product SET name_product=?,price_product=?,Volume_constraint=?,Service_time=?,Location=?,agent=?,note=?,category=?,hwid_limit=?,sort_order=? WHERE id=?",
-        [$name, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit, $sort_order, $pid]
+        "UPDATE product SET name_product=?,price_product=?,Volume_constraint=?,Service_time=?,Location=?,agent=?,note=?,category=?,hwid_limit=? WHERE id=?",
+        [$name, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit, $pid]
       );
       flash('success', 'محصول ویرایش شد.');
     } catch (Exception $e) {
@@ -106,7 +99,7 @@ try {
   usort($categories, fn($a, $b) => strcmp($a['remark'], $b['remark']));
 } catch (Exception $e) {
 }
-$products = db_fetchAll($pdo, "SELECT * FROM product ORDER BY sort_order ASC, id ASC");
+$products = db_fetchAll($pdo, "SELECT * FROM product ORDER BY id");
 
 $pasarguardPanels = [];
 foreach ($panels as $pl) {
@@ -159,7 +152,7 @@ include __DIR__ . '/inc/layout_head.php';
       <table id="prodTbl" class="tbl-xl">
         <thead>
           <tr>
-            <th>ترتیب</th>
+            <th>#</th>
             <th>نام محصول</th>
             <th>قیمت</th>
             <th>حجم</th>
@@ -172,9 +165,10 @@ include __DIR__ . '/inc/layout_head.php';
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($products as $p): ?>
+          <?php $i = 1;
+          foreach ($products as $p): ?>
             <tr>
-              <td class="cn"><?= (int) ($p['sort_order'] ?? 0) ?></td>
+              <td class="cf"><?= $i++ ?></td>
               <td class="cs"><?= htmlspecialchars($p['name_product'] ?? '') ?></td>
               <td class="cn cs"><?= number_format((int) ($p['price_product'] ?? 0)) ?> <span class="cf">ت</span></td>
               <td class="cn"><?= htmlspecialchars($p['Volume_constraint'] ?? '—') ?> <span class="cf">GB</span></td>
@@ -227,11 +221,6 @@ include __DIR__ . '/inc/layout_head.php';
           <div class="field full">
             <label>نام محصول *</label>
             <input type="text" name="name_product" class="input" placeholder="مثلاً: ۵۰ گیگ یک ماهه" required>
-          </div>
-          <div class="field">
-            <label>ترتیب نمایش</label>
-            <input type="number" name="sort_order" class="input" placeholder="خالی = آخر لیست" min="0">
-            <small class="cf" style="display:block;margin-top:4px">عدد کمتر = بالاتر در لیست ربات</small>
           </div>
           <div class="field">
             <label>قیمت (تومان)</label>
@@ -306,11 +295,6 @@ include __DIR__ . '/inc/layout_head.php';
           <div class="field full">
             <label>نام محصول *</label>
             <input type="text" name="name_product" id="edit_name" class="input" required>
-          </div>
-          <div class="field">
-            <label>ترتیب نمایش</label>
-            <input type="number" name="sort_order" id="edit_sort_order" class="input" placeholder="۰" min="0">
-            <small class="cf" style="display:block;margin-top:4px">عدد کمتر = بالاتر در لیست ربات</small>
           </div>
           <div class="field">
             <label>قیمت (تومان)</label>

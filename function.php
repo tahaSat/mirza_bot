@@ -2992,15 +2992,67 @@ function sortProductsByOrder(array $products): array
     return $products;
 }
 
-function product_next_sort_order(): int
+function product_category_where(string $category, string $column = 'category'): array
+{
+    if ($category === '') {
+        return ['sql' => "({$column} IS NULL OR {$column} = '')", 'params' => []];
+    }
+    return ['sql' => "{$column} = ?", 'params' => [$category]];
+}
+
+function product_renormalize_category_sort_orders(PDO $pdo, string $category): void
+{
+    $where = product_category_where($category);
+    $stmt = $pdo->prepare("SELECT id FROM product WHERE {$where['sql']} ORDER BY sort_order ASC, id ASC");
+    $stmt->execute($where['params']);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $i => $row) {
+        $update = $pdo->prepare('UPDATE product SET sort_order = ? WHERE id = ?');
+        $update->execute([$i + 1, (int) $row['id']]);
+    }
+}
+
+function product_apply_category_sort_order(PDO $pdo, string $category, array $orderedIds): void
+{
+    $where = product_category_where($category);
+    $stmt = $pdo->prepare("SELECT id FROM product WHERE {$where['sql']}");
+    $stmt->execute($where['params']);
+    $existingIds = array_map(static fn($row) => (int) $row['id'], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    sort($existingIds);
+
+    $ids = array_values(array_unique(array_map('intval', $orderedIds)));
+    sort($ids);
+    if ($ids !== $existingIds) {
+        throw new InvalidArgumentException('ترتیب محصولات نامعتبر است.');
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $update = $pdo->prepare('UPDATE product SET sort_order = ? WHERE id = ?');
+        foreach ($orderedIds as $i => $id) {
+            $update->execute([$i + 1, (int) $id]);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+}
+
+function product_next_sort_order(string $category = ''): int
 {
     global $pdo;
     if (!($pdo instanceof PDO)) {
         return 1;
     }
     try {
-        $row = $pdo->query('SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM product')->fetch();
-        return (int) ($row['n'] ?? 1);
+        $where = product_category_where($category);
+        $stmt = $pdo->prepare("SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM product WHERE {$where['sql']}");
+        $stmt->execute($where['params']);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return max(1, (int) ($row['n'] ?? 1));
     } catch (Throwable $e) {
         return 1;
     }

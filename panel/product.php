@@ -4,6 +4,24 @@ require_once __DIR__ . '/inc/icons.php';
 require_auth();
 $pdo = panel_ensure_pdo();
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reorder') {
+  csrf_check_post();
+  header('Content-Type: application/json; charset=UTF-8');
+  try {
+    $category = (string) ($_POST['category'] ?? '');
+    $order = $_POST['order'] ?? [];
+    if (!is_array($order)) {
+      echo json_encode(['ok' => false, 'error' => 'داده نامعتبر است.'], JSON_UNESCAPED_UNICODE);
+      exit;
+    }
+    product_apply_category_sort_order($pdo, $category, $order);
+    echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
+  } catch (Throwable $e) {
+    echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+  }
+  exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add') {
   csrf_check_post();
   $name = trim($_POST['name_product'] ?? '');
@@ -25,11 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
     header('Location: product.php');
     exit;
   }
-  $sort_order = trim($_POST['sort_order'] ?? '');
-  $sort_order = ($sort_order === '') ? product_next_sort_order() : max(0, (int) $sort_order);
-  if ($sort_order === 0) {
-    $sort_order = product_next_sort_order();
-  }
+  $sort_order = product_next_sort_order((string) ($_POST['cetegory_product'] ?? ''));
   try {
     db_query(
       $pdo,
@@ -56,7 +70,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
       header('Location: product.php');
       exit;
     }
-    $sort_order = max(0, (int) ($_POST['sort_order'] ?? 0));
+    $category = (string) ($_POST['cetegory_product'] ?? '');
+    $existing = db_fetch($pdo, 'SELECT category, sort_order FROM product WHERE id = ?', [$pid]);
+    $oldCategory = (string) ($existing['category'] ?? '');
+    if ($oldCategory !== $category) {
+      $sort_order = product_next_sort_order($category);
+    } else {
+      $sort_order = max(1, (int) ($existing['sort_order'] ?? product_next_sort_order($category)));
+    }
     try {
       db_query(
         $pdo,
@@ -64,6 +85,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
         [$name, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit, $sort_order, $pid]
       );
       flash('success', 'محصول ویرایش شد.');
+      if ($oldCategory !== $category) {
+        product_renormalize_category_sort_orders($pdo, $oldCategory);
+      }
     } catch (Exception $e) {
       flash('error', 'خطا: ' . $e->getMessage());
     }
@@ -74,7 +98,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
 
 if (isset($_GET['delete'])) {
   csrf_check_get();
-  db_query($pdo, "DELETE FROM product WHERE id = ?", [(int) $_GET['delete']]);
+  $deleteId = (int) $_GET['delete'];
+  $deleted = db_fetch($pdo, 'SELECT category FROM product WHERE id = ?', [$deleteId]);
+  db_query($pdo, "DELETE FROM product WHERE id = ?", [$deleteId]);
+  if ($deleted) {
+    product_renormalize_category_sort_orders($pdo, (string) ($deleted['category'] ?? ''));
+  }
   flash('success', 'محصول حذف شد.');
   header('Location: product.php');
   exit;
@@ -106,7 +135,44 @@ try {
   usort($categories, fn($a, $b) => strcmp($a['remark'], $b['remark']));
 } catch (Exception $e) {
 }
-$products = db_fetchAll($pdo, "SELECT * FROM product ORDER BY sort_order ASC, id ASC");
+try {
+  $categoryKeys = db_fetchAll($pdo, "SELECT DISTINCT COALESCE(NULLIF(TRIM(category), ''), '') AS cat FROM product");
+  foreach ($categoryKeys as $row) {
+    product_renormalize_category_sort_orders($pdo, (string) $row['cat']);
+  }
+} catch (Throwable $e) {
+}
+$products = db_fetchAll($pdo, "SELECT * FROM product ORDER BY category ASC, sort_order ASC, id ASC");
+
+$productsByCategory = [];
+foreach ($products as $productRow) {
+  $catKey = trim((string) ($productRow['category'] ?? ''));
+  $productsByCategory[$catKey][] = $productRow;
+}
+
+$categorySections = [];
+$seenCategories = [];
+foreach ($categories as $cat) {
+  $remark = (string) ($cat['remark'] ?? '');
+  if (!empty($productsByCategory[$remark])) {
+    $categorySections[] = [
+      'key' => $remark,
+      'label' => $remark,
+      'products' => $productsByCategory[$remark],
+    ];
+    $seenCategories[$remark] = true;
+  }
+}
+foreach ($productsByCategory as $catKey => $categoryProducts) {
+  if (isset($seenCategories[$catKey])) {
+    continue;
+  }
+  $categorySections[] = [
+    'key' => $catKey,
+    'label' => $catKey === '' ? 'بدون دسته‌بندی' : $catKey,
+    'products' => $categoryProducts,
+  ];
+}
 
 $pasarguardPanels = [];
 foreach ($panels as $pl) {
@@ -116,7 +182,7 @@ foreach ($panels as $pl) {
 }
 
 $pageTitle = 'محصولات';
-$pageLede = 'فهرست محصولات قابل فروش و مدیریت آن‌ها.';
+$pageLede = 'فهرست محصولات قابل فروش؛ ترتیب نمایش در هر دسته‌بندی با کشیدن و رها کردن تنظیم می‌شود.';
 $activeNav = 'product';
 include __DIR__ . '/inc/layout_head.php';
 ?>
@@ -151,64 +217,75 @@ include __DIR__ . '/inc/layout_head.php';
       <div class="toolbar-title">فهرست محصولات <small>(<?= count($products) ?>)</small></div>
       <div class="search-box" style="min-width:220px">
         <?= icon('search', 14) ?>
-        <input type="text" placeholder="جستجو..." data-filter="prodTbl">
+        <input type="text" placeholder="جستجو..." data-filter="prodOrder">
         <button type="button" class="search-clear">✕</button>
       </div>
     </div>
-    <div class="tbl-wrap">
-      <table id="prodTbl" class="tbl-xl">
-        <thead>
-          <tr>
-            <th>ترتیب</th>
-            <th>نام محصول</th>
-            <th>قیمت</th>
-            <th>حجم</th>
-            <th>مدت</th>
-            <th>پنل</th>
-            <th>HWID</th>
-            <th>دسته</th>
-            <th>کد</th>
-            <th>عملیات</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php foreach ($products as $p): ?>
-            <tr>
-              <td class="cn"><?= (int) ($p['sort_order'] ?? 0) ?></td>
-              <td class="cs"><?= htmlspecialchars($p['name_product'] ?? '') ?></td>
-              <td class="cn cs"><?= number_format((int) ($p['price_product'] ?? 0)) ?> <span class="cf">ت</span></td>
-              <td class="cn"><?= htmlspecialchars($p['Volume_constraint'] ?? '—') ?> <span class="cf">GB</span></td>
-              <td class="cn"><?= htmlspecialchars($p['Service_time'] ?? '—') ?> <span class="cf">روز</span></td>
-              <td class="cf"><?= htmlspecialchars(trunc($p['Location'] ?? '—', 16)) ?></td>
-              <td class="cn"><?php
-                $loc = $p['Location'] ?? '';
-                if (isset($pasarguardPanels[$loc])) {
-                  echo ($p['hwid_limit'] === null || $p['hwid_limit'] === '') ? '—' : htmlspecialchars((string) $p['hwid_limit']);
-                } else {
-                  echo '<span class="cf">—</span>';
-                }
-              ?></td>
-              <td><?php if (!empty($p['category'])): ?><span
-                    class="tag tag-info"><?= htmlspecialchars($p['category']) ?></span><?php else: ?><span
-                    class="cf">—</span><?php endif; ?></td>
-              <td class="cm" style="font-size:.72rem"><?= htmlspecialchars($p['code_product'] ?? '') ?></td>
-              <td>
-                <div style="display:flex;gap:5px">
-                  <button class="btn btn-ghost btn-sm btn-icon" title="ویرایش"
-                    onclick="openEditModal(<?= htmlspecialchars(json_encode($p), ENT_QUOTES) ?>)">
-                    <?= icon('edit', 13) ?>
-                  </button>
-                  <a href="product.php?delete=<?= (int) $p['id'] ?>&_csrf=<?= csrf_token() ?>"
-                    class="btn btn-no btn-sm btn-icon" title="حذف"
-                    data-confirm="حذف محصول «<?= htmlspecialchars($p['name_product']) ?>»؟">
-                    <?= icon('trash', 13) ?>
-                  </a>
-                </div>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
+    <div id="prodOrder" class="product-order-list">
+      <?php foreach ($categorySections as $section): ?>
+        <section class="product-order-group fade-up" data-category="<?= htmlspecialchars($section['key'], ENT_QUOTES) ?>">
+          <div class="product-order-group-head">
+            <div>
+              <div class="product-order-group-title"><?= htmlspecialchars($section['label']) ?></div>
+              <div class="product-order-group-meta"><?= count($section['products']) ?> محصول · ترتیب از ۱ شروع می‌شود</div>
+            </div>
+            <span class="tag tag-info"><?= count($section['products']) ?></span>
+          </div>
+          <div class="tbl-wrap">
+            <table class="tbl-xl product-order-table">
+              <thead>
+                <tr>
+                  <th style="width:42px"></th>
+                  <th>ترتیب</th>
+                  <th>نام محصول</th>
+                  <th>قیمت</th>
+                  <th>حجم</th>
+                  <th>مدت</th>
+                  <th>پنل</th>
+                  <th>HWID</th>
+                  <th>کد</th>
+                  <th>عملیات</th>
+                </tr>
+              </thead>
+              <tbody class="product-sortable" data-category="<?= htmlspecialchars($section['key'], ENT_QUOTES) ?>">
+                <?php foreach ($section['products'] as $index => $p): ?>
+                  <tr class="product-sort-row" data-id="<?= (int) $p['id'] ?>">
+                    <td class="product-sort-handle" title="کشیدن برای تغییر ترتیب"><?= icon('menu', 14) ?></td>
+                    <td class="cn product-sort-index"><?= $index + 1 ?></td>
+                    <td class="cs"><?= htmlspecialchars($p['name_product'] ?? '') ?></td>
+                    <td class="cn cs"><?= number_format((int) ($p['price_product'] ?? 0)) ?> <span class="cf">ت</span></td>
+                    <td class="cn"><?= htmlspecialchars($p['Volume_constraint'] ?? '—') ?> <span class="cf">GB</span></td>
+                    <td class="cn"><?= htmlspecialchars($p['Service_time'] ?? '—') ?> <span class="cf">روز</span></td>
+                    <td class="cf"><?= htmlspecialchars(trunc($p['Location'] ?? '—', 16)) ?></td>
+                    <td class="cn"><?php
+                      $loc = $p['Location'] ?? '';
+                      if (isset($pasarguardPanels[$loc])) {
+                        echo ($p['hwid_limit'] === null || $p['hwid_limit'] === '') ? '—' : htmlspecialchars((string) $p['hwid_limit']);
+                      } else {
+                        echo '<span class="cf">—</span>';
+                      }
+                    ?></td>
+                    <td class="cm" style="font-size:.72rem"><?= htmlspecialchars($p['code_product'] ?? '') ?></td>
+                    <td>
+                      <div style="display:flex;gap:5px">
+                        <button class="btn btn-ghost btn-sm btn-icon" title="ویرایش"
+                          onclick="openEditModal(<?= htmlspecialchars(json_encode($p), ENT_QUOTES) ?>)">
+                          <?= icon('edit', 13) ?>
+                        </button>
+                        <a href="product.php?delete=<?= (int) $p['id'] ?>&_csrf=<?= csrf_token() ?>"
+                          class="btn btn-no btn-sm btn-icon" title="حذف"
+                          data-confirm="حذف محصول «<?= htmlspecialchars($p['name_product']) ?>»؟">
+                          <?= icon('trash', 13) ?>
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      <?php endforeach; ?>
     </div>
   <?php endif; ?>
 </div>
@@ -227,11 +304,6 @@ include __DIR__ . '/inc/layout_head.php';
           <div class="field full">
             <label>نام محصول *</label>
             <input type="text" name="name_product" class="input" placeholder="مثلاً: ۵۰ گیگ یک ماهه" required>
-          </div>
-          <div class="field">
-            <label>ترتیب نمایش</label>
-            <input type="number" name="sort_order" class="input" placeholder="خالی = آخر لیست" min="0">
-            <small class="cf" style="display:block;margin-top:4px">عدد کمتر = بالاتر در لیست ربات</small>
           </div>
           <div class="field">
             <label>قیمت (تومان)</label>
@@ -308,11 +380,6 @@ include __DIR__ . '/inc/layout_head.php';
             <input type="text" name="name_product" id="edit_name" class="input" required>
           </div>
           <div class="field">
-            <label>ترتیب نمایش</label>
-            <input type="number" name="sort_order" id="edit_sort_order" class="input" placeholder="۰" min="0">
-            <small class="cf" style="display:block;margin-top:4px">عدد کمتر = بالاتر در لیست ربات</small>
-          </div>
-          <div class="field">
             <label>قیمت (تومان)</label>
             <input type="number" name="price_product" id="edit_price" class="input" min="0">
           </div>
@@ -372,7 +439,9 @@ include __DIR__ . '/inc/layout_head.php';
 
 <script>
 window.PASARGUARD_PANELS = <?= json_encode($pasarguardPanels, JSON_UNESCAPED_UNICODE) ?>;
+window.PRODUCT_CSRF = <?= json_encode(csrf_token(), JSON_UNESCAPED_UNICODE) ?>;
 </script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
 <script src="js/product.js"></script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

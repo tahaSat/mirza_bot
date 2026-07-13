@@ -182,6 +182,10 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
     global $pdo, $textbotlang;
     $product = ['inline_keyboard' => []];
     $statusshowprice = select("shopSetting", "*", "Namevalue", "statusshowprice", "select")['value'];
+    $query = trim($query);
+    if (!preg_match('/\border\s+by\b/i', $query)) {
+        $query .= productOrderBySql();
+    }
     $stmt = $pdo->prepare($query);
     $stmt->execute();
     $valuetow = $valuetow != null ? "-$valuetow" : "";

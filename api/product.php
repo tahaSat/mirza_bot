@@ -163,7 +163,7 @@ switch ($data['actions'] ?? '') {
             $stmt->execute();
             $totalproduct = (int) $stmt->fetchColumn();
             $totalPages = ceil($totalproduct / $limit);
-            $query = "SELECT * FROM product WHERE (id  LIKE CONCAT('%', :id_product, '%') OR name_product  LIKE CONCAT('%', :name_product, '%')) ORDER BY id LIMIT :limit OFFSET :offset";
+            $query = "SELECT * FROM product WHERE (id  LIKE CONCAT('%', :id_product, '%') OR name_product  LIKE CONCAT('%', :name_product, '%')) ORDER BY sort_order ASC, id ASC LIMIT :limit OFFSET :offset";
             $stmt = $pdo->prepare($query);
             $stmt->bindValue(':name_product', $q, PDO::PARAM_STR);
             $stmt->bindValue(':id_product', $q, PDO::PARAM_INT);

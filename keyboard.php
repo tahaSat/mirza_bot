@@ -759,7 +759,7 @@ $result = $stmt->fetchAll();
 $table_exists = count($result) > 0;
 if ($table_exists) {
     $product = [];
-    $stmt = $pdo->prepare("SELECT * FROM product WHERE Location = :text or Location = '/all' ");
+    $stmt = $pdo->prepare("SELECT * FROM product WHERE Location = :text or Location = '/all'" . productOrderBySql());
     $stmt->bindParam(':text', $text, PDO::PARAM_STR);
     $stmt->execute();
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
@@ -1381,6 +1381,10 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
     global $pdo, $textbotlang, $from_id;
     $product = ['inline_keyboard' => []];
     $statusshowprice = select("shopSetting", "*", "Namevalue", "statusshowprice", "select")['value'];
+    $query = trim($query);
+    if (!preg_match('/\border\s+by\b/i', $query)) {
+        $query .= productOrderBySql();
+    }
     $stmt = $pdo->prepare($query);
     $stmt->execute();
     if ($valuetow != null) {

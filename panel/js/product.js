@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', function () {
 window.openEditModal = function (p) {
     document.getElementById('edit_id').value = p.id || '';
     document.getElementById('edit_name').value = p.name_product || '';
+    document.getElementById('edit_sort_order').value = (p.sort_order === null || p.sort_order === undefined) ? '' : p.sort_order;
     document.getElementById('edit_price').value = p.price_product || '';
     document.getElementById('edit_volume').value = p.Volume_constraint || '';
     document.getElementById('edit_time').value = p.Service_time || '';

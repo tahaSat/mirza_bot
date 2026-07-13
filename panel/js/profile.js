@@ -1,6 +1,6 @@
 window.switchTab = function (name) {
-    var panes = { orders: 'paneOrders', pay: 'panePay', refs: 'paneRefs' };
-    var tabs = { orders: 'tabOrders', pay: 'tabPay', refs: 'tabRefs' };
+    var panes = { services: 'paneServices', orders: 'paneOrders', pay: 'panePay', refs: 'paneRefs' };
+    var tabs = { services: 'tabServices', orders: 'tabOrders', pay: 'tabPay', refs: 'tabRefs' };
 
     Object.values(panes).forEach(function (id) {
         var el = document.getElementById(id);
@@ -25,3 +25,10 @@ window.switchTab = function (name) {
         tab.style.color = 'var(--btn-ac-text, #fff)';
     }
 };
+
+document.addEventListener('DOMContentLoaded', function () {
+    var hash = (location.hash || '').replace('#', '');
+    if (hash && ['services', 'orders', 'pay', 'refs'].indexOf(hash) !== -1) {
+        switchTab(hash);
+    }
+});

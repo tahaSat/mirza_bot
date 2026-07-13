@@ -1,7 +1,9 @@
 <?php
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
+require_once __DIR__ . '/inc/users_lib.php';
 require_auth();
+$pdo = panel_ensure_pdo();
 
 $id = (int) ($_GET['id'] ?? 0);
 if (!$id) {
@@ -16,29 +18,8 @@ if (!$user) {
     exit;
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    csrf_check_post();
-    $action = $_POST['action'] ?? '';
-
-    if ($action === 'add_balance') {
-        $amount = (int) ($_POST['amount'] ?? 0);
-        if ($amount >= 1000) {
-            db_query($pdo, "UPDATE user SET Balance = Balance + ? WHERE id = ?", [$amount, $id]);
-            flash('success', number_format($amount) . ' تومان به موجودی افزوده شد.');
-        } else {
-            flash('error', 'حداقل مبلغ ۱٬۰۰۰ تومان است.');
-        }
-    } elseif ($action === 'set_role') {
-        $newRole = $_POST['new_role'] ?? 'f';
-        if (in_array($newRole, ['f', 'n', 'n2', 'all'], true)) {
-            db_query($pdo, "UPDATE user SET agent = ? WHERE id = ?", [$newRole, $id]);
-            flash('success', 'گروه کاربری به «' . user_role_label($newRole) . '» تغییر کرد.');
-        }
-    }
-
-    header("Location: user.php?id=$id");
-    exit;
-}
+$activeServicesList = panel_fetch_user_services($pdo, $id, 50, 0);
+$activeServiceCount = panel_count_user_services($pdo, $id);
 
 $invoices = [];
 $payments = [];
@@ -67,7 +48,7 @@ $paidCount = count(array_filter($payments, fn($p) => in_array($p['payment_Status
 $convRate = count($payments) > 0 ? round($paidCount / count($payments) * 100) : 0;
 
 $agent = $user['agent'] ?? 'f';
-$isBlocked = ($user['User_Status'] ?? '') === 'block';
+$isBlocked = panel_user_is_blocked($user);
 $fullName = $user['namecustom'] ?? '';
 if ($fullName === 'none')
     $fullName = '';
@@ -110,8 +91,8 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
     <div class="stat warn fade-up d2">
         <div class="stat-label">سرویس فعال</div>
-        <div class="stat-num"><?= $activeServices ?></div>
-        <div class="stat-meta"><?= $expiredServices ?> منقضی</div>
+        <div class="stat-num"><?= $activeServiceCount ?></div>
+        <div class="stat-meta"><?= $expiredServices ?> منقضی/غیرفعال</div>
     </div>
     <div class="stat fade-up d3">
         <div class="stat-label">نرخ پرداخت</div>
@@ -214,19 +195,54 @@ include __DIR__ . '/inc/layout_head.php';
                         <span class="kv-val cn"><?= number_format((int) $user['message_count']) ?></span>
                     </div>
                 <?php endif; ?>
+                <div class="kv">
+                    <span class="kv-key">درصد تخفیف</span>
+                    <span class="kv-val"><?= (int) ($user['pricediscount'] ?? 0) ?>٪</span>
+                </div>
+                <div class="kv">
+                    <span class="kv-key">احراز هویت</span>
+                    <span class="kv-val"><?= (int) ($user['verify'] ?? 0) === 1 ? 'احراز شده' : 'احراز نشده' ?></span>
+                </div>
+                <div class="kv">
+                    <span class="kv-key">نمایش کارت</span>
+                    <span class="kv-val"><?= (int) ($user['cardpayment'] ?? 0) === 1 ? 'فعال' : 'مخفی' ?></span>
+                </div>
+                <div class="kv">
+                    <span class="kv-key">محدودیت تست</span>
+                    <span class="kv-val"><?= htmlspecialchars((string) ($user['limit_usertest'] ?? '—')) ?></span>
+                </div>
+                <div class="kv">
+                    <span class="kv-key">اعلان کرون</span>
+                    <span class="kv-val"><?= (int) ($user['status_cron'] ?? 0) === 1 ? 'فعال' : 'غیرفعال' ?></span>
+                </div>
             </div>
         </div>
 
         <div class="card fade-up d1">
             <div class="card-head">
-                <div class="card-title">عملیات</div>
+                <div class="card-title">عملیات مدیریت</div>
             </div>
             <div style="padding:12px;display:flex;flex-direction:column;gap:6px">
+                <a href="user_services.php?id=<?= $id ?>" class="btn btn-primary btn-sm" style="justify-content:center">
+                    <?= icon('package', 13) ?> سرویس‌های کاربر (<?= $activeServiceCount ?>)
+                </a>
                 <button class="btn btn-primary btn-sm" style="justify-content:center" onclick="openModal('addModal')">
                     <?= icon('plus', 13) ?> افزایش موجودی
                 </button>
+                <button class="btn btn-ghost btn-sm" style="justify-content:center" onclick="openModal('lowModal')">
+                    <?= icon('wallet', 13) ?> کم کردن موجودی
+                </button>
                 <button class="btn btn-ghost btn-sm" style="justify-content:center" onclick="openModal('roleModal')">
                     <?= icon('users', 13) ?> تغییر گروه کاربری
+                </button>
+                <button class="btn btn-ghost btn-sm" style="justify-content:center" onclick="openModal('discountModal')">
+                    🎁 درصد تخفیف
+                </button>
+                <button class="btn btn-ghost btn-sm" style="justify-content:center" onclick="openModal('messageModal')">
+                    ✍️ ارسال پیام به کاربر
+                </button>
+                <button class="btn btn-ghost btn-sm" style="justify-content:center" onclick="openModal('testLimitModal')">
+                    ➕ محدودیت اکانت تست
                 </button>
                 <div style="height:1px;background:var(--bd);margin:2px 0"></div>
                 <?php if ($isBlocked): ?>
@@ -235,10 +251,53 @@ include __DIR__ . '/inc/layout_head.php';
                         <?= icon('check', 13) ?> رفع مسدودیت
                     </a>
                 <?php else: ?>
-                    <a href="user_action.php?action=block&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
-                        class="btn btn-no btn-sm" style="justify-content:center" data-confirm="مسدود کردن کاربر؟">
+                    <button class="btn btn-no btn-sm" style="justify-content:center" onclick="openModal('blockModal')">
                         <?= icon('block', 13) ?> مسدود کردن
+                    </button>
+                <?php endif; ?>
+                <a href="user_action.php?action=confirm_number&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
+                    class="btn btn-ghost btn-sm" style="justify-content:center" data-confirm="تایید شماره تماس کاربر؟">
+                    📱 تایید شماره تماس
+                </a>
+                <a href="user_action.php?action=verify&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
+                    class="btn btn-ghost btn-sm" style="justify-content:center">احراز هویت کاربر</a>
+                <a href="user_action.php?action=unverify&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
+                    class="btn btn-ghost btn-sm" style="justify-content:center" data-confirm="لغو احراز هویت؟">عدم احراز کاربر</a>
+                <a href="user_action.php?action=show_card&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
+                    class="btn btn-ghost btn-sm" style="justify-content:center">💳 فعالسازی شماره کارت</a>
+                <a href="user_action.php?action=hide_card&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
+                    class="btn btn-ghost btn-sm" style="justify-content:center">💳 غیرفعالسازی شماره کارت</a>
+                <a href="user_action.php?action=confirm_channel&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
+                    class="btn btn-ghost btn-sm" style="justify-content:center">📑 احراز عضویت کانال</a>
+                <a href="user_action.php?action=toggle_cron&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
+                    class="btn btn-ghost btn-sm" style="justify-content:center">🕚 وضعیت پیام‌های کرون</a>
+                <a href="user_action.php?action=zero_balance&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
+                    class="btn btn-no btn-sm" style="justify-content:center" data-confirm="موجودی کاربر صفر شود؟">0️⃣ صفر کردن موجودی</a>
+                <?php if (!empty($user['affiliates']) && $user['affiliates'] !== '0'): ?>
+                    <a href="user_action.php?action=remove_affiliate&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
+                        class="btn btn-ghost btn-sm" style="justify-content:center" data-confirm="کاربر از زیرمجموعه خارج شود؟">
+                        🔄 خارج کردن از زیرمجموعه
                     </a>
+                <?php endif; ?>
+                <?php if ((int) ($user['affiliatescount'] ?? 0) > 0): ?>
+                    <a href="user_action.php?action=clear_affiliates&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
+                        class="btn btn-ghost btn-sm" style="justify-content:center" data-confirm="همه زیرمجموعه‌های کاربر حذف شوند؟">
+                        🔄 حذف زیرمجموعه‌های کاربر
+                    </a>
+                <?php endif; ?>
+                <?php if ($agent !== 'f'): ?>
+                    <a href="user_action.php?action=remove_agent&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
+                        class="btn btn-ghost btn-sm" style="justify-content:center" data-confirm="نمایندگی کاربر حذف شود؟">
+                        حذف نمایندگی
+                    </a>
+                    <button class="btn btn-ghost btn-sm" style="justify-content:center" onclick="openModal('expireModal')">
+                        ⏱️ زمان انقضا نمایندگی
+                    </button>
+                <?php endif; ?>
+                <?php if ($agent === 'n2'): ?>
+                    <button class="btn btn-ghost btn-sm" style="justify-content:center" onclick="openModal('maxBuyModal')">
+                        سقف خرید نماینده
+                    </button>
                 <?php endif; ?>
             </div>
         </div>
@@ -250,9 +309,16 @@ include __DIR__ . '/inc/layout_head.php';
         <div class="card fade-up">
             <div class="card-head">
                 <div class="u-tab-bar" style="display:flex;gap:4px;background:var(--sf2);border-radius:7px;padding:3px">
-                    <button class="btn btn-sm" id="tabOrders" onclick="switchTab('orders')"
+                    <button class="btn btn-sm" id="tabServices" onclick="switchTab('services')"
                         style="background:var(--ac);color:#fff;border-radius:5px;font-size:.75rem">
-                        سفارشات
+                        سرویس‌ها
+                        <?php if ($activeServiceCount > 0): ?>
+                            <span style="background:rgba(255,255,255,.2);padding:1px 6px;border-radius:99px;font-size:.65rem;margin-right:4px"><?= $activeServiceCount ?></span>
+                        <?php endif; ?>
+                    </button>
+                    <button class="btn btn-sm" id="tabOrders" onclick="switchTab('orders')"
+                        style="background:transparent;color:var(--mute);border-radius:5px;font-size:.75rem;border:none">
+                        همه سفارشات
                     </button>
                     <button class="btn btn-sm" id="tabPay" onclick="switchTab('pay')"
                         style="background:transparent;color:var(--mute);border-radius:5px;font-size:.75rem;border:none">
@@ -269,10 +335,48 @@ include __DIR__ . '/inc/layout_head.php';
                         </button>
                     <?php endif; ?>
                 </div>
-                <a href="invoice.php?q=<?= urlencode($id) ?>" class="btn-link" style="font-size:.75rem">همه ←</a>
+                <a href="user_services.php?id=<?= $id ?>" class="btn-link" style="font-size:.75rem">همه سرویس‌ها ←</a>
             </div>
 
-            <div id="paneOrders">
+            <div id="paneServices">
+                <div class="tbl-wrap">
+                    <table class="tbl-lg">
+                        <thead>
+                            <tr>
+                                <th>نام کاربری</th>
+                                <th>محصول</th>
+                                <th>پنل</th>
+                                <th>وضعیت</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($activeServicesList)): ?>
+                                <tr>
+                                    <td colspan="4">
+                                        <div class="empty" style="padding:30px">
+                                            <p>سرویس فعالی ثبت نشده</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php else:
+                                foreach ($activeServicesList as $svc):
+                                    [$tagClass, $label] = panel_invoice_status_label(panel_invoice_get_status($svc));
+                                    ?>
+                                    <tr>
+                                        <td>
+                                            <span class="cm" style="color:var(--ac)"><?= htmlspecialchars(panel_service_button_label($svc)) ?></span>
+                                        </td>
+                                        <td class="cs"><?= htmlspecialchars(trunc($svc['name_product'] ?? '—', 22)) ?></td>
+                                        <td class="cf"><?= htmlspecialchars($svc['Service_location'] ?? '—') ?></td>
+                                        <td><span class="tag <?= $tagClass ?>"><?= $label ?></span></td>
+                                    </tr>
+                                <?php endforeach; endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="paneOrders" style="display:none">
                 <div class="tbl-wrap">
                     <table class="tbl-lg">
                         <thead>
@@ -294,16 +398,9 @@ include __DIR__ . '/inc/layout_head.php';
                                     </td>
                                 </tr>
                             <?php else:
-                                $statusMap = [
-                                    'active' => ['tag-ok', 'فعال'],
-                                    'end_of_time' => ['tag-warn', 'نزدیک به پایان زمان'],
-                                    'end_of_volume' => ['tag-no', 'نزدیک به پایان حجم'],
-                                    'sendedwarn' => ['tag-warn', 'اعلان همگی ارسال شده'],
-                                    'send_on_hold' => ['tag-plain', 'در انتظار'],
-                                    'unpiad' => ['tag-plain', 'پرداخت نشده'],
-                                ];
+                                $statusMap = panel_invoice_status_map();
                                 foreach ($invoices as $inv):
-                                    [$tagClass, $label] = $statusMap[$inv['Status'] ?? ''] ?? ['tag-plain', $inv['Status'] ?? '—'];
+                                    [$tagClass, $label] = $statusMap[panel_invoice_get_status($inv)] ?? ['tag-plain', panel_invoice_get_status($inv) ?: '—'];
                                     ?>
                                     <tr>
                                         <td class="cs"
@@ -456,10 +553,12 @@ include __DIR__ . '/inc/layout_head.php';
             <h3>افزایش موجودی</h3>
             <button class="modal-x" onclick="closeModal('addModal')"><?= icon('close', 14) ?></button>
         </div>
-        <form method="POST">
+        <form method="POST" action="user_action.php">
             <div class="modal-body">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                 <input type="hidden" name="action" value="add_balance">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="user.php?id=<?= $id ?>">
                 <div class="field">
                     <label>مبلغ (تومان)</label>
                     <input type="number" name="amount" class="input" placeholder="مثلاً ۵۰۰۰۰" min="1000" required>
@@ -474,16 +573,43 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
 </div>
 
+<div class="modal-veil" id="lowModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h3>کم کردن موجودی</h3>
+            <button class="modal-x" onclick="closeModal('lowModal')"><?= icon('close', 14) ?></button>
+        </div>
+        <form method="POST" action="user_action.php">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="low_balance">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="user.php?id=<?= $id ?>">
+                <div class="field">
+                    <label>مبلغ کسر (تومان)</label>
+                    <input type="number" name="amount" class="input" min="1" required>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-no">کسر موجودی</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('lowModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="modal-veil" id="roleModal">
     <div class="modal">
         <div class="modal-head">
             <h3>تغییر گروه کاربری</h3>
             <button class="modal-x" onclick="closeModal('roleModal')"><?= icon('close', 14) ?></button>
         </div>
-        <form method="POST">
+        <form method="POST" action="user_action.php">
             <div class="modal-body">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                 <input type="hidden" name="action" value="set_role">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="user.php?id=<?= $id ?>">
                 <div class="field">
                     <label>گروه</label>
                     <select name="new_role" class="select">
@@ -491,15 +617,143 @@ include __DIR__ . '/inc/layout_head.php';
                         <option value="n" <?= $agent === 'n' ? 'selected' : '' ?>>نماینده (n)</option>
                         <option value="n2" <?= $agent === 'n2' ? 'selected' : '' ?>>نماینده پیشرفته (n2)</option>
                     </select>
-                    <span class="field-hint">
-                        گروه فعلی: <strong><?= user_role_label($agent) ?></strong>
-                        <span class="cm" style="color:var(--mute)">(<?= htmlspecialchars($agent) ?>)</span>
-                    </span>
                 </div>
             </div>
             <div class="modal-foot">
                 <button type="submit" class="btn btn-primary"><?= icon('check', 13) ?> ذخیره</button>
                 <button type="button" class="btn btn-ghost" onclick="closeModal('roleModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="discountModal">
+    <div class="modal">
+        <div class="modal-head"><h3>درصد تخفیف کاربر</h3><button class="modal-x" onclick="closeModal('discountModal')"><?= icon('close', 14) ?></button></div>
+        <form method="POST" action="user_action.php">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="set_discount">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="user.php?id=<?= $id ?>">
+                <div class="field">
+                    <label>درصد (۰ تا ۱۰۰)</label>
+                    <input type="number" name="percent" class="input" min="0" max="100" value="<?= (int) ($user['pricediscount'] ?? 0) ?>" required>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-primary">ذخیره</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('discountModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="messageModal">
+    <div class="modal">
+        <div class="modal-head"><h3>ارسال پیام به کاربر</h3><button class="modal-x" onclick="closeModal('messageModal')"><?= icon('close', 14) ?></button></div>
+        <form method="POST" action="user_action.php">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="send_message">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="user.php?id=<?= $id ?>">
+                <div class="field">
+                    <label>متن پیام</label>
+                    <textarea name="message" class="textarea" required></textarea>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-primary">ارسال</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('messageModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="testLimitModal">
+    <div class="modal">
+        <div class="modal-head"><h3>محدودیت اکانت تست</h3><button class="modal-x" onclick="closeModal('testLimitModal')"><?= icon('close', 14) ?></button></div>
+        <form method="POST" action="user_action.php">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="set_test_limit">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="user.php?id=<?= $id ?>">
+                <div class="field">
+                    <label>تعداد مجاز</label>
+                    <input type="number" name="limit" class="input" min="0" value="<?= htmlspecialchars((string) ($user['limit_usertest'] ?? '0')) ?>" required>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-primary">ذخیره</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('testLimitModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="blockModal">
+    <div class="modal">
+        <div class="modal-head"><h3>مسدود کردن کاربر</h3><button class="modal-x" onclick="closeModal('blockModal')"><?= icon('close', 14) ?></button></div>
+        <form method="POST" action="user_action.php">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="block">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="user.php?id=<?= $id ?>">
+                <div class="field">
+                    <label>دلیل مسدودیت (اختیاری)</label>
+                    <textarea name="reason" class="textarea" placeholder="دلیل مسدودیت برای کاربر"></textarea>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-no">مسدود کردن</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('blockModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="expireModal">
+    <div class="modal">
+        <div class="modal-head"><h3>انقضای نمایندگی</h3><button class="modal-x" onclick="closeModal('expireModal')"><?= icon('close', 14) ?></button></div>
+        <form method="POST" action="user_action.php">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="set_agent_expire">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="user.php?id=<?= $id ?>">
+                <div class="field">
+                    <label>تعداد روز از امروز</label>
+                    <input type="number" name="days" class="input" min="1" value="30" required>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-primary">تنظیم</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('expireModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="maxBuyModal">
+    <div class="modal">
+        <div class="modal-head"><h3>سقف خرید نماینده</h3><button class="modal-x" onclick="closeModal('maxBuyModal')"><?= icon('close', 14) ?></button></div>
+        <form method="POST" action="user_action.php">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="set_max_buy_agent">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="user.php?id=<?= $id ?>">
+                <div class="field">
+                    <label>حداکثر بدهی مجاز (۰ = نامحدود)</label>
+                    <input type="number" name="max" class="input" min="0" value="<?= htmlspecialchars((string) ($user['maxbuyagent'] ?? '0')) ?>" required>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-primary">ذخیره</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('maxBuyModal')">انصراف</button>
             </div>
         </form>
     </div>

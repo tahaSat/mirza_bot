@@ -1,7 +1,9 @@
 <?php
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
+require_once __DIR__ . '/inc/users_lib.php';
 require_auth();
+$pdo = panel_ensure_pdo();
 
 $search = trim($_GET['q'] ?? '');
 $status = $_GET['status'] ?? '';
@@ -18,9 +20,10 @@ if ($search !== '') {
     $params = ["%$search%", "%$search%", "%$search%", "%$search%"];
 }
 
-if ($status !== '') {
-    $where[] = "User_Status = ?";
-    $params[] = $status;
+if ($status === 'block') {
+    $where[] = "LOWER(User_Status) = 'block'";
+} elseif ($status === 'active') {
+    $where[] = "(User_Status IS NULL OR User_Status = '' OR LOWER(User_Status) != 'block')";
 }
 
 if ($role !== '') {
@@ -32,7 +35,7 @@ $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
 try {
     $total = db_count($pdo, "SELECT COUNT(*) FROM user $whereSQL", $params);
-    $users = db_fetchAll($pdo, "SELECT * FROM user $whereSQL ORDER BY register DESC LIMIn i click T $perPage OFFSET $offset", $params);
+    $users = db_fetchAll($pdo, "SELECT * FROM user $whereSQL ORDER BY register DESC LIMIT $perPage OFFSET $offset", $params);
 } catch (Exception $e) {
     $total = 0;
     $users = [];
@@ -46,7 +49,7 @@ $agentCount = 0;
 $agentAdvCount = 0;
 
 try {
-    $blockedCount = db_count($pdo, "SELECT COUNT(*) FROM user WHERE User_Status='block'");
+    $blockedCount = db_count($pdo, "SELECT COUNT(*) FROM user WHERE LOWER(User_Status)='block'");
     $agentCount = db_count($pdo, "SELECT COUNT(*) FROM user WHERE agent='n'");
     $agentAdvCount = db_count($pdo, "SELECT COUNT(*) FROM user WHERE agent='n2'");
 } catch (Exception $e) {
@@ -115,15 +118,16 @@ include __DIR__ . '/inc/layout_head.php';
                     <th>شماره</th>
                     <th>موجودی</th>
                     <th>امتیاز</th>
+                    <th>سرویس</th>
                     <th>ثبت‌نام</th>
                     <th>گروه</th>
-                    <th style="width:72px"></th>
+                    <th style="width:120px"></th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($users)): ?>
                     <tr>
-                        <td colspan="10">
+                        <td colspan="11">
                             <div class="empty">
                                 <svg class="ill" viewBox="0 0 200 160" fill="none">
                                     <circle cx="100" cy="60" r="40" fill="var(--sf3)" />
@@ -139,13 +143,14 @@ include __DIR__ . '/inc/layout_head.php';
                     $i = $offset + 1;
                     foreach ($users as $u):
                         $agent = $u['agent'] ?? 'f';
-                        $isBlocked = ($u['User_Status'] ?? '') === 'block';
+                        $isBlocked = panel_user_is_blocked($u);
                         $name = $u['namecustom'] ?? '';
                         if ($name === 'none')
                             $name = '';
                         $uname = $u['username'] ?? '';
                         if ($uname === 'none')
                             $uname = '';
+                        $serviceCount = panel_count_user_services($pdo, $u['id']);
                         ?>
                         <tr>
                             <td class="cf"><?= $i++ ?></td>
@@ -169,6 +174,15 @@ include __DIR__ . '/inc/layout_head.php';
                                     ? '<span style="color:var(--warn)">⭐ ' . number_format((int) ($u['score'] ?? 0)) . '</span>'
                                     : '<span class="cf">—</span>' ?>
                             </td>
+                            <td class="cn">
+                                <?php if ($serviceCount > 0): ?>
+                                    <a href="user_services.php?id=<?= (int) $u['id'] ?>" class="tag tag-info" style="cursor:pointer">
+                                        <?= number_format($serviceCount) ?> سرویس
+                                    </a>
+                                <?php else: ?>
+                                    <span class="cf">—</span>
+                                <?php endif; ?>
+                            </td>
                             <td class="cf"><?= safe_date($u['register'] ?? null) ?></td>
                             <td>
                                 <?php if ($isBlocked): ?>
@@ -180,10 +194,14 @@ include __DIR__ . '/inc/layout_head.php';
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <div style="display:flex;gap:4px">
+                                <div style="display:flex;gap:4px;flex-wrap:wrap">
                                     <a href="user.php?id=<?= (int) $u['id'] ?>" class="btn btn-ghost btn-sm btn-icon"
-                                        title="مشاهده">
+                                        title="مدیریت کاربر">
                                         <?= icon('eye', 14) ?>
+                                    </a>
+                                    <a href="user_services.php?id=<?= (int) $u['id'] ?>" class="btn btn-ghost btn-sm btn-icon"
+                                        title="سرویس‌های کاربر">
+                                        <?= icon('package', 14) ?>
                                     </a>
                                     <?php if ($isBlocked): ?>
                                         <a href="user_action.php?action=unblock&id=<?= (int) $u['id'] ?>&_csrf=<?= csrf_token() ?>&back=users.php"

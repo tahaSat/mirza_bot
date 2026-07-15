@@ -6,6 +6,7 @@ require_auth();
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add') {
   csrf_check_post();
   $remark = trim($_POST['remark'] ?? '');
+  $description = trim($_POST['description'] ?? '');
   if ($remark === '') {
     flash('error', 'نام دسته‌بندی الزامی است.');
     header('Location: categories.php');
@@ -17,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
     exit;
   }
   try {
-    db_query($pdo, "INSERT INTO category (remark) VALUES (?)", [$remark]);
+    db_query($pdo, "INSERT INTO category (remark, description) VALUES (?, ?)", [$remark, $description !== '' ? $description : null]);
     flash('success', 'دسته‌بندی «' . $remark . '» اضافه شد.');
   } catch (Exception $e) {
     flash('error', 'خطای پایگاه داده: ' . $e->getMessage());
@@ -30,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
   csrf_check_post();
   $id = (int) ($_POST['edit_id'] ?? 0);
   $remark = trim($_POST['remark'] ?? '');
+  $description = trim($_POST['description'] ?? '');
   if ($id && $remark !== '') {
     $old = db_fetch($pdo, "SELECT remark FROM category WHERE id = ?", [$id]);
     if (!$old) {
@@ -43,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
       exit;
     }
     try {
-      db_query($pdo, "UPDATE category SET remark = ? WHERE id = ?", [$remark, $id]);
+      db_query($pdo, "UPDATE category SET remark = ?, description = ? WHERE id = ?", [$remark, $description !== '' ? $description : null, $id]);
       if ($old['remark'] !== $remark) {
         db_query($pdo, "UPDATE product SET category = ? WHERE category = ?", [$remark, $old['remark']]);
       }
@@ -137,6 +139,7 @@ include __DIR__ . '/inc/layout_head.php';
           <tr>
             <th>#</th>
             <th>نام دسته</th>
+            <th>توضیحات</th>
             <th>تعداد محصول</th>
             <th>عملیات</th>
           </tr>
@@ -147,11 +150,12 @@ include __DIR__ . '/inc/layout_head.php';
             <tr>
               <td class="cf"><?= $i++ ?></td>
               <td class="cs"><?= htmlspecialchars($c['remark'] ?? '') ?></td>
+              <td class="cn" style="max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="<?= htmlspecialchars($c['description'] ?? '') ?>"><?= !empty($c['description']) ? htmlspecialchars(trunc($c['description'], 60)) : '<span style="color:var(--mute)">—</span>' ?></td>
               <td class="cn"><?= $productCounts[$c['remark']] ?? 0 ?></td>
               <td>
                 <div style="display:flex;gap:5px">
                   <button class="btn btn-ghost btn-sm btn-icon" title="ویرایش"
-                    onclick="openEditModal(<?= htmlspecialchars(json_encode($c), ENT_QUOTES) ?>)">
+                    onclick="openEditModal(<?= htmlspecialchars(json_encode($c, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)">
                     <?= icon('edit', 13) ?>
                   </button>
                   <a href="categories.php?delete=<?= (int) $c['id'] ?>&_csrf=<?= csrf_token() ?>"
@@ -183,6 +187,10 @@ include __DIR__ . '/inc/layout_head.php';
           <label>نام دسته‌بندی *</label>
           <input type="text" name="remark" class="input" placeholder="مثلاً: VPN، پکیج ماهانه، ..." required>
         </div>
+        <div class="field">
+          <label>توضیحات (اختیاری)</label>
+          <textarea name="description" class="input" rows="4" placeholder="اگر پر شود، به‌جای پیام پیش‌فرض انتخاب سرویس در ربات نمایش داده می‌شود"></textarea>
+        </div>
       </div>
       <div class="modal-foot">
         <button type="submit" class="btn btn-primary"><?= icon('plus', 13) ?> ذخیره</button>
@@ -207,6 +215,10 @@ include __DIR__ . '/inc/layout_head.php';
           <label>نام دسته‌بندی *</label>
           <input type="text" name="remark" id="edit_remark" class="input" required>
         </div>
+        <div class="field">
+          <label>توضیحات (اختیاری)</label>
+          <textarea name="description" id="edit_description" class="input" rows="4" placeholder="اگر پر شود، به‌جای پیام پیش‌فرض انتخاب سرویس در ربات نمایش داده می‌شود"></textarea>
+        </div>
       </div>
       <div class="modal-foot">
         <button type="submit" class="btn btn-primary"><?= icon('check', 13) ?> ذخیره تغییرات</button>
@@ -220,6 +232,7 @@ include __DIR__ . '/inc/layout_head.php';
 window.openEditModal = function (c) {
   document.getElementById('edit_id').value = c.id || '';
   document.getElementById('edit_remark').value = c.remark || '';
+  document.getElementById('edit_description').value = c.description || '';
   openModal('editModal');
 };
 </script>

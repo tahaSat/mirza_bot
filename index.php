@@ -3852,8 +3852,11 @@ $textinvite
         Editmessagetext($from_id, $message_id, $textbotlang['Admin']['month']['title'], $monthkeyboard);
     }
 } elseif (preg_match('/^categorynames_(.*)/', $datain, $dataget)) {
-    $categorynames = $dataget[1];
-    $categorynames = select("category", "remark", "id", $categorynames, "select")['remark'];
+    $category = select("category", "*", "id", $dataget[1], "select");
+    $categorynames = $category['remark'];
+    $categoryMessage = (isset($category['description']) && trim($category['description']) !== '')
+        ? htmlspecialchars(trim($category['description']), ENT_QUOTES, 'UTF-8')
+        : $textbotlang['users']['sell']['Service-select-first'];
     $userdate = json_decode($user['Processing_value'], true);
     if (isset($userdate['monthproduct'])) {
         $query = "SELECT * FROM product WHERE (Location = '{$userdate['name_panel']}' OR Location = '/all') AND agent= '{$user['agent']}' AND category = '$categorynames' AND Service_time = '{$userdate['monthproduct']}'";
@@ -3872,7 +3875,7 @@ $textinvite
     } else {
         $statuscustom = false;
     }
-    Editmessagetext($from_id, $message_id, $textbotlang['users']['sell']['Service-select-first'], KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom));
+    Editmessagetext($from_id, $message_id, $categoryMessage, KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom));
 } elseif (preg_match('/^productmonth_(\w+)/', $datain, $dataget)) {
     $monthenumber = $dataget[1];
     $userdate = json_decode($user['Processing_value'], true);

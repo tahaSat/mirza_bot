@@ -1464,10 +1464,16 @@ try {
     if (!$table_exists) {
         $result = $connect->query("CREATE TABLE category (
         id INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        remark varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin  NOT NULL)
+        remark varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin  NOT NULL,
+        description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_bin");
         if (!$result) {
             echo "table category" . mysqli_error($connect);
+        }
+    } else {
+        $Check_filde = $connect->query("SHOW COLUMNS FROM category LIKE 'description'");
+        if ($Check_filde->num_rows == 0) {
+            $connect->query("ALTER TABLE category ADD description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL");
         }
     }
 } catch (Exception $e) {

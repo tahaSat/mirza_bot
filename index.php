@@ -3716,10 +3716,13 @@ $textinvite
                 } else {
                     $backuser = "backuser";
                 }
+                $categorySelectMessage = (!empty($marzban_list_get['description']) && is_string($marzban_list_get['description']))
+                    ? htmlspecialchars(trim($marzban_list_get['description']), ENT_QUOTES, 'UTF-8')
+                    : "📌 دسته بندی خود را انتخاب نمایید!";
                 if ($datain == "buy") {
-                    Editmessagetext($from_id, $message_id, "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($location, $user['agent'], $backuser));
+                    Editmessagetext($from_id, $message_id, $categorySelectMessage, KeyboardCategory($location, $user['agent'], $backuser));
                 } else {
-                    sendmessage($from_id, "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($location, $user['agent'], $backuser), 'HTML');
+                    sendmessage($from_id, $categorySelectMessage, KeyboardCategory($location, $user['agent'], $backuser), 'HTML');
                 }
             } else {
                 $query = "SELECT * FROM product WHERE (Location = '$location' OR Location = '/all')AND agent= '{$user['agent']}'";
@@ -3817,7 +3820,10 @@ $textinvite
     if ($setting['statuscategory'] == "offcategory") {
         if ($setting['statuscategorygenral'] == "oncategorys") {
             $marzban_list_get = select("marzban_panel", "*", "name_panel", $location, "select");
-            Editmessagetext($from_id, $message_id, "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($location, $user['agent'], "buybacktow"));
+            $categorySelectMessage = (!empty($marzban_list_get['description']) && is_string($marzban_list_get['description']))
+                ? htmlspecialchars(trim($marzban_list_get['description']), ENT_QUOTES, 'UTF-8')
+                : "📌 دسته بندی خود را انتخاب نمایید!";
+            Editmessagetext($from_id, $message_id, $categorySelectMessage, KeyboardCategory($location, $user['agent'], "buybacktow"));
         } else {
             $query = "SELECT * FROM product WHERE (Location = '$location' OR Location = '/all')AND agent= '{$user['agent']}'";
             $statuscustomvolume = json_decode($marzban_list_get['customvolume'], true)[$user['agent']];

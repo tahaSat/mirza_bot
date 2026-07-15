@@ -114,6 +114,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         $data['inbounds'] = $parsedGroups;
     }
 
+    // Optional bot message after panel/location is chosen (category keyboard).
+    // Only include when the DB column exists so saves never 500 on older DBs.
+    try {
+        $descCol = $pdo->query("SHOW COLUMNS FROM marzban_panel LIKE 'description'");
+        if ($descCol && $descCol->fetch(PDO::FETCH_ASSOC)) {
+            if (array_key_exists('description', $_POST)) {
+                $desc = trim((string) $_POST['description']);
+                $data['description'] = $desc !== '' ? $desc : null;
+            } else {
+                $data['description'] = $panel['description'] ?? null;
+            }
+        }
+    } catch (Throwable $e) {
+        // column missing — skip
+    }
+
     $clearLogin = $url !== ($panel['url_panel'] ?? '')
         || $data['username_panel'] !== ($panel['username_panel'] ?? '')
         || $data['password_panel'] !== ($panel['password_panel'] ?? '');
@@ -238,6 +254,7 @@ include __DIR__ . '/inc/layout_head.php';
     <input type="hidden" name="namecustom" value="<?= htmlspecialchars($panel['namecustom'] ?? '') ?>">
     <input type="hidden" name="agent" value="<?= htmlspecialchars($panel['agent'] ?? 'all') ?>">
     <input type="hidden" name="limit_panel" value="<?= htmlspecialchars($panel['limit_panel'] ?? '') ?>">
+    <input type="hidden" name="description" value="<?= htmlspecialchars($panel['description'] ?? '') ?>">
     <?php if ($isPasarguard): ?>
     <input type="hidden" name="pasarguard_group_ids" value="<?= htmlspecialchars($pasarguardGroupIds) ?>">
     <?php endif; ?>
@@ -342,6 +359,10 @@ include __DIR__ . '/inc/layout_head.php';
           <div class="field full">
             <label>نام پنل *</label>
             <input type="text" name="name_panel" class="input" value="<?= htmlspecialchars($panel['name_panel'] ?? '') ?>" required>
+          </div>
+          <div class="field full">
+            <label>توضیحات ربات (اختیاری)</label>
+            <textarea name="description" class="input" rows="4" placeholder="اگر پر شود، پس از انتخاب این پنل به‌جای «دسته بندی خود را انتخاب نمایید» نمایش داده می‌شود"><?= htmlspecialchars($panel['description'] ?? '') ?></textarea>
           </div>
           <div class="field full">
             <label>آدرس پنل (URL)</label>

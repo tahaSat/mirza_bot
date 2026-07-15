@@ -654,7 +654,9 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
                     sendmessage($from_id, $textbotlang['Admin']['Product']['nullpProduct'], null, 'HTML');
                     return;
                 }
-                sendmessage($from_id, "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($marzban_list_get['name_panel'], $userbot['agent'], "backuser"), 'HTML');
+                sendmessage($from_id, (!empty($marzban_list_get['description']) && is_string($marzban_list_get['description']))
+                    ? htmlspecialchars(trim($marzban_list_get['description']), ENT_QUOTES, 'UTF-8')
+                    : "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($marzban_list_get['name_panel'], $userbot['agent'], "backuser"), 'HTML');
                 return;
             }
         } else {
@@ -732,7 +734,9 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
                 sendmessage($from_id, $textbotlang['Admin']['Product']['nullpProduct'], null, 'HTML');
                 return;
             }
-            Editmessagetext($from_id, $message_id, "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($locationproduct['name_panel'], $userbot['agent'], "backuser"));
+            Editmessagetext($from_id, $message_id, (!empty($locationproduct['description']) && is_string($locationproduct['description']))
+                ? htmlspecialchars(trim($locationproduct['description']), ENT_QUOTES, 'UTF-8')
+                : "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($locationproduct['name_panel'], $userbot['agent'], "backuser"));
         }
     } else {
         deletemessage($from_id, $message_id);

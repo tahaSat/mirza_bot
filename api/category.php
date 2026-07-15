@@ -221,6 +221,11 @@ switch ($data['actions'] ?? '') {
             $categoryData = [
                 'remark' => $data['remark'],
             ];
+            if (array_key_exists('description', $data)) {
+                $categoryData['description'] = trim((string) $data['description']) !== ''
+                    ? trim((string) $data['description'])
+                    : null;
+            }
 
             // Insert category into database
             $columns = implode(',', array_keys($categoryData));
@@ -260,6 +265,11 @@ switch ($data['actions'] ?? '') {
             $categoryData = [
                 'remark' => isset($data['remark']) ? $data['remark'] : $category['remark'],
             ];
+            if (array_key_exists('description', $data)) {
+                $categoryData['description'] = trim((string) $data['description']) !== ''
+                    ? trim((string) $data['description'])
+                    : null;
+            }
 
             $setParts = [];
             foreach ($categoryData as $key => $value) {

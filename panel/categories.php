@@ -3,9 +3,30 @@ require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
 require_auth();
 
+/**
+ * True when category.description exists. Never fatals if the column is missing.
+ */
+function category_has_description_column(PDO $pdo): bool
+{
+  static $has = null;
+  if ($has !== null) {
+    return $has;
+  }
+  try {
+    $stmt = $pdo->query("SHOW COLUMNS FROM category LIKE 'description'");
+    $has = (bool) $stmt->fetch(PDO::FETCH_ASSOC);
+  } catch (Throwable $e) {
+    $has = false;
+  }
+  return $has;
+}
+
+$hasDescriptionCol = category_has_description_column($pdo);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add') {
   csrf_check_post();
   $remark = trim($_POST['remark'] ?? '');
+  $description = trim($_POST['description'] ?? '');
   if ($remark === '') {
     flash('error', 'نام دسته‌بندی الزامی است.');
     header('Location: categories.php');
@@ -17,7 +38,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
     exit;
   }
   try {
-    db_query($pdo, "INSERT INTO category (remark) VALUES (?)", [$remark]);
+    if ($hasDescriptionCol) {
+      db_query($pdo, "INSERT INTO category (remark, description) VALUES (?, ?)", [$remark, $description !== '' ? $description : null]);
+    } else {
+      db_query($pdo, "INSERT INTO category (remark) VALUES (?)", [$remark]);
+      if ($description !== '') {
+        flash('warning', 'دسته‌بندی ذخیره شد، ولی ستون description در دیتابیس نیست. ابتدا SQL مهاجرت را اجرا کنید.');
+        header('Location: categories.php');
+        exit;
+      }
+    }
     flash('success', 'دسته‌بندی «' . $remark . '» اضافه شد.');
   } catch (Exception $e) {
     flash('error', 'خطای پایگاه داده: ' . $e->getMessage());
@@ -30,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
   csrf_check_post();
   $id = (int) ($_POST['edit_id'] ?? 0);
   $remark = trim($_POST['remark'] ?? '');
+  $description = trim($_POST['description'] ?? '');
   if ($id && $remark !== '') {
     $old = db_fetch($pdo, "SELECT remark FROM category WHERE id = ?", [$id]);
     if (!$old) {
@@ -43,7 +74,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
       exit;
     }
     try {
-      db_query($pdo, "UPDATE category SET remark = ? WHERE id = ?", [$remark, $id]);
+      if ($hasDescriptionCol) {
+        db_query($pdo, "UPDATE category SET remark = ?, description = ? WHERE id = ?", [$remark, $description !== '' ? $description : null, $id]);
+      } else {
+        db_query($pdo, "UPDATE category SET remark = ? WHERE id = ?", [$remark, $id]);
+        if ($description !== '') {
+          flash('warning', 'نام دسته ذخیره شد، ولی ستون description در دیتابیس نیست. ابتدا SQL مهاجرت را اجرا کنید.');
+          if ($old['remark'] !== $remark) {
+            db_query($pdo, "UPDATE product SET category = ? WHERE category = ?", [$remark, $old['remark']]);
+          }
+          header('Location: categories.php');
+          exit;
+        }
+      }
       if ($old['remark'] !== $remark) {
         db_query($pdo, "UPDATE product SET category = ? WHERE category = ?", [$remark, $old['remark']]);
       }
@@ -110,6 +153,12 @@ include __DIR__ . '/inc/layout_head.php';
   <button class="btn btn-primary" onclick="openModal('addModal')"><?= icon('plus', 14) ?> افزودن دسته‌بندی</button>
 </div>
 
+<?php if (!$hasDescriptionCol): ?>
+<div class="card fade-up" style="margin-bottom:14px;border-color:#f0ad4e">
+  <p style="margin:0;color:var(--mute);font-size:.9rem">ستون <code>description</code> هنوز در دیتابیس نیست. فایل <code>sql/add_category_description.sql</code> را اجرا کنید (یا یک بار وب‌هوک ربات را صدا بزنید تا <code>table.php</code> آن را اضافه کند).</p>
+</div>
+<?php endif; ?>
+
 <div class="card fade-up d1">
   <div class="toolbar">
     <div class="toolbar-title">فهرست دسته‌بندی‌ها <small>(<?= count($categories) ?>)</small></div>
@@ -137,6 +186,7 @@ include __DIR__ . '/inc/layout_head.php';
           <tr>
             <th>#</th>
             <th>نام دسته</th>
+            <th>توضیحات</th>
             <th>تعداد محصول</th>
             <th>عملیات</th>
           </tr>
@@ -147,11 +197,16 @@ include __DIR__ . '/inc/layout_head.php';
             <tr>
               <td class="cf"><?= $i++ ?></td>
               <td class="cs"><?= htmlspecialchars($c['remark'] ?? '') ?></td>
+              <td class="cn" style="max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="<?= htmlspecialchars($c['description'] ?? '') ?>"><?= !empty($c['description']) ? htmlspecialchars(trunc($c['description'], 60)) : '<span style="color:var(--mute)">—</span>' ?></td>
               <td class="cn"><?= $productCounts[$c['remark']] ?? 0 ?></td>
               <td>
                 <div style="display:flex;gap:5px">
                   <button class="btn btn-ghost btn-sm btn-icon" title="ویرایش"
-                    onclick="openEditModal(<?= htmlspecialchars(json_encode($c), ENT_QUOTES) ?>)">
+                    onclick="openEditModal(<?= htmlspecialchars(json_encode([
+                      'id' => $c['id'] ?? '',
+                      'remark' => $c['remark'] ?? '',
+                      'description' => $c['description'] ?? '',
+                    ], JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)">
                     <?= icon('edit', 13) ?>
                   </button>
                   <a href="categories.php?delete=<?= (int) $c['id'] ?>&_csrf=<?= csrf_token() ?>"
@@ -183,6 +238,10 @@ include __DIR__ . '/inc/layout_head.php';
           <label>نام دسته‌بندی *</label>
           <input type="text" name="remark" class="input" placeholder="مثلاً: VPN، پکیج ماهانه، ..." required>
         </div>
+        <div class="field">
+          <label>توضیحات (اختیاری)</label>
+          <textarea name="description" class="input" rows="4" placeholder="اگر پر شود، به‌جای پیام پیش‌فرض انتخاب سرویس در ربات نمایش داده می‌شود"></textarea>
+        </div>
       </div>
       <div class="modal-foot">
         <button type="submit" class="btn btn-primary"><?= icon('plus', 13) ?> ذخیره</button>
@@ -207,6 +266,10 @@ include __DIR__ . '/inc/layout_head.php';
           <label>نام دسته‌بندی *</label>
           <input type="text" name="remark" id="edit_remark" class="input" required>
         </div>
+        <div class="field">
+          <label>توضیحات (اختیاری)</label>
+          <textarea name="description" id="edit_description" class="input" rows="4" placeholder="اگر پر شود، به‌جای پیام پیش‌فرض انتخاب سرویس در ربات نمایش داده می‌شود"></textarea>
+        </div>
       </div>
       <div class="modal-foot">
         <button type="submit" class="btn btn-primary"><?= icon('check', 13) ?> ذخیره تغییرات</button>
@@ -220,6 +283,7 @@ include __DIR__ . '/inc/layout_head.php';
 window.openEditModal = function (c) {
   document.getElementById('edit_id').value = c.id || '';
   document.getElementById('edit_remark').value = c.remark || '';
+  document.getElementById('edit_description').value = c.description || '';
   openModal('editModal');
 };
 </script>

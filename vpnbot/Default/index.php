@@ -750,8 +750,14 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         return;
     }
 } elseif (preg_match('/^categorynames_(.*)/', $datain, $dataget)) {
-    $categorynames = $dataget[1];
-    $categorynames = select("category", "remark", "id", $categorynames, "select")['remark'];
+    $category = select("category", "*", "id", $dataget[1], "select");
+    if (!$category || empty($category['remark'])) {
+        return;
+    }
+    $categorynames = $category['remark'];
+    $categoryMessage = (!empty($category['description']) && is_string($category['description']))
+        ? htmlspecialchars(trim($category['description']), ENT_QUOTES, 'UTF-8')
+        : "🛍️ لطفاً سرویسی که می‌خواهید خریداری کنید را انتخاب کنید!";
     $userdate = json_decode($user['Processing_value'], true);
     $locationproduct = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "seelct");
     $query = "SELECT * FROM product WHERE (Location = '{$locationproduct['name_panel']}' OR Location = '/all') AND category = '$categorynames' AND agent= '{$userbot['agent']}' ";
@@ -767,7 +773,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         $keyboarddata = "selectproductbuy_";
     }
     $prodcut = KeyboardProduct($locationproduct['name_panel'], $query, 0, $keyboarddata, $statuscustom, "backuser", null, $customvolume = "customvolumebuy");
-    Editmessagetext($from_id, $message_id, "🛍️ لطفاً سرویسی که می‌خواهید خریداری کنید را انتخاب کنید!", $prodcut, 'HTML');
+    Editmessagetext($from_id, $message_id, $categoryMessage, $prodcut, 'HTML');
 } elseif ($user['step'] == "gettimecustomvol") {
     $userdate = json_decode($user['Processing_value'], true);
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");

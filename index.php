@@ -2135,7 +2135,14 @@ $textconnect
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
     $eextraprice = json_decode($marzban_list_get['priceextravolume'], true);
     $extrapricevalue = $eextraprice[$user['agent']];
-    if ($user['Balance'] < $volume && $user['agent'] != "n2") {
+    if (agent_is_reseller($user['agent'] ?? 'f')) {
+        $gbToAdd = (int) (intval($volume) / intval($extrapricevalue));
+        $agentQuotaCheck = agent_check_volume_quota($from_id, $gbToAdd);
+        if (!$agentQuotaCheck['ok']) {
+            sendmessage($from_id, $agentQuotaCheck['msg'], null, 'HTML');
+            return;
+        }
+    } elseif ($user['Balance'] < $volume && $user['agent'] != "n2") {
         $marzbandirectpay = select('shopSetting', "*", "Namevalue", "statusdirectpabuy", "select")['value'];
         if ($marzbandirectpay == "offdirectbuy") {
             $minbalance = number_format(json_decode(select("PaySetting", "*", "NamePay", "minbalance", "select")['ValuePay'], true)[$user['agent']]);
@@ -2173,14 +2180,18 @@ $textconnect
         $volumepricelast = $volume - $result;
         sendmessage($from_id, sprintf($textbotlang['users']['Discount']['discountapplied'], $user['pricediscount']), null, 'HTML');
     }
-    if (intval($user['maxbuyagent']) != 0 and $user['agent'] == "n2") {
+    if (!agent_is_reseller($user['agent'] ?? 'f') && intval($user['maxbuyagent']) != 0 and $user['agent'] == "n2") {
         if (($user['Balance'] - $volumepricelast) < intval("-" . $user['maxbuyagent'])) {
             sendmessage($from_id, $textbotlang['users']['Balance']['maxpurchasereached'], null, 'HTML');
             return;
         }
     }
-    $Balance_Low_user = $user['Balance'] - $volumepricelast;
-    update("user", "Balance", $Balance_Low_user, "id", $from_id);
+    if (agent_is_reseller($user['agent'] ?? 'f')) {
+        // billed via agent_consume_volume after success
+    } else {
+        $Balance_Low_user = $user['Balance'] - $volumepricelast;
+        update("user", "Balance", $Balance_Low_user, "id", $from_id);
+    }
     $DataUserOut = $ManagePanel->DataUser($nameloc['Service_location'], $nameloc['username']);
     $data_for_database = json_encode(array(
         'volume_value' => intval($volume) / intval($extrapricevalue),
@@ -2206,6 +2217,9 @@ $textconnect
             ]);
         }
         return;
+    }
+    if (agent_is_reseller($user['agent'] ?? 'f')) {
+        agent_consume_volume($from_id, (int) $data_limit);
     }
     $stmt = $pdo->prepare("INSERT IGNORE INTO service_other (id_user, username, value, type, time, price, output) VALUES (:id_user, :username, :value, :type, :time, :price, :output)");
     $value = $data_for_database;
@@ -4147,7 +4161,14 @@ $textinvite
     $stmt->bind_param("sssssssssssss", $from_id, $randomString, $username_ac, $date, $marzban_list_get['name_panel'], $info_product['name_product'], $priceproduct, $info_product['Volume_constraint'], $info_product['Service_time'], $Status, $userdate['nameconfig'], $user['affiliates'], $notifctions);
     $stmt->execute();
     $stmt->close();
-    if ($priceproduct > $user['Balance'] && $user['agent'] != "n2" && intval($priceproduct) != 0) {
+    $agentVolumeGb = (int) $info_product['Volume_constraint'];
+    if (agent_is_reseller($user['agent'] ?? 'f')) {
+        $agentQuotaCheck = agent_check_volume_quota($from_id, $agentVolumeGb);
+        if (!$agentQuotaCheck['ok']) {
+            sendmessage($from_id, $agentQuotaCheck['msg'], $keyboard, 'HTML');
+            return;
+        }
+    } elseif ($priceproduct > $user['Balance'] && $user['agent'] != "n2" && intval($priceproduct) != 0) {
         $marzbandirectpay = select("shopSetting", "*", "Namevalue", "statusdirectpabuy", "select")['value'];
         $Balance_prim = $priceproduct - $user['Balance'];
         if ($Balance_prim <= 1)
@@ -4175,7 +4196,7 @@ $textinvite
         }
         return;
     }
-    if (intval($user['maxbuyagent']) != 0 and $user['agent'] == "n2") {
+    if (!agent_is_reseller($user['agent'] ?? 'f') && intval($user['maxbuyagent']) != 0 and $user['agent'] == "n2") {
         if (intval($user['Balance'] - $priceproduct) < intval("-" . $user['maxbuyagent'])) {
             sendmessage($from_id, $textbotlang['users']['Balance']['maxpurchasereached'], null, 'HTML');
             return;
@@ -4283,7 +4304,12 @@ $textinvite
     }
     sendMessageService($marzban_list_get, $dataoutput['configs'], $output_config_link, $dataoutput['username'], $Shoppinginfo, $textcreatuser, $randomString);
     sendmessage($from_id, $textbotlang['users']['selectoption'], $keyboard, 'HTML');
-    if (intval($priceproduct) != 0) {
+    if (agent_is_reseller($user['agent'] ?? 'f')) {
+        $agentConsume = agent_consume_volume($from_id, (int) $info_product['Volume_constraint']);
+        if (!$agentConsume['ok'] && empty($agentConsume['skipped'])) {
+            error_log("Agent consume volume failed after create | user={$from_id} | msg={$agentConsume['msg']}");
+        }
+    } elseif (intval($priceproduct) != 0) {
         $Balance_prim = $user['Balance'] - $priceproduct;
         update("user", "Balance", $Balance_prim, "id", $from_id);
     }
@@ -4736,7 +4762,14 @@ $textonebuy
         $priceproduct = $priceproduct - $result;
         sendmessage($from_id, sprintf($textbotlang['users']['Discount']['discountapplied'], $user['pricediscount']), null, 'HTML');
     }
-    if ($priceproduct > $user['Balance'] && $user['agent'] != "n2") {
+    if (agent_is_reseller($user['agent'] ?? 'f')) {
+        $bulkVolumeTotal = (int) $info_product['Volume_constraint'] * (int) $user['Processing_value_four'];
+        $agentQuotaCheck = agent_check_volume_quota($from_id, $bulkVolumeTotal);
+        if (!$agentQuotaCheck['ok']) {
+            sendmessage($from_id, $agentQuotaCheck['msg'], $keyboard, 'HTML');
+            return;
+        }
+    } elseif ($priceproduct > $user['Balance'] && $user['agent'] != "n2") {
         $marzbandirectpay = select('shopSetting', "*", "Namevalue", "statusdirectpabuy", "select")['value'];
         if ($marzbandirectpay == "offdirectbuy") {
             $minbalance = number_format(json_decode(select("PaySetting", "*", "NamePay", "minbalance", "select")['ValuePay'], true)[$user['agent']]);
@@ -4762,7 +4795,7 @@ $textonebuy
             return;
         }
     }
-    if (intval($user['maxbuyagent']) != 0 and $user['agent'] == "n2") {
+    if (!agent_is_reseller($user['agent'] ?? 'f') && intval($user['maxbuyagent']) != 0 and $user['agent'] == "n2") {
         if (($user['Balance'] - $priceproduct) < intval("-" . $user['maxbuyagent'])) {
             sendmessage($from_id, $textbotlang['users']['Balance']['maxpurchasereached'], null, 'HTML');
             return;
@@ -4874,9 +4907,17 @@ $textonebuy
         sendMessageService($marzban_list_get, $dataoutput['configs'], $output_config_link, $dataoutput['username'], $Shoppinginfo, $textcreatuser, $randomString);
     }
     sendmessage($from_id, $textbotlang['users']['selectoption'], $keyboard, 'HTML');
-    $user_Balance = select("user", "*", "id", $from_id, "select");
-    $Balance_prim = $user_Balance['Balance'] - $priceproduct;
-    update("user", "Balance", $Balance_prim, "id", $from_id);
+    if (agent_is_reseller($user['agent'] ?? 'f')) {
+        $bulkVolumeTotal = (int) $info_product['Volume_constraint'] * (int) $user['Processing_value_four'];
+        $agentConsume = agent_consume_volume($from_id, $bulkVolumeTotal);
+        if (!$agentConsume['ok'] && empty($agentConsume['skipped'])) {
+            error_log("Agent bulk consume volume failed | user={$from_id} | msg={$agentConsume['msg']}");
+        }
+    } else {
+        $user_Balance = select("user", "*", "id", $from_id, "select");
+        $Balance_prim = $user_Balance['Balance'] - $priceproduct;
+        update("user", "Balance", $Balance_prim, "id", $from_id);
+    }
     $balanceformatsell = number_format(select("user", "Balance", "id", $from_id, "select")['Balance'], 0);
     $balanceformatsellbefore = number_format($user['Balance'], 0);
     $pricebulk = $info_product['price_product'] * intval($user['Processing_value_four']);
@@ -7309,7 +7350,13 @@ if (isset($update['message']['successful_payment'])) {
         sendmessage($from_id, $textbotlang['users']['extend']['renewalerror'], $keyboard, 'HTML');
         return;
     }
-    if ($user['Balance'] < $prodcut['price_product'] && $user['agent'] != "n2") {
+    if (agent_is_reseller($user['agent'] ?? 'f')) {
+        $agentQuotaCheck = agent_check_volume_quota($from_id, (int) $prodcut['Volume_constraint']);
+        if (!$agentQuotaCheck['ok']) {
+            sendmessage($from_id, $agentQuotaCheck['msg'], $keyboard, 'HTML');
+            return;
+        }
+    } elseif ($user['Balance'] < $prodcut['price_product'] && $user['agent'] != "n2") {
         $marzbandirectpay = select('shopSetting', "*", "Namevalue", "statusdirectpabuy", "select")['value'];
         if ($marzbandirectpay == "offdirectbuy") {
             $minbalance = number_format(json_decode(select("PaySetting", "*", "NamePay", "minbalance", "select")['ValuePay'], true)[$user['agent']]);
@@ -7337,19 +7384,21 @@ if (isset($update['message']['successful_payment'])) {
             return;
         }
     }
-    if (intval($user['maxbuyagent']) != 0 and $user['agent'] == "n2") {
+    if (!agent_is_reseller($user['agent'] ?? 'f') && intval($user['maxbuyagent']) != 0 and $user['agent'] == "n2") {
         if (($user['Balance'] - $prodcut['price_product']) < intval("-" . $user['maxbuyagent'])) {
             sendmessage($from_id, $textbotlang['users']['Balance']['maxpurchasereached'], null, 'HTML');
             return;
         }
     }
-    if (intval($user['pricediscount']) != 0) {
+    if (intval($user['pricediscount']) != 0 && !agent_is_reseller($user['agent'] ?? 'f')) {
         $result = ($prodcut['price_product'] * $user['pricediscount']) / 100;
         $prodcut['price_product'] = $prodcut['price_product'] - $result;
         sendmessage($from_id, sprintf($textbotlang['users']['Discount']['discountapplied'], $user['pricediscount']), null, 'HTML');
     }
-    $Balance_Low_user = $user['Balance'] - $prodcut['price_product'];
-    update("user", "Balance", $Balance_Low_user, "id", $from_id);
+    if (!agent_is_reseller($user['agent'] ?? 'f')) {
+        $Balance_Low_user = $user['Balance'] - $prodcut['price_product'];
+        update("user", "Balance", $Balance_Low_user, "id", $from_id);
+    }
     $extend = $ManagePanel->extend($marzban_list_get['Methodextend'], $prodcut['Volume_constraint'], $prodcut['Service_time'], $usernamePanelExtends, $prodcut['code_product'], $marzban_list_get['code_panel']);
     if ($extend['status'] == false) {
         $extend['msg'] = json_encode($extend['msg']);
@@ -7367,6 +7416,9 @@ if (isset($update['message']['successful_payment'])) {
             ]);
         }
         return;
+    }
+    if (agent_is_reseller($user['agent'] ?? 'f')) {
+        agent_consume_volume($from_id, (int) $prodcut['Volume_constraint']);
     }
     $stmt = $pdo->prepare("INSERT IGNORE INTO service_other (id_user, username, value, type, time, price,output) VALUES (:id_user, :username, :value, :type, :time, :price,:output)");
     $value = json_encode(array(

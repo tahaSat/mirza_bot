@@ -993,11 +993,13 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     }
     $botbalance = select("botsaz", "*", "bot_token", $ApiToken, "select");
     $userbotbalance = select("user", "*", "id", $botbalance['id_user'], "select");
-    if (($datafactor['price_productMain'] > $userbotbalance['Balance']) && $userbotbalance['agent'] != "n2") {
+    $agentVolumeGb = (int) $datafactor['Volume_constraint'];
+    $agentQuotaCheck = agent_check_volume_quota($botbalance['id_user'], $agentVolumeGb);
+    if (!$agentQuotaCheck['ok']) {
         sendmessage($from_id, "❌ خطایی در خرید رخ داده است برای رفع مشکل با پشتیبانی در ارتباط باشید", $keyboard, 'HTML');
         step("home", $from_id);
         foreach ($admin_ids as $admin) {
-            sendmessage($admin, "❌ ادمین عزیز موجودی شما به پایان رسید برای فعالسازی به ربات اصلی مراجعه و ربات خود را شارژ نمایید.", null, 'HTML');
+            sendmessage($admin, $agentQuotaCheck['msg'], null, 'HTML');
         }
         return;
     }
@@ -1199,10 +1201,6 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
       }
     }
     sendmessage($from_id, $textbotlang['users']['selectoption'], $keyboard, 'HTML');
-    if (intval($userbotbalance['pricediscount']) != 0) {
-        $resultper = ($datafactor['price_productMain'] * $userbotbalance['pricediscount']) / 100;
-        $datafactor['price_productMain'] = $datafactor['price_productMain'] - $resultper;
-    }
     $Balance_prim = $user['Balance'];
     if (intval($datafactor['price_product']) != 0) {
         $Balance_prim = $user['Balance'] - $datafactor['price_product'];
@@ -1210,8 +1208,8 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         $userbalance['Balance'] = $Balance_prim;
         file_put_contents("data/$from_id/$from_id.json", json_encode($userbalance));
     }
-    $Balancebot = $userbotbalance['Balance'] - $datafactor['price_productMain'];
-    update("user", "Balance", $Balancebot, "id", $userbotbalance['id']);
+    $agentConsume = agent_consume_volume($botbalance['id_user'], (int) $datafactor['Volume_constraint']);
+    $Balancebot = $agentConsume['balance'] ?? select("user", "Balance", "id", $botbalance['id_user'], "select")['Balance'];
     if ($marzban_list_get['MethodUsername'] == "متن دلخواه + عدد ترتیبی" || $marzban_list_get['MethodUsername'] == "نام کاربری + عدد به ترتیب" || $marzban_list_get['MethodUsername'] == "آیدی عددی+عدد ترتیبی" || $marzban_list_get['MethodUsername'] == "متن دلخواه نماینده + عدد ترتیبی") {
         $value = intval($user['number_username']) + 1;
         update("user", "number_username", $value, "id", $from_id);
@@ -1759,11 +1757,13 @@ $output
     $datafactor['name_product'] = empty($productlist_name[$datafactor['code_product']]) ? $datafactor['name_product'] : $productlist_name[$datafactor['code_product']];
     $botbalance = select("botsaz", "*", "bot_token", $ApiToken, "select");
     $userbotbalance = select("user", "*", "id", $botbalance['id_user'], "select");
-    if ($datafactor['price_productMain'] >= $userbotbalance['Balance'] && $userbotbalance['agent'] != "n2") {
+    $agentVolumeGb = (int) $datafactor['Volume_constraint'];
+    $agentQuotaCheck = agent_check_volume_quota($botbalance['id_user'], $agentVolumeGb);
+    if (!$agentQuotaCheck['ok']) {
         sendmessage($from_id, "❌ خطایی در خرید رخ داده است برای رفع مشکل با پشتیبانی در ارتباط باشید", $keyboard, 'HTML');
         step("home", $from_id);
         foreach ($admin_ids as $admin) {
-            sendmessage($admin, "❌ ادمین عزیز موجودی شما به پایان رسید برای فعالسازی به ربات اصلی مراجعه و ربات خود را شارژ نمایید.", null, 'HTML');
+            sendmessage($admin, $agentQuotaCheck['msg'], null, 'HTML');
         }
         return;
     }
@@ -1829,12 +1829,8 @@ $output
         $userbalance['Balance'] = $Balance_prim;
         file_put_contents("data/$from_id/$from_id.json", json_encode($userbalance));
     }
-    if (intval($userbotbalance['pricediscount']) != 0) {
-        $resultper = ($datafactor['price_productMain'] * $userbotbalance['pricediscount']) / 100;
-        $datafactor['price_productMain'] = $datafactor['price_productMain'] - $resultper;
-    }
-    $Balancebot = $userbotbalance['Balance'] - $datafactor['price_productMain'];
-    update("user", "Balance", $Balancebot, "id", $userbotbalance['id']);
+    $agentConsume = agent_consume_volume($botbalance['id_user'], (int) $datafactor['Volume_constraint']);
+    $Balancebot = $agentConsume['balance'] ?? select("user", "Balance", "id", $botbalance['id_user'], "select")['Balance'];
     $keyboardextendfnished = json_encode([
         'inline_keyboard' => [
             [

@@ -657,81 +657,23 @@ switch ($data['actions'] ?? '') {
     case 'active_bot_agent':
         validateMethod('POST', $method);
 
-        // Validate chat_id
         if (!isset($data['chat_id']) || empty($data['chat_id']))
             sendJsonResponse(false, "user-id empty", [], 200);
         if (!isset($data['token']) || empty($data['token']))
             sendJsonResponse(false, "token empty", [], 200);
-        $chec_kbot = select("botsaz", "*", "id_user", $data['chat_id'], "count");
-        $check_bots = select("botsaz", "*", null, null, "count");
-        if ($checkbots >= 15)
-            sendJsonResponse(false, "You are allowed to create 15 representative bots in your bot.");
-        if ($chec_kbot != 0)
-            sendJsonResponse(false, "You are allowed to build a robot.");
-        $getInfoToken = json_decode(file_get_contents("https://api.telegram.org/bot{$data['token']}/getme"), true);
-        if ($getInfoToken == false or !$getInfoToken['ok'])
-            sendJsonResponse(false, "You are allowed! Token inavlid");
-        $check_exits_token = select("botsaz", "*", "bot_token", $data['token'], "count");
-        if ($check_exits_token != 0)
-            sendJsonResponse(false, "You are allowed! Token exits");
-        $admin_ids = json_encode(array(
-            $data['chat_id']
-        ));
-        $destination = dirname(getcwd());
-        $dirsource = "$destination/vpnbot/{$data['chat_id']}{$getInfoToken['result']['username']}";
-        if (is_dir($dirsource) && !deleteDirectory($dirsource)) {
-            error_log('Failed to remove existing bot directory: ' . $dirsource);
-        }
-        if (!copyDirectoryContents($destination . '/vpnbot/Default', $dirsource)) {
-            error_log('Failed to copy default bot files into: ' . $dirsource);
-        }
-        $contentconfig = file_get_contents($dirsource . "/config.php");
-        $new_code = str_replace('BotTokenNew', $data['token'], $contentconfig);
-        file_put_contents($dirsource . "/config.php", $new_code);
-        file_get_contents("https://api.telegram.org/bot{$data['token']}/setwebhook?url=https://$domainhosts/vpnbot/{$data['chat_id']}{$getInfoToken['result']['username']}/index.php");
-        file_get_contents("https://api.telegram.org/bot{$data['token']}/sendmessage?chat_id={$data['chat_id']}&text=✅ کاربر عزیز ربات شما با موفقیت نصب گردید.");
-        $datasetting = json_encode(array(
-            "minpricetime" => 4000,
-            "pricetime" => 4000,
-            "minpricevolume" => 4000,
-            "pricevolume" => 4000,
-            "support_username" => "@support",
-            "Channel_Report" => 0,
-            "cart_info" => "جهت پرداخت مبلغ را به شماره کارت زیر واریز نمایید",
-            'show_product' => true,
-        ));
-        $value = "{}";
-        $stmt = $pdo->prepare("INSERT INTO botsaz (id_user,bot_token,admin_ids,username,time,setting,hide_panel) VALUES (:id_user,:bot_token,:admin_ids,:username,:time,:setting,:hide_panel)");
-        $stmt->bindParam(':id_user', $data['chat_id'], PDO::PARAM_STR);
-        $stmt->bindParam(':bot_token', $data['token'], PDO::PARAM_STR);
-        $stmt->bindParam(':admin_ids', $admin_ids);
-        $stmt->bindParam(':username', $getInfoToken['result']['username'], PDO::PARAM_STR);
-        $stmt->bindParam(':time', date('Y/m/d H:i:s'), PDO::PARAM_STR);
-        $stmt->bindParam(':setting', $datasetting, PDO::PARAM_STR);
-        $stmt->bindParam(':hide_panel', $value, PDO::PARAM_STR);
-        $stmt->execute();
+        $result = agent_create_sell_bot($data['chat_id'], $data['token'], dirname(getcwd()));
+        if (!$result['ok'])
+            sendJsonResponse(false, $result['msg'], [], 200);
         sendJsonResponse(true, "Successful");
         break;
     case "remove_agent_bot":
         validateMethod('POST', $method);
 
-        // Validate chat_id
         if (!isset($data['chat_id']) || empty($data['chat_id']))
             sendJsonResponse(false, "user-id empty", [], 200);
-        $contentbot = select("botsaz", "*", "id_user", $data['chat_id'], "select");
-        if (!$contentbot)
-            sendJsonResponse(false, "User does not have an active bot.", [], 200);
-        $destination = dirname(getcwd());
-        $dirsource = "$destination/vpnbot/{$data['chat_id']}{$contentbot['username']}";
-        if (is_dir($dirsource) && !deleteDirectory($dirsource)) {
-            error_log('Failed to remove bot directory: ' . $dirsource);
-        }
-        if (!empty($contentbot['bot_token'])) {
-            file_get_contents("https://api.telegram.org/bot{$contentbot['bot_token']}/deletewebhook");
-        }
-        $stmt = $pdo->prepare("DELETE FROM botsaz WHERE id_user = :id_user");
-        $stmt->bindParam(':id_user', $data['chat_id'], PDO::PARAM_STR);
-        $stmt->execute();
+        $result = agent_remove_sell_bot($data['chat_id'], dirname(getcwd()));
+        if (!$result['ok'])
+            sendJsonResponse(false, $result['msg'], [], 200);
         sendJsonResponse(true, "Successful");
         break;
     case "set_price_volume_agent_bot":

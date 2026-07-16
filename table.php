@@ -48,7 +48,9 @@ try {
             limitchangeloc VARCHAR(50) NULL   DEFAULT '0',
             status_cron VARCHAR(20)  NULL DEFAULT '1',
             expire VARCHAR(100) NULL ,
-            token VARCHAR(100) NULL 
+            token VARCHAR(100) NULL,
+            agent_volume_remaining VARCHAR(100) NULL DEFAULT '0',
+            agent_price_per_gb VARCHAR(100) NULL DEFAULT '0'
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
         $stmt->execute();
     } else {
@@ -79,6 +81,8 @@ try {
         addFieldToTable($tableName, 'codeInvitation', null);
         addFieldToTable($tableName, 'pricediscount', "0");
         addFieldToTable($tableName, 'hide_mini_app_instruction', '0', "VARCHAR(20)");
+        addFieldToTable($tableName, 'agent_volume_remaining', '0', "VARCHAR(100)");
+        addFieldToTable($tableName, 'agent_price_per_gb', '0', "VARCHAR(100)");
     }
 } catch (PDOException $e) {
     file_put_contents('error_log user', $e->getMessage());

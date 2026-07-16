@@ -3133,3 +3133,221 @@ function product_ensure_hwid_limit_column(): void
 
 product_ensure_hwid_limit_column();
 product_ensure_sort_order_column();
+
+#----------- agent volume / sell bot ------------#
+
+function agent_ensure_volume_columns(): void
+{
+    static $ensured = false;
+    if ($ensured) {
+        return;
+    }
+    addFieldToTable('user', 'agent_volume_remaining', '0', 'VARCHAR(100)');
+    addFieldToTable('user', 'agent_price_per_gb', '0', 'VARCHAR(100)');
+    $ensured = true;
+}
+
+function agent_is_reseller($agent): bool
+{
+    return in_array((string) $agent, ['n', 'n2'], true);
+}
+
+/**
+ * Pre-check whether an agent can create the given GB volume.
+ * Returns ['ok' => bool, 'msg' => string, 'cost' => int, 'user' => array|null]
+ */
+function agent_check_volume_quota($agentUserId, $volumeGb): array
+{
+    agent_ensure_volume_columns();
+    $volumeGb = (int) $volumeGb;
+    $user = select('user', '*', 'id', $agentUserId, 'select');
+    if (!$user || !agent_is_reseller($user['agent'] ?? 'f')) {
+        return ['ok' => true, 'msg' => '', 'cost' => 0, 'user' => $user ?: null, 'skipped' => true];
+    }
+    if ($volumeGb <= 0) {
+        return [
+            'ok' => false,
+            'msg' => '❌ نمایندگان نمی‌توانند سرویس با حجم نامحدود (۰ گیگ) بسازند. حجم باید بیشتر از صفر باشد.',
+            'cost' => 0,
+            'user' => $user,
+            'skipped' => false,
+        ];
+    }
+    $remaining = (int) ($user['agent_volume_remaining'] ?? 0);
+    if ($remaining < $volumeGb) {
+        return [
+            'ok' => false,
+            'msg' => "❌ سهمیه حجم نمایندگی کافی نیست.\nباقیمانده: {$remaining} گیگ | درخواستی: {$volumeGb} گیگ",
+            'cost' => 0,
+            'user' => $user,
+            'skipped' => false,
+        ];
+    }
+    $pricePerGb = (int) ($user['agent_price_per_gb'] ?? 0);
+    $cost = $volumeGb * $pricePerGb;
+    $balance = (int) ($user['Balance'] ?? 0);
+    $balanceAfter = $balance - $cost;
+    if (($user['agent'] ?? '') === 'n2') {
+        $maxBuy = (int) ($user['maxbuyagent'] ?? 0);
+        if ($maxBuy != 0 && $balanceAfter < intval('-' . $maxBuy)) {
+            return [
+                'ok' => false,
+                'msg' => '❌ سقف خرید نماینده برای این مقدار حجم کافی نیست.',
+                'cost' => $cost,
+                'user' => $user,
+                'skipped' => false,
+            ];
+        }
+    } elseif ($cost > $balance) {
+        return [
+            'ok' => false,
+            'msg' => '❌ موجودی نمایندگی برای ساخت این حجم کافی نیست. هزینه: ' . number_format($cost) . ' تومان',
+            'cost' => $cost,
+            'user' => $user,
+            'skipped' => false,
+        ];
+    }
+    return ['ok' => true, 'msg' => '', 'cost' => $cost, 'user' => $user, 'skipped' => false];
+}
+
+/**
+ * Deduct GB quota and wholesale cost from agent after a successful create.
+ * Call agent_check_volume_quota first; this re-checks and updates.
+ */
+function agent_consume_volume($agentUserId, $volumeGb): array
+{
+    $check = agent_check_volume_quota($agentUserId, $volumeGb);
+    if (!empty($check['skipped'])) {
+        return $check;
+    }
+    if (!$check['ok']) {
+        return $check;
+    }
+    $user = $check['user'];
+    $volumeGb = (int) $volumeGb;
+    $cost = (int) $check['cost'];
+    $remaining = (int) ($user['agent_volume_remaining'] ?? 0) - $volumeGb;
+    $balance = (int) ($user['Balance'] ?? 0) - $cost;
+    update('user', 'agent_volume_remaining', (string) $remaining, 'id', $agentUserId);
+    update('user', 'Balance', $balance, 'id', $agentUserId);
+    $check['remaining'] = $remaining;
+    $check['balance'] = $balance;
+    return $check;
+}
+
+/**
+ * Create an agent sell bot. $rootPath is project root (contains vpnbot/).
+ * Returns ['ok' => bool, 'msg' => string, 'username' => string|null]
+ */
+function agent_create_sell_bot($agentUserId, $token, $rootPath = null): array
+{
+    global $pdo, $domainhosts;
+
+    $agentUserId = (string) $agentUserId;
+    $token = trim((string) $token);
+    if ($token === '') {
+        return ['ok' => false, 'msg' => 'توکن خالی است.', 'username' => null];
+    }
+
+    $existing = select('botsaz', '*', 'id_user', $agentUserId, 'count');
+    $totalBots = select('botsaz', '*', null, null, 'count');
+    if ((int) $totalBots >= 15) {
+        return ['ok' => false, 'msg' => 'حداکثر ۱۵ ربات نماینده مجاز است.', 'username' => null];
+    }
+    if ((int) $existing !== 0) {
+        return ['ok' => false, 'msg' => 'این نماینده از قبل ربات فروش دارد.', 'username' => null];
+    }
+
+    $getInfoToken = json_decode(@file_get_contents("https://api.telegram.org/bot{$token}/getme"), true);
+    if ($getInfoToken == false || empty($getInfoToken['ok'])) {
+        return ['ok' => false, 'msg' => 'توکن نامعتبر است.', 'username' => null];
+    }
+    $botUsername = $getInfoToken['result']['username'] ?? '';
+    if ($botUsername === '') {
+        return ['ok' => false, 'msg' => 'نام کاربری ربات دریافت نشد.', 'username' => null];
+    }
+    if ((int) select('botsaz', '*', 'bot_token', $token, 'count') !== 0) {
+        return ['ok' => false, 'msg' => 'این توکن از قبل ثبت شده است.', 'username' => null];
+    }
+
+    if ($rootPath === null) {
+        $rootPath = defined('__DIR__') ? dirname(__DIR__) : getcwd();
+        // When called from project root (admin.php), getcwd is correct; from panel use parent.
+        if (!is_dir($rootPath . '/vpnbot') && is_dir(getcwd() . '/vpnbot')) {
+            $rootPath = getcwd();
+        }
+        if (!is_dir($rootPath . '/vpnbot') && is_dir(dirname(getcwd()) . '/vpnbot')) {
+            $rootPath = dirname(getcwd());
+        }
+    }
+    $rootPath = rtrim($rootPath, '/\\');
+    $dirsource = $rootPath . '/vpnbot/' . $agentUserId . $botUsername;
+    if (is_dir($dirsource) && !deleteDirectory($dirsource)) {
+        error_log('Failed to remove existing bot directory: ' . $dirsource);
+    }
+    if (!copyDirectoryContents($rootPath . '/vpnbot/Default', $dirsource)) {
+        return ['ok' => false, 'msg' => 'کپی فایل‌های ربات ناموفق بود.', 'username' => null];
+    }
+    $contentconfig = file_get_contents($dirsource . '/config.php');
+    file_put_contents($dirsource . '/config.php', str_replace('BotTokenNew', $token, $contentconfig));
+    @file_get_contents("https://api.telegram.org/bot{$token}/setwebhook?url=https://{$domainhosts}/vpnbot/{$agentUserId}{$botUsername}/index.php");
+    @file_get_contents("https://api.telegram.org/bot{$token}/sendmessage?chat_id={$agentUserId}&text=" . urlencode('✅ کاربر عزیز ربات شما با موفقیت نصب گردید.'));
+
+    $admin_ids = json_encode([$agentUserId]);
+    $datasetting = json_encode([
+        'minpricetime' => 4000,
+        'pricetime' => 4000,
+        'minpricevolume' => 4000,
+        'pricevolume' => 4000,
+        'support_username' => '@support',
+        'Channel_Report' => 0,
+        'cart_info' => 'جهت پرداخت مبلغ را به شماره کارت زیر واریز نمایید',
+        'show_product' => true,
+    ]);
+    $hide = '{}';
+    $time = date('Y/m/d H:i:s');
+    $stmt = $pdo->prepare('INSERT INTO botsaz (id_user,bot_token,admin_ids,username,time,setting,hide_panel) VALUES (:id_user,:bot_token,:admin_ids,:username,:time,:setting,:hide_panel)');
+    $stmt->execute([
+        ':id_user' => $agentUserId,
+        ':bot_token' => $token,
+        ':admin_ids' => $admin_ids,
+        ':username' => $botUsername,
+        ':time' => $time,
+        ':setting' => $datasetting,
+        ':hide_panel' => $hide,
+    ]);
+
+    return ['ok' => true, 'msg' => 'ربات با موفقیت ساخته شد.', 'username' => $botUsername, 'token' => $token];
+}
+
+/**
+ * Remove agent sell bot (filesystem + webhook + botsaz row).
+ */
+function agent_remove_sell_bot($agentUserId, $rootPath = null): array
+{
+    global $pdo;
+
+    $agentUserId = (string) $agentUserId;
+    $contentbot = select('botsaz', '*', 'id_user', $agentUserId, 'select');
+    if (!$contentbot) {
+        return ['ok' => false, 'msg' => 'ربات فروشی برای این نماینده یافت نشد.'];
+    }
+
+    if ($rootPath === null) {
+        $rootPath = getcwd();
+        if (!is_dir($rootPath . '/vpnbot') && is_dir(dirname($rootPath) . '/vpnbot')) {
+            $rootPath = dirname($rootPath);
+        }
+    }
+    $rootPath = rtrim($rootPath, '/\\');
+    $dirsource = $rootPath . '/vpnbot/' . $agentUserId . $contentbot['username'];
+    if (is_dir($dirsource) && !deleteDirectory($dirsource)) {
+        error_log('Failed to remove bot directory: ' . $dirsource);
+    }
+    if (!empty($contentbot['bot_token'])) {
+        @file_get_contents('https://api.telegram.org/bot' . $contentbot['bot_token'] . '/deletewebhook');
+    }
+    $stmt = $pdo->prepare('DELETE FROM botsaz WHERE id_user = :id_user');
+    $stmt->execute([':id_user' => $agentUserId]);
+    return ['ok' => true, 'msg' => 'ربات فروش حذف شد.'];
+}

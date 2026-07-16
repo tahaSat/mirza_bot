@@ -1473,6 +1473,65 @@ function addFieldToTable($tableName, $fieldName, $defaultValue = null, $datatype
     }
     echo "The $fieldName field was added ✅";
 }
+
+/**
+ * Decode category/panel style agent JSON: {"f":"...","n":"...","n2":"..."}.
+ */
+function category_decode_agent_json(?string $json, string $default = '0'): array
+{
+    if (!$json) {
+        return ['f' => $default, 'n' => $default, 'n2' => $default];
+    }
+    $d = json_decode($json, true);
+    if (!is_array($d)) {
+        return ['f' => $default, 'n' => $default, 'n2' => $default];
+    }
+    return [
+        'f' => (string) ($d['f'] ?? $default),
+        'n' => (string) ($d['n'] ?? $default),
+        'n2' => (string) ($d['n2'] ?? $default),
+    ];
+}
+
+function category_encode_agent_json(array $values): string
+{
+    return json_encode([
+        'f' => (string) ($values['f'] ?? '0'),
+        'n' => (string) ($values['n'] ?? '0'),
+        'n2' => (string) ($values['n2'] ?? '0'),
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+function category_agent_field($category, string $field, string $agent, string $default = '0'): string
+{
+    if (!is_array($category) || !array_key_exists($field, $category) || $category[$field] === null) {
+        return $default;
+    }
+    $decoded = category_decode_agent_json((string) $category[$field], $default);
+    return (string) ($decoded[$agent] ?? $default);
+}
+
+/** Custom volume/time sell is enabled on this category for the given agent. */
+function category_custom_enabled($category, string $agent, $panelType = null): bool
+{
+    if (!is_array($category)) {
+        return false;
+    }
+    if ($panelType === 'Manualsale') {
+        return false;
+    }
+    return category_agent_field($category, 'customvolume', $agent, '0') === '1';
+}
+
+/** Load category saved during buy flow (categorynames_*). */
+function category_from_processing($userdate)
+{
+    if (!is_array($userdate) || empty($userdate['category_id'])) {
+        return null;
+    }
+    $category = select("category", "*", "id", $userdate['category_id'], "select");
+    return $category ?: null;
+}
 function outtypepanel($typepanel, $message)
 {
     global $from_id, $optionMarzban, $optionX_ui_single, $optionhiddfy, $optionalireza, $optionalireza_single, $optionmarzneshin, $option_mikrotik, $optionwg, $options_ui, $optioneylanpanel, $optionibsng;

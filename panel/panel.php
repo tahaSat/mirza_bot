@@ -98,16 +98,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         'subvip' => $toggle('subvip_on', 'subvip', 'onsubvip', 'offsubvip'),
         'inboundstatus' => $toggle('inbound_disable_on', 'inboundstatus', 'oninbounddisable', 'offinbounddisable'),
         'version_panel' => $toggle('version_panel_on', 'version_panel', '1', '0'),
-        'customvolume' => panel_merge_customvolume($panel, $tabSaving === 'features'),
+        // Custom volume/time sell moved to categories — keep existing panel values untouched.
+        'customvolume' => $panel['customvolume'] ?? panel_default_customvolume(),
         'hide_user' => $hideJson,
         'priceextravolume' => panel_merge_agent_json_field($panel, 'priceextravolume', 'priceextravolume'),
         'priceextratime' => panel_merge_agent_json_field($panel, 'priceextratime', 'priceextratime'),
-        'pricecustomvolume' => panel_merge_agent_json_field($panel, 'pricecustomvolume', 'pricecustomvolume'),
-        'pricecustomtime' => panel_merge_agent_json_field($panel, 'pricecustomtime', 'pricecustomtime'),
-        'mainvolume' => panel_merge_agent_json_field($panel, 'mainvolume', 'mainvolume'),
-        'maxvolume' => panel_merge_agent_json_field($panel, 'maxvolume', 'maxvolume'),
-        'maintime' => panel_merge_agent_json_field($panel, 'maintime', 'maintime'),
-        'maxtime' => panel_merge_agent_json_field($panel, 'maxtime', 'maxtime'),
+        'pricecustomvolume' => $panel['pricecustomvolume'] ?? panel_default_price_json(),
+        'pricecustomtime' => $panel['pricecustomtime'] ?? panel_default_price_json(),
+        'mainvolume' => $panel['mainvolume'] ?? panel_encode_agent_json(['f' => '1', 'n' => '1', 'n2' => '1']),
+        'maxvolume' => $panel['maxvolume'] ?? panel_encode_agent_json(['f' => '1000', 'n' => '1000', 'n2' => '1000']),
+        'maintime' => $panel['maintime'] ?? panel_encode_agent_json(['f' => '1', 'n' => '1', 'n2' => '1']),
+        'maxtime' => $panel['maxtime'] ?? panel_encode_agent_json(['f' => '365', 'n' => '365', 'n2' => '365']),
     ];
 
     if (array_key_exists('pasarguard_group_ids', $_POST)) {
@@ -158,13 +159,6 @@ $panel = db_fetch($pdo, "SELECT * FROM marzban_panel WHERE id = ?", [$id]);
 $stats = panel_invoice_stats($pdo, $panel['name_panel']);
 $priceExtra = panel_decode_agent_json($panel['priceextravolume'] ?? '');
 $priceExtraTime = panel_decode_agent_json($panel['priceextratime'] ?? '');
-$priceCustomVol = panel_decode_agent_json($panel['pricecustomvolume'] ?? '');
-$priceCustomTime = panel_decode_agent_json($panel['pricecustomtime'] ?? '');
-$mainVol = panel_decode_agent_json($panel['mainvolume'] ?? '', '1');
-$maxVol = panel_decode_agent_json($panel['maxvolume'] ?? '', '1000');
-$mainTime = panel_decode_agent_json($panel['maintime'] ?? '', '1');
-$maxTime = panel_decode_agent_json($panel['maxtime'] ?? '', '365');
-$customVol = panel_decode_agent_json($panel['customvolume'] ?? '', '0');
 $hideUsers = panel_parse_hide_users($panel['hide_user'] ?? null);
 
 $tabs = [
@@ -273,18 +267,8 @@ include __DIR__ . '/inc/layout_head.php';
         'subvip_on' => ['subvip', 'onsubvip'],
         'inbound_disable_on' => ['inboundstatus', 'oninbounddisable'],
         'version_panel_on' => ['version_panel', '1'],
-        'custom_f' => ['customvolume', 'f'],
-        'custom_n' => ['customvolume', 'n'],
-        'custom_n2' => ['customvolume', 'n2'],
     ];
-    $cv = panel_decode_agent_json($panel['customvolume'] ?? '', '0');
     foreach ($featHidden as $postKey => [$field, $onVal]) {
-        if ($postKey === 'custom_f' || $postKey === 'custom_n' || $postKey === 'custom_n2') {
-            if (($cv[$onVal] ?? '0') === '1') {
-                echo '<input type="hidden" name="' . $postKey . '" value="1">';
-            }
-            continue;
-        }
         if (($panel[$field] ?? '') === $onVal) {
             echo '<input type="hidden" name="' . $postKey . '" value="1">';
         }
@@ -447,9 +431,6 @@ include __DIR__ . '/inc/layout_head.php';
           <?php
           $toggles = [
               'extend_on' => ['label' => 'وضعیت تمدید', 'on' => ($panel['status_extend'] ?? '') === 'on_extend', 'feat' => 'extend'],
-              'custom_f' => ['label' => 'سرویس دلخواه — گروه f', 'on' => ($customVol['f'] ?? '0') === '1', 'feat' => 'custom_f'],
-              'custom_n' => ['label' => 'سرویس دلخواه — گروه n', 'on' => ($customVol['n'] ?? '0') === '1', 'feat' => 'custom_n'],
-              'custom_n2' => ['label' => 'سرویس دلخواه — گروه n2', 'on' => ($customVol['n2'] ?? '0') === '1', 'feat' => 'custom_n2'],
               'config_on' => ['label' => 'ارسال کانفیگ', 'on' => ($panel['config'] ?? '') === 'onconfig', 'feat' => 'config'],
               'sublink_on' => ['label' => 'ارسال لینک اشتراک', 'on' => ($panel['sublink'] ?? '') === 'onsublink', 'feat' => 'sublink'],
               'conecton_on' => ['label' => 'اولین اتصال', 'on' => ($panel['conecton'] ?? '') === 'onconecton', 'feat' => 'conecton'],
@@ -518,14 +499,9 @@ include __DIR__ . '/inc/layout_head.php';
         $priceRows = [
             ['قیمت حجم اضافه', 'priceextravolume', $priceExtra],
             ['قیمت زمان اضافه', 'priceextratime', $priceExtraTime],
-            ['قیمت حجم دلخواه', 'pricecustomvolume', $priceCustomVol],
-            ['قیمت زمان دلخواه', 'pricecustomtime', $priceCustomTime],
-            ['حداقل حجم دلخواه', 'mainvolume', $mainVol],
-            ['حداکثر حجم دلخواه', 'maxvolume', $maxVol],
-            ['حداقل زمان دلخواه', 'maintime', $mainTime],
-            ['حداکثر زمان دلخواه', 'maxtime', $maxTime],
         ];
         ?>
+        <div class="notice" style="margin-bottom:12px;font-size:.85rem;color:var(--mute)">قیمت و فعال‌سازی «سرویس دلخواه» از بخش <a href="categories.php">دسته‌بندی‌ها</a> تنظیم می‌شود.</div>
         <div class="tbl-wrap">
           <table class="tbl">
             <thead><tr><th>عنوان</th><th>f</th><th>n</th><th>n2</th></tr></thead>

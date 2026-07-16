@@ -1463,20 +1463,54 @@ try {
     $result = $connect->query("SHOW TABLES LIKE 'category'");
     $table_exists = ($result->num_rows > 0);
 
+    $catCustomOff = '{"f":"0","n":"0","n2":"0"}';
+    $catPrice = '{"f":"4000","n":"4000","n2":"4000"}';
+    $catMainVol = '{"f":"1","n":"1","n2":"1"}';
+    $catMaxVol = '{"f":"1000","n":"1000","n2":"1000"}';
+    $catMainTime = '{"f":"1","n":"1","n2":"1"}';
+    $catMaxTime = '{"f":"365","n":"365","n2":"365"}';
+
     if (!$table_exists) {
         $result = $connect->query("CREATE TABLE category (
         id INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         remark varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin  NOT NULL,
-        description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL)
+        description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL,
+        customvolume TEXT NULL,
+        pricecustomvolume TEXT NULL,
+        pricecustomtime TEXT NULL,
+        mainvolume TEXT NULL,
+        maxvolume TEXT NULL,
+        maintime TEXT NULL,
+        maxtime TEXT NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_bin");
         if (!$result) {
             echo "table category" . mysqli_error($connect);
         }
     } else {
-        $Check_filde = $connect->query("SHOW COLUMNS FROM category LIKE 'description'");
-        if ($Check_filde instanceof mysqli_result && $Check_filde->num_rows == 0) {
-            $connect->query("ALTER TABLE category ADD description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL");
+        $categoryColumns = [
+            'description' => "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL",
+            'customvolume' => "TEXT NULL",
+            'pricecustomvolume' => "TEXT NULL",
+            'pricecustomtime' => "TEXT NULL",
+            'mainvolume' => "TEXT NULL",
+            'maxvolume' => "TEXT NULL",
+            'maintime' => "TEXT NULL",
+            'maxtime' => "TEXT NULL",
+        ];
+        foreach ($categoryColumns as $col => $def) {
+            $Check_filde = $connect->query("SHOW COLUMNS FROM category LIKE '$col'");
+            if ($Check_filde instanceof mysqli_result && $Check_filde->num_rows == 0) {
+                $connect->query("ALTER TABLE category ADD `$col` $def");
+            }
         }
+        // Seed defaults for null custom fields (silent)
+        $connect->query("UPDATE category SET customvolume = '$catCustomOff' WHERE customvolume IS NULL OR customvolume = ''");
+        $connect->query("UPDATE category SET pricecustomvolume = '$catPrice' WHERE pricecustomvolume IS NULL OR pricecustomvolume = ''");
+        $connect->query("UPDATE category SET pricecustomtime = '$catPrice' WHERE pricecustomtime IS NULL OR pricecustomtime = ''");
+        $connect->query("UPDATE category SET mainvolume = '$catMainVol' WHERE mainvolume IS NULL OR mainvolume = ''");
+        $connect->query("UPDATE category SET maxvolume = '$catMaxVol' WHERE maxvolume IS NULL OR maxvolume = ''");
+        $connect->query("UPDATE category SET maintime = '$catMainTime' WHERE maintime IS NULL OR maintime = ''");
+        $connect->query("UPDATE category SET maxtime = '$catMaxTime' WHERE maxtime IS NULL OR maxtime = ''");
     }
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());

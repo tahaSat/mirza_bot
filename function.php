@@ -900,13 +900,18 @@ function DirectPayment($order_id, $image = 'images.jpg')
         sendMessageService($marzban_list_get, $dataoutput['configs'], $output_config_link, $dataoutput['username'], $Shoppinginfo, $textcreatuser, $get_invoice['id_invoice'], $get_invoice['id_user'], $image);
         $partsdic = explode("_", $Balance_id['Processing_value_four'], $get_invoice['id_user']);
         if ($partsdic[0] == "dis") {
-            $SellDiscountlimit = select("DiscountSell", "*", "codeDiscount", $partsdic[1], "select");
-            $value = intval($SellDiscountlimit['usedDiscount']) + 1;
-            update("DiscountSell", "usedDiscount", $value, "codeDiscount", $partsdic[1]);
-            $stmt = $pdo->prepare("INSERT INTO Giftcodeconsumed (id_user,code) VALUES (:id_user,:code)");
-            $stmt->bindParam(':id_user', $Balance_id['id']);
-            $stmt->bindParam(':code', $partsdic[1]);
-            $stmt->execute();
+            discount_sell_record_usage([
+                'code' => $partsdic[1],
+                'id_user' => $Balance_id['id'],
+                'type' => 'buy',
+                'code_product' => $get_invoice['code_product'] ?? null,
+                'name_product' => $get_invoice['name_product'] ?? null,
+                'code_panel' => $marzban_list_get['code_panel'] ?? null,
+                'name_panel' => $marzban_list_get['name_panel'] ?? ($get_invoice['Service_location'] ?? null),
+                'id_invoice' => $get_invoice['id_invoice'] ?? null,
+                'price_original' => null,
+                'price_final' => $get_invoice['price_product'] ?? ($Payment_report['price'] ?? null),
+            ]);
             $text_report = "⭕️ یک کاربر با نام کاربری @{$Balance_id['username']}  و آیدی عددی {$Balance_id['id']} از کد تخفیف {$partsdic[1]} استفاده کرد.";
             if (strlen($setting['Channel_Report']) > 0) {
                 telegram('sendmessage', [
@@ -1127,13 +1132,18 @@ $textonebuy
         update("service_other", "status", "paid", "id", $data_order['id']);
         $partsdic = explode("_", $Balance_id['Processing_value_four']);
         if ($partsdic[0] == "dis") {
-            $SellDiscountlimit = select("DiscountSell", "*", "codeDiscount", $partsdic[1], "select");
-            $value = intval($SellDiscountlimit['usedDiscount']) + 1;
-            update("DiscountSell", "usedDiscount", $value, "codeDiscount", $partsdic[1]);
-            $stmt = $pdo->prepare("INSERT INTO Giftcodeconsumed (id_user,code) VALUES (:id_user,:code)");
-            $stmt->bindParam(':id_user', $Balance_id['id']);
-            $stmt->bindParam(':code', $partsdic[1]);
-            $stmt->execute();
+            discount_sell_record_usage([
+                'code' => $partsdic[1],
+                'id_user' => $Balance_id['id'],
+                'type' => 'extend',
+                'code_product' => $prodcut['code_product'] ?? null,
+                'name_product' => $prodcut['name_product'] ?? ($nameloc['name_product'] ?? null),
+                'code_panel' => $marzban_list_get['code_panel'] ?? null,
+                'name_panel' => $marzban_list_get['name_panel'] ?? ($nameloc['Service_location'] ?? null),
+                'id_invoice' => $nameloc['id_invoice'] ?? null,
+                'price_original' => $prodcut['price_product'] ?? null,
+                'price_final' => $Payment_report['price'] ?? null,
+            ]);
             $text_report = "⭕️ یک کاربر با نام کاربری @{$Balance_id['username']}  و آیدی عددی {$Balance_id['id']} از کد تخفیف {$partsdic[1]} استفاده کرد.";
             if (strlen($setting['Channel_Report']) > 0) {
                 telegram('sendmessage', [
@@ -3408,6 +3418,22 @@ function discount_sell_ensure_schema(): void
             foreach (['code_product', 'code_panel', 'code_category'] as $col) {
                 $pdo->exec("ALTER TABLE DiscountSell MODIFY `$col` TEXT NULL");
             }
+            $pdo->exec("CREATE TABLE IF NOT EXISTS DiscountSellUsage (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                code VARCHAR(255) NOT NULL,
+                id_user VARCHAR(64) NOT NULL,
+                type VARCHAR(20) NOT NULL DEFAULT 'buy',
+                code_product VARCHAR(100) NULL,
+                name_product VARCHAR(255) NULL,
+                code_panel VARCHAR(100) NULL,
+                name_panel VARCHAR(255) NULL,
+                id_invoice VARCHAR(100) NULL,
+                price_original VARCHAR(50) NULL,
+                price_final VARCHAR(50) NULL,
+                created_at INT UNSIGNED NOT NULL,
+                KEY idx_discount_usage_code (code),
+                KEY idx_discount_usage_user (id_user)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         } elseif (isset($connect) && $connect) {
             $check = $connect->query("SHOW COLUMNS FROM DiscountSell LIKE 'code_category'");
             if ($check && mysqli_num_rows($check) != 1) {
@@ -3417,6 +3443,22 @@ function discount_sell_ensure_schema(): void
             $connect->query("ALTER TABLE DiscountSell MODIFY code_product TEXT NULL");
             $connect->query("ALTER TABLE DiscountSell MODIFY code_panel TEXT NULL");
             $connect->query("ALTER TABLE DiscountSell MODIFY code_category TEXT NULL");
+            $connect->query("CREATE TABLE IF NOT EXISTS DiscountSellUsage (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                code VARCHAR(255) NOT NULL,
+                id_user VARCHAR(64) NOT NULL,
+                type VARCHAR(20) NOT NULL DEFAULT 'buy',
+                code_product VARCHAR(100) NULL,
+                name_product VARCHAR(255) NULL,
+                code_panel VARCHAR(100) NULL,
+                name_panel VARCHAR(255) NULL,
+                id_invoice VARCHAR(100) NULL,
+                price_original VARCHAR(50) NULL,
+                price_final VARCHAR(50) NULL,
+                created_at INT UNSIGNED NOT NULL,
+                KEY idx_discount_usage_code (code),
+                KEY idx_discount_usage_user (id_user)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         }
     } catch (Throwable $e) {
         error_log('discount_sell_ensure_schema: ' . $e->getMessage());
@@ -3539,4 +3581,108 @@ function discount_scope_label(array $values, array $nameMap, string $allLabel, i
         return implode('، ', $labels);
     }
     return implode('، ', array_slice($labels, 0, $max)) . ' +' . (count($labels) - $max);
+}
+
+/**
+ * Record a successful DiscountSell redemption: bump usedDiscount, Giftcodeconsumed, and detailed usage log.
+ *
+ * @param array{
+ *   code: string,
+ *   id_user: string|int,
+ *   type?: string,
+ *   code_product?: string|null,
+ *   name_product?: string|null,
+ *   code_panel?: string|null,
+ *   name_panel?: string|null,
+ *   id_invoice?: string|null,
+ *   price_original?: string|int|null,
+ *   price_final?: string|int|null
+ * } $data
+ */
+function discount_sell_record_usage(array $data): bool
+{
+    global $pdo, $connect;
+
+    $code = trim((string) ($data['code'] ?? ''));
+    $idUser = (string) ($data['id_user'] ?? '');
+    if ($code === '' || $idUser === '') {
+        return false;
+    }
+
+    discount_sell_ensure_schema();
+
+    $type = trim((string) ($data['type'] ?? 'buy'));
+    if (!in_array($type, ['buy', 'extend'], true)) {
+        $type = 'buy';
+    }
+
+    try {
+        $discount = select('DiscountSell', '*', 'codeDiscount', $code, 'select');
+        if ($discount) {
+            $value = (int) ($discount['usedDiscount'] ?? 0) + 1;
+            update('DiscountSell', 'usedDiscount', $value, 'codeDiscount', $code);
+        }
+
+        if ($pdo instanceof PDO) {
+            $stmt = $pdo->prepare('INSERT INTO Giftcodeconsumed (id_user, code) VALUES (:id_user, :code)');
+            $stmt->execute([':id_user' => $idUser, ':code' => $code]);
+            $stmt = $pdo->prepare(
+                'INSERT INTO DiscountSellUsage
+                (code, id_user, type, code_product, name_product, code_panel, name_panel, id_invoice, price_original, price_final, created_at)
+                VALUES
+                (:code, :id_user, :type, :code_product, :name_product, :code_panel, :name_panel, :id_invoice, :price_original, :price_final, :created_at)'
+            );
+            $stmt->execute([
+                ':code' => $code,
+                ':id_user' => $idUser,
+                ':type' => $type,
+                ':code_product' => $data['code_product'] ?? null,
+                ':name_product' => $data['name_product'] ?? null,
+                ':code_panel' => $data['code_panel'] ?? null,
+                ':name_panel' => $data['name_panel'] ?? null,
+                ':id_invoice' => $data['id_invoice'] ?? null,
+                ':price_original' => isset($data['price_original']) ? (string) $data['price_original'] : null,
+                ':price_final' => isset($data['price_final']) ? (string) $data['price_final'] : null,
+                ':created_at' => time(),
+            ]);
+        } elseif (isset($connect) && $connect) {
+            $stmt = $connect->prepare('INSERT INTO Giftcodeconsumed (id_user, code) VALUES (?, ?)');
+            $stmt->bind_param('ss', $idUser, $code);
+            $stmt->execute();
+            $stmt->close();
+            $stmt = $connect->prepare(
+                'INSERT INTO DiscountSellUsage
+                (code, id_user, type, code_product, name_product, code_panel, name_panel, id_invoice, price_original, price_final, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            $codeProduct = $data['code_product'] ?? null;
+            $nameProduct = $data['name_product'] ?? null;
+            $codePanel = $data['code_panel'] ?? null;
+            $namePanel = $data['name_panel'] ?? null;
+            $idInvoice = $data['id_invoice'] ?? null;
+            $priceOriginal = isset($data['price_original']) ? (string) $data['price_original'] : null;
+            $priceFinal = isset($data['price_final']) ? (string) $data['price_final'] : null;
+            $createdAt = time();
+            $stmt->bind_param(
+                'ssssssssssi',
+                $code,
+                $idUser,
+                $type,
+                $codeProduct,
+                $nameProduct,
+                $codePanel,
+                $namePanel,
+                $idInvoice,
+                $priceOriginal,
+                $priceFinal,
+                $createdAt
+            );
+            $stmt->execute();
+            $stmt->close();
+        }
+        return true;
+    } catch (Throwable $e) {
+        error_log('discount_sell_record_usage: ' . $e->getMessage());
+        return false;
+    }
 }

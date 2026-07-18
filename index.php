@@ -1879,11 +1879,18 @@ $textconnect
     if ($datain == "confirmserdiscount") {
         $SellDiscountlimit = select("DiscountSell", "*", "codeDiscount", $partsdic[1], "select");
         if ($SellDiscountlimit != false) {
-            $value = intval($SellDiscountlimit['usedDiscount']) + 1;
-            update("DiscountSell", "usedDiscount", $value, "codeDiscount", $partsdic[1]);
-            $stmt = $connect->prepare("INSERT INTO Giftcodeconsumed (id_user,code) VALUES (?,?)");
-            $stmt->bind_param("ss", $from_id, $partsdic[1]);
-            $stmt->execute();
+            discount_sell_record_usage([
+                'code' => $partsdic[1],
+                'id_user' => $from_id,
+                'type' => 'extend',
+                'code_product' => $prodcut['code_product'] ?? null,
+                'name_product' => $prodcut['name_product'] ?? ($nameloc['name_product'] ?? null),
+                'code_panel' => $marzban_list_get['code_panel'] ?? null,
+                'name_panel' => $marzban_list_get['name_panel'] ?? ($nameloc['Service_location'] ?? null),
+                'id_invoice' => $nameloc['id_invoice'] ?? null,
+                'price_original' => $prodcut['price_product'] ?? null,
+                'price_final' => $pricelastextend,
+            ]);
             $text_report = "⭕️ یک کاربر با نام کاربری @$username  و آیدی عددی $from_id از کد تخفیف {$partsdic[1]} استفاده کرد. و سرویس خود را تمدید کررد.";
             if (strlen($setting['Channel_Report']) > 0) {
                 telegram('sendmessage', [
@@ -4218,11 +4225,18 @@ $textinvite
     if ($datain == "confirmandgetserviceDiscount") {
         $SellDiscountlimit = select("DiscountSell", "*", "codeDiscount", $partsdic[0], "select");
         if ($SellDiscountlimit != false) {
-            $value = intval($SellDiscountlimit['usedDiscount']) + 1;
-            $stmt = $connect->prepare("INSERT INTO Giftcodeconsumed (id_user,code) VALUES (?,?)");
-            $stmt->bind_param("ss", $from_id, $partsdic[0]);
-            $stmt->execute();
-            update("DiscountSell", "usedDiscount", $value, "codeDiscount", $partsdic[0]);
+            discount_sell_record_usage([
+                'code' => $partsdic[0],
+                'id_user' => $from_id,
+                'type' => 'buy',
+                'code_product' => $info_product['code_product'] ?? null,
+                'name_product' => $info_product['name_product'] ?? null,
+                'code_panel' => $marzban_list_get['code_panel'] ?? null,
+                'name_panel' => $marzban_list_get['name_panel'] ?? null,
+                'id_invoice' => $randomString,
+                'price_original' => $info_product['price_product'] ?? null,
+                'price_final' => $priceproduct,
+            ]);
             $text_report = "⭕️ یک کاربر با نام کاربری @$username  و آیدی عددی $from_id از کد تخفیف {$partsdic[0]} استفاده کرد.";
             if (strlen($setting['Channel_Report']) > 0) {
                 telegram('sendmessage', [

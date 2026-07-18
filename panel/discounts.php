@@ -212,6 +212,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
     );
     if (strcasecmp((string) $old['codeDiscount'], $f['code']) !== 0) {
       db_query($pdo, 'UPDATE Giftcodeconsumed SET code = ? WHERE code = ?', [$f['code'], $old['codeDiscount']]);
+      try {
+        db_query($pdo, 'UPDATE DiscountSellUsage SET code = ? WHERE code = ?', [$f['code'], $old['codeDiscount']]);
+      } catch (Exception $e) {
+      }
     }
     flash('success', 'کد تخفیف ویرایش شد.');
   } catch (Exception $e) {
@@ -228,6 +232,10 @@ if (isset($_GET['delete'])) {
   if ($row) {
     $code = $row['codeDiscount'];
     db_query($pdo, 'DELETE FROM Giftcodeconsumed WHERE code = ?', [$code]);
+    try {
+      db_query($pdo, 'DELETE FROM DiscountSellUsage WHERE code = ?', [$code]);
+    } catch (Exception $e) {
+    }
     db_query($pdo, 'DELETE FROM DiscountSell WHERE id = ?', [$id]);
     flash('success', 'کد تخفیف «' . $code . '» حذف شد.');
   } else {
@@ -238,6 +246,7 @@ if (isset($_GET['delete'])) {
 }
 
 $search = trim($_GET['q'] ?? '');
+$usageCode = trim((string) ($_GET['usage'] ?? ''));
 $params = [];
 $whereSQL = '';
 if ($search !== '') {
@@ -249,6 +258,56 @@ try {
   $discounts = db_fetchAll($pdo, "SELECT * FROM DiscountSell $whereSQL ORDER BY id DESC", $params);
 } catch (Exception $e) {
   $discounts = [];
+}
+
+$usageStats = [];
+try {
+  $rows = db_fetchAll(
+    $pdo,
+    "SELECT code,
+            COUNT(*) AS total,
+            SUM(CASE WHEN type = 'buy' THEN 1 ELSE 0 END) AS buys,
+            SUM(CASE WHEN type = 'extend' THEN 1 ELSE 0 END) AS extends,
+            COUNT(DISTINCT id_user) AS users
+     FROM DiscountSellUsage
+     GROUP BY code"
+  );
+  foreach ($rows as $r) {
+    $usageStats[$r['code']] = [
+      'total' => (int) $r['total'],
+      'buys' => (int) $r['buys'],
+      'extends' => (int) $r['extends'],
+      'users' => (int) $r['users'],
+    ];
+  }
+} catch (Exception $e) {
+}
+
+$usageRows = [];
+$usageDetail = null;
+$productBreakdown = [];
+if ($usageCode !== '') {
+  $usageDetail = db_fetch($pdo, 'SELECT * FROM DiscountSell WHERE codeDiscount = ?', [$usageCode]);
+  try {
+    $usageRows = db_fetchAll(
+      $pdo,
+      'SELECT * FROM DiscountSellUsage WHERE code = ? ORDER BY id DESC LIMIT 200',
+      [$usageCode]
+    );
+    $productBreakdown = db_fetchAll(
+      $pdo,
+      "SELECT COALESCE(NULLIF(name_product, ''), COALESCE(code_product, 'نامشخص')) AS product_label,
+              COUNT(*) AS cnt
+       FROM DiscountSellUsage
+       WHERE code = ?
+       GROUP BY product_label
+       ORDER BY cnt DESC
+       LIMIT 20",
+      [$usageCode]
+    );
+  } catch (Exception $e) {
+    $usageRows = [];
+  }
 }
 
 $products = [];
@@ -303,6 +362,87 @@ include __DIR__ . '/inc/layout_head.php';
   <button class="btn btn-primary" onclick="openModal('addModal')"><?= icon('plus', 14) ?> افزودن کد تخفیف</button>
 </div>
 
+<?php if ($usageCode !== ''): ?>
+<div class="card fade-up" style="margin-bottom:16px">
+  <div class="card-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <div>
+      <div class="card-title">آمار استفاده از کد <code><?= htmlspecialchars($usageCode) ?></code></div>
+      <div class="card-subtitle">خرید و تمدیدهایی که با این کد انجام شده‌اند</div>
+    </div>
+    <a href="discounts.php<?= $search !== '' ? '?q=' . urlencode($search) : '' ?>" class="btn btn-ghost btn-sm"><?= icon('arrow-left', 14) ?> بازگشت</a>
+  </div>
+  <?php
+    $st = $usageStats[$usageCode] ?? ['total' => 0, 'buys' => 0, 'extends' => 0, 'users' => 0];
+    $counterUsed = (int) ($usageDetail['usedDiscount'] ?? $st['total']);
+  ?>
+  <div class="card-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px">
+    <div><div class="cf" style="font-size:.75rem">کل استفاده</div><div class="cs" style="font-size:1.2rem"><?= $counterUsed ?></div></div>
+    <div><div class="cf" style="font-size:.75rem">خرید ثبت‌شده</div><div class="cs" style="font-size:1.2rem"><?= $st['buys'] ?></div></div>
+    <div><div class="cf" style="font-size:.75rem">تمدید ثبت‌شده</div><div class="cs" style="font-size:1.2rem"><?= $st['extends'] ?></div></div>
+    <div><div class="cf" style="font-size:.75rem">کاربر یکتا</div><div class="cs" style="font-size:1.2rem"><?= $st['users'] ?></div></div>
+  </div>
+  <?php if (!empty($productBreakdown)): ?>
+    <div class="tbl-wrap" style="margin-top:8px">
+      <table class="tbl">
+        <thead><tr><th>محصول</th><th>تعداد</th></tr></thead>
+        <tbody>
+          <?php foreach ($productBreakdown as $pb): ?>
+            <tr>
+              <td class="cs"><?= htmlspecialchars((string) $pb['product_label']) ?></td>
+              <td class="cn"><?= (int) $pb['cnt'] ?></td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+  <?php endif; ?>
+  <div class="tbl-wrap" style="margin-top:12px">
+    <?php if (empty($usageRows)): ?>
+      <div class="empty" style="padding:28px 16px">
+        <p>هنوز جزئیات خریدی برای این کد ثبت نشده است.</p>
+        <p style="color:var(--mute);font-size:.8rem;margin-top:6px">شمارنده کلی: <?= $counterUsed ?> — جزئیات از این به‌بعد برای استفاده‌های جدید ذخیره می‌شود.</p>
+      </div>
+    <?php else: ?>
+      <table class="tbl-lg">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>کاربر</th>
+            <th>نوع</th>
+            <th>محصول</th>
+            <th>پنل</th>
+            <th>مبلغ</th>
+            <th>زمان</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php $ui = 1; foreach ($usageRows as $u): ?>
+            <tr>
+              <td class="cf"><?= $ui++ ?></td>
+              <td class="cm"><a href="user.php?id=<?= urlencode((string) $u['id_user']) ?>"><?= htmlspecialchars((string) $u['id_user']) ?></a></td>
+              <td class="cn"><?= ($u['type'] ?? '') === 'extend' ? 'تمدید' : 'خرید' ?></td>
+              <td class="cs"><?= htmlspecialchars((string) ($u['name_product'] ?: ($u['code_product'] ?: '—'))) ?></td>
+              <td class="cn" style="font-size:.78rem"><?= htmlspecialchars((string) ($u['name_panel'] ?: ($u['code_panel'] ?: '—'))) ?></td>
+              <td class="cn" style="font-size:.78rem">
+                <?php if ($u['price_final'] !== null && $u['price_final'] !== ''): ?>
+                  <?= number_format((int) $u['price_final']) ?> ت
+                  <?php if ($u['price_original'] !== null && $u['price_original'] !== '' && (int) $u['price_original'] !== (int) $u['price_final']): ?>
+                    <span class="cf">(<del><?= number_format((int) $u['price_original']) ?></del>)</span>
+                  <?php endif; ?>
+                <?php else: ?>
+                  —
+                <?php endif; ?>
+              </td>
+              <td class="cn" style="font-size:.75rem"><?= !empty($u['created_at']) ? date('Y/m/d H:i', (int) $u['created_at']) : '—' ?></td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    <?php endif; ?>
+  </div>
+</div>
+<?php endif; ?>
+
 <div class="card fade-up d1">
   <div class="toolbar">
     <div class="toolbar-title">فهرست کدهای تخفیف <small>(<?= count($discounts) ?>)</small></div>
@@ -332,6 +472,7 @@ include __DIR__ . '/inc/layout_head.php';
             <th>کد</th>
             <th>درصد</th>
             <th>استفاده</th>
+            <th>خرید / تمدید</th>
             <th>گروه</th>
             <th>محدوده</th>
             <th>انقضا</th>
@@ -346,6 +487,8 @@ include __DIR__ . '/inc/layout_head.php';
             $categoryVals = discount_scope_values($d['code_category'] ?? 'all');
             $used = (int) ($d['usedDiscount'] ?? 0);
             $limit = (int) ($d['limitDiscount'] ?? 0);
+            $codeKey = (string) ($d['codeDiscount'] ?? '');
+            $st = $usageStats[$codeKey] ?? ['total' => 0, 'buys' => 0, 'extends' => 0, 'users' => 0];
             $editPayload = [
               'id' => $d['id'] ?? '',
               'code' => $d['codeDiscount'] ?? '',
@@ -365,9 +508,13 @@ include __DIR__ . '/inc/layout_head.php';
           ?>
             <tr>
               <td class="cf"><?= $i++ ?></td>
-              <td class="cs"><code><?= htmlspecialchars($d['codeDiscount'] ?? '') ?></code></td>
+              <td class="cs"><code><?= htmlspecialchars($codeKey) ?></code></td>
               <td class="cn"><?= htmlspecialchars((string) ($d['price'] ?? '0')) ?>٪</td>
               <td class="cn"><?= $used ?> / <?= $limit ?></td>
+              <td class="cn" style="font-size:.78rem">
+                <?= $st['buys'] ?> خرید · <?= $st['extends'] ?> تمدید
+                <div style="color:var(--mute)"><?= $st['users'] ?> کاربر</div>
+              </td>
               <td><span class="tag tag-plain"><?= htmlspecialchars(discount_agent_label((string) ($d['agent'] ?? ''))) ?></span></td>
               <td class="cn" style="font-size:.75rem;max-width:220px;line-height:1.45">
                 <div><span style="color:var(--mute)">محصول:</span> <?= htmlspecialchars(discount_scope_label($productVals, $productNames, 'همه')) ?></div>
@@ -381,13 +528,16 @@ include __DIR__ . '/inc/layout_head.php';
               <td class="cn" style="font-size:.78rem"><?= htmlspecialchars(discount_expiry_label($d['time'] ?? '0')) ?></td>
               <td>
                 <div style="display:flex;gap:5px">
+                  <a href="discounts.php?usage=<?= urlencode($codeKey) ?>" class="btn btn-ghost btn-sm btn-icon" title="آمار استفاده">
+                    <?= icon('chart', 13) ?>
+                  </a>
                   <button class="btn btn-ghost btn-sm btn-icon" title="ویرایش"
                     onclick="openEditModal(<?= htmlspecialchars(json_encode($editPayload, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)">
                     <?= icon('edit', 13) ?>
                   </button>
                   <a href="discounts.php?delete=<?= (int) $d['id'] ?>&_csrf=<?= csrf_token() ?>"
                     class="btn btn-no btn-sm btn-icon" title="حذف"
-                    data-confirm="حذف کد تخفیف «<?= htmlspecialchars($d['codeDiscount'] ?? '') ?>»؟">
+                    data-confirm="حذف کد تخفیف «<?= htmlspecialchars($codeKey) ?>»؟">
                     <?= icon('trash', 13) ?>
                   </a>
                 </div>

@@ -509,6 +509,14 @@ switch ($data['actions'] ?? '') {
                     ':newcode' => $data['code'],
                     ':oldcode' => $existing['codeDiscount'],
                 ]);
+                try {
+                    $stmt = $pdo->prepare("UPDATE DiscountSellUsage SET code = :newcode WHERE code = :oldcode");
+                    $stmt->execute([
+                        ':newcode' => $data['code'],
+                        ':oldcode' => $existing['codeDiscount'],
+                    ]);
+                } catch (Exception $e) {
+                }
             }
             sendJsonResponse(true, "Successful");
         } catch (Exception $e) {

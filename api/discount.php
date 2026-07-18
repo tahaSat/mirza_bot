@@ -360,6 +360,9 @@ switch ($data['actions'] ?? '') {
             sendJsonResponse(false, "DiscountSell not found", [], 200);
         }
         try {
+            $stmt = $pdo->prepare("DELETE FROM Giftcodeconsumed WHERE code = :code");
+            $stmt->bindValue(":code", $product['codeDiscount'], PDO::PARAM_STR);
+            $stmt->execute();
             $stmt = $pdo->prepare("DELETE FROM DiscountSell  WHERE id = :id");
             $stmt->bindValue(":id", $data['id'], PDO::PARAM_INT);
             $stmt->execute();
@@ -419,6 +422,72 @@ switch ($data['actions'] ?? '') {
             sendJsonResponse(false, "An error occurred while editing Discount");
         }
         break;
+
+    case 'discount_sell_edit':
+        validateMethod('POST', $method);
+        $required_fields = ['id', 'code', 'percent', 'limit_use'];
+        $missing_fields = array_diff($required_fields, array_keys($data));
+        if (!empty($missing_fields)) {
+            sendJsonResponse(false, "Missing required fields: " . implode(', ', $missing_fields), []);
+        }
+        if (!preg_match('/^[A-Za-z\d]+$/', $data['code'])) {
+            sendJsonResponse(false, "invalid code", [], 200);
+        }
+        $existing = select("DiscountSell", "*", "id", $data['id'], "select");
+        if (!$existing) {
+            sendJsonResponse(false, "DiscountSell not found", [], 200);
+        }
+        $dup = select("DiscountSell", "*", "codeDiscount", $data['code'], "select");
+        if ($dup && (int) $dup['id'] !== (int) $data['id']) {
+            sendJsonResponse(false, "Discount code exits", [], 200);
+        }
+        try {
+            $usefirst = empty($data['usefirst']) ? ($existing['usefirst'] ?? '0') : $data['usefirst'];
+            $type = empty($data['type']) ? ($existing['type'] ?? 'all') : $data['type'];
+            if ((string) $usefirst === '1') {
+                $type = 'all';
+            }
+            $stmt = $pdo->prepare(
+                "UPDATE DiscountSell SET
+                    codeDiscount = :codeDiscount,
+                    price = :price,
+                    limitDiscount = :limitDiscount,
+                    agent = :agent,
+                    usefirst = :usefirst,
+                    useuser = :useuser,
+                    code_product = :code_product,
+                    code_panel = :code_panel,
+                    time = :time,
+                    type = :type
+                 WHERE id = :id"
+            );
+            $stmt->execute([
+                ':codeDiscount' => $data['code'],
+                ':price' => $data['percent'],
+                ':limitDiscount' => $data['limit_use'],
+                ':agent' => empty($data['agent']) ? ($existing['agent'] ?? 'allusers') : $data['agent'],
+                ':usefirst' => $usefirst,
+                ':useuser' => array_key_exists('useuser', $data) ? $data['useuser'] : ($existing['useuser'] ?? '1'),
+                ':code_product' => empty($data['code_product']) ? ($existing['code_product'] ?? 'all') : $data['code_product'],
+                ':code_panel' => empty($data['code_panel']) ? ($existing['code_panel'] ?? '/all') : $data['code_panel'],
+                ':time' => array_key_exists('time', $data) ? $data['time'] : ($existing['time'] ?? '0'),
+                ':type' => $type,
+                ':id' => $data['id'],
+            ]);
+            if (strcasecmp((string) $existing['codeDiscount'], (string) $data['code']) !== 0) {
+                $stmt = $pdo->prepare("UPDATE Giftcodeconsumed SET code = :newcode WHERE code = :oldcode");
+                $stmt->execute([
+                    ':newcode' => $data['code'],
+                    ':oldcode' => $existing['codeDiscount'],
+                ]);
+            }
+            sendJsonResponse(true, "Successful");
+        } catch (Exception $e) {
+            error_log("Error in DiscountSell edit: " . $e->getMessage());
+            sendJsonResponse(false, "An error occurred while editing DiscountSell");
+        }
+        break;
+
     default:
         sendJsonResponse(false, "Action Invalid");
         break;

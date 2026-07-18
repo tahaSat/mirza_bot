@@ -234,28 +234,53 @@ function panel_payment_bootstrap(): void
         return;
     }
     $root = dirname(__DIR__, 2);
-    if (!function_exists('select')) {
+
+    // botapi must load even when function.php (select) is already available
+    if (!function_exists('sendmessage')) {
         require_once $root . '/botapi.php';
+    }
+    if (!function_exists('jdate')) {
+        require_once $root . '/jdf.php';
     }
     if (!class_exists('ManagePanel', false)) {
         require_once $root . '/panels.php';
     }
-    if (!function_exists('DirectPayment')) {
-        // function.php already loaded via panel config
-    }
     if (!function_exists('languagechange')) {
         require_once $root . '/function.php';
     }
-    global $ManagePanel, $textbotlang, $setting;
+
+    global $ManagePanel, $textbotlang, $setting, $datatextbot, $keyboard, $pdo;
+    global $from_id, $message_id, $Confirm_pay, $keyboardextendfnished;
+
     if (!isset($ManagePanel)) {
         $ManagePanel = new ManagePanel();
     }
     if (!isset($textbotlang)) {
-        $textbotlang = languagechange('text.json');
+        $textbotlang = languagechange($root . '/text.json');
     }
-    if (!isset($setting)) {
+    if (!isset($setting) || !is_array($setting)) {
         $setting = select('setting', '*');
     }
+    if (!isset($datatextbot) || !is_array($datatextbot)) {
+        $datatextbot = $pdo->query('SELECT id_text, text FROM textbot')->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+    }
+    if (!isset($keyboard)) {
+        $keyboard = null;
+    }
+    // Panel has no Telegram callback context — DirectPayment skips Editmessagetext when empty
+    if (!isset($from_id)) {
+        $from_id = 0;
+    }
+    if (!isset($message_id)) {
+        $message_id = 0;
+    }
+    if (!isset($Confirm_pay)) {
+        $Confirm_pay = null;
+    }
+    if (!isset($keyboardextendfnished)) {
+        $keyboardextendfnished = null;
+    }
+
     $done = true;
 }
 
@@ -281,28 +306,40 @@ function panel_payment_confirm(PDO $pdo, string $orderId): array
         return ['ok' => false, 'msg' => 'ابتدا رسیدهای خرید/تمدید سرویس این کاربر را تأیید کنید، سپس شارژ کیف پول.'];
     }
 
-    panel_payment_bootstrap();
-    DirectPayment($orderId);
+    try {
+        panel_payment_bootstrap();
+        $root = dirname(__DIR__, 2);
+        $receiptImage = is_file($root . '/images.jpg') ? $root . '/images.jpg' : 'images.jpg';
+        DirectPayment($orderId, $receiptImage);
 
-    $cashKey = ($payment['Payment_Method'] === 'cart to cart') ? 'chashbackcart' : null;
-    if ($cashKey) {
-        $pct = (int) pay_get($pdo, $cashKey, '0');
-        if ($pct > 0) {
-            $user = db_fetch($pdo, "SELECT id, Balance FROM user WHERE id = ?", [$payment['id_user']]);
-            if ($user) {
-                $bonus = (int) (($payment['price'] * $pct) / 100);
-                db_query($pdo, "UPDATE user SET Balance = Balance + ? WHERE id = ?", [$bonus, $user['id']]);
+        $cashKey = ($payment['Payment_Method'] === 'cart to cart') ? 'chashbackcart' : null;
+        if ($cashKey) {
+            $pct = (int) pay_get($pdo, $cashKey, '0');
+            if ($pct > 0) {
+                $user = db_fetch($pdo, "SELECT id, Balance FROM user WHERE id = ?", [$payment['id_user']]);
+                if ($user) {
+                    $bonus = (int) (($payment['price'] * $pct) / 100);
+                    if ($bonus > 0) {
+                        db_query($pdo, "UPDATE user SET Balance = Balance + ? WHERE id = ?", [$bonus, $user['id']]);
+                        if (function_exists('sendmessage')) {
+                            @sendmessage($payment['id_user'], "🎁 کاربر عزیز مبلغ {$bonus} تومان به عنوان هدیه واریز به حساب شما واریز گردید.", null, 'HTML');
+                        }
+                    }
+                }
             }
         }
-    }
 
-    $fresh = db_fetch($pdo, "SELECT payment_Status FROM Payment_report WHERE id_order = ?", [$orderId]);
-    if (($fresh['payment_Status'] ?? '') !== 'paid') {
-        db_query($pdo, "UPDATE Payment_report SET payment_Status = 'paid' WHERE id_order = ?", [$orderId]);
-    }
-    db_query($pdo, "UPDATE user SET Processing_value_one = 'none', Processing_value_tow = 'none', Processing_value_four = 'none' WHERE id = ?", [$payment['id_user']]);
+        $fresh = db_fetch($pdo, "SELECT payment_Status FROM Payment_report WHERE id_order = ?", [$orderId]);
+        if (($fresh['payment_Status'] ?? '') !== 'paid') {
+            db_query($pdo, "UPDATE Payment_report SET payment_Status = 'paid' WHERE id_order = ?", [$orderId]);
+        }
+        db_query($pdo, "UPDATE user SET Processing_value_one = 'none', Processing_value_tow = 'none', Processing_value_four = 'none' WHERE id = ?", [$payment['id_user']]);
 
-    return ['ok' => true, 'msg' => 'پرداخت تأیید شد.'];
+        return ['ok' => true, 'msg' => 'پرداخت تأیید شد.'];
+    } catch (Throwable $e) {
+        error_log('panel_payment_confirm: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+        return ['ok' => false, 'msg' => 'خطا در تأیید پرداخت: ' . $e->getMessage()];
+    }
 }
 
 function panel_payment_reject(PDO $pdo, string $orderId, string $reason = ''): array

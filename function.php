@@ -407,8 +407,12 @@ function update($table, $field, $newValue, $whereField = null, $whereValue = nul
     }
     $logValue = is_scalar($valueToStore) ? $valueToStore : json_encode($valueToStore, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $logss = "{$table}_{$field}_{$logValue}_{$whereField}_{$whereValue}_{$user['step']}_$date";
-    if ($field != "message_count" || $field != "last_message_time") {
-        file_put_contents('log.txt', "\n" . $logss, FILE_APPEND);
+    if ($field !== "message_count" && $field !== "last_message_time") {
+        $logFile = __DIR__ . '/logs/update.log';
+        $logDir = dirname($logFile);
+        if (is_dir($logDir) && is_writable($logDir)) {
+            @file_put_contents($logFile, "\n" . $logss, FILE_APPEND | LOCK_EX);
+        }
     }
 
     clearSelectCache($table);
@@ -762,16 +766,25 @@ function outputlink($text)
 function DirectPayment($order_id, $image = 'images.jpg')
 {
     global $pdo, $ManagePanel, $textbotlang, $keyboardextendfnished, $keyboard, $Confirm_pay, $from_id, $message_id, $datatextbot;
-    $buyreport = select("topicid", "idreport", "report", "buyreport", "select")['idreport'];
-    $admin_ids = select("admin", "id_admin", null, null, "FETCH_COLUMN");
-    $otherservice = select("topicid", "idreport", "report", "otherservice", "select")['idreport'];
-    $otherreport = select("topicid", "idreport", "report", "otherreport", "select")['idreport'];
-    $errorreport = select("topicid", "idreport", "report", "errorreport", "select")['idreport'];
-    $porsantreport = select("topicid", "idreport", "report", "porsantreport", "select")['idreport'];
+    $buyreport = select("topicid", "idreport", "report", "buyreport", "select")['idreport'] ?? null;
+    $admin_ids = select("admin", "id_admin", null, null, "FETCH_COLUMN") ?: [];
+    $otherservice = select("topicid", "idreport", "report", "otherservice", "select")['idreport'] ?? null;
+    $otherreport = select("topicid", "idreport", "report", "otherreport", "select")['idreport'] ?? null;
+    $errorreport = select("topicid", "idreport", "report", "errorreport", "select")['idreport'] ?? null;
+    $porsantreport = select("topicid", "idreport", "report", "porsantreport", "select")['idreport'] ?? null;
     $setting = select("setting", "*");
+    if (!is_array($datatextbot)) {
+        $datatextbot = [];
+    }
     $Payment_report = select("Payment_report", "*", "id_order", $order_id, "select");
+    if ($Payment_report == false || !is_array($Payment_report)) {
+        return;
+    }
     $format_price_cart = number_format($Payment_report['price']);
     $Balance_id = select("user", "*", "id", $Payment_report['id_user'], "select");
+    if ($Balance_id == false || !is_array($Balance_id)) {
+        return;
+    }
     $steppay = explode("|", $Payment_report['id_invoice']);
     update("user", "Processing_value", "0", "id", $Balance_id['id']);
     update("user", "Processing_value_one", "0", "id", $Balance_id['id']);
@@ -814,8 +827,23 @@ function DirectPayment($order_id, $image = 'images.jpg')
             'type' => 'buy'
         );
         $dataoutput = $ManagePanel->createUser($marzban_list_get['name_panel'], $info_product['code_product'], $username_ac, $datac);
-        if ($dataoutput['username'] == null) {
-            $dataoutput['msg'] = json_encode($dataoutput['msg']);
+        // If panel already has this username (e.g. prior partial confirm), reuse existing account
+        if (($dataoutput['username'] ?? null) == null) {
+            $msgFail = is_string($dataoutput['msg'] ?? null) ? $dataoutput['msg'] : json_encode($dataoutput['msg'] ?? '');
+            if (stripos((string) $msgFail, 'already exists') !== false || stripos((string) $msgFail, 'duplicate') !== false) {
+                $existing = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
+                if (($existing['status'] ?? '') !== 'Unsuccessful') {
+                    $dataoutput = [
+                        'status' => 'successful',
+                        'username' => $existing['username'] ?? $username_ac,
+                        'subscription_url' => $existing['subscription_url'] ?? '',
+                        'configs' => $existing['configs'] ?? ($existing['links'] ?? []),
+                    ];
+                }
+            }
+        }
+        if (($dataoutput['username'] ?? null) == null) {
+            $dataoutput['msg'] = json_encode($dataoutput['msg'] ?? '');
             $balance = $Balance_id['Balance'] + $Payment_report['price'];
             update("user", "Balance", $balance, "id", $Balance_id['id']);
             sendmessage($Balance_id['id'], $textbotlang['users']['sell']['ErrorConfig'], $keyboard, 'HTML');
@@ -1028,7 +1056,9 @@ $textonebuy
 ✍️ توضیحات : {$Payment_report['dec_not_confirmed']}
 
 ";
-            Editmessagetext($from_id, $message_id, $textconfrom, $Confirm_pay);
+            if (!empty($from_id) && !empty($message_id)) {
+                Editmessagetext($from_id, $message_id, $textconfrom, $Confirm_pay);
+            }
         }
     } elseif ($steppay[0] == "getextenduser") {
         $balanceformatsell = number_format(select("user", "Balance", "id", $Balance_id['id'], "select")['Balance'], 0);
@@ -1185,7 +1215,9 @@ $textonebuy
 ✍️ توضیحات : {$Payment_report['dec_not_confirmed']}
 
 ";
-            Editmessagetext($from_id, $message_id, $textconfrom, $Confirm_pay);
+            if (!empty($from_id) && !empty($message_id)) {
+                Editmessagetext($from_id, $message_id, $textconfrom, $Confirm_pay);
+            }
         }
     } elseif ($steppay[0] == "getextravolumeuser") {
         $steppay = explode("%", $steppay[1]);
@@ -1265,7 +1297,9 @@ $textonebuy
 💎 موجودی قبل ازافزایش موجودی : {$Balance_id['Balance']}
 💸 مبلغ پرداختی: $format_price_cart تومان
 ";
-            Editmessagetext($from_id, $message_id, $textconfrom, $Confirm_pay);
+            if (!empty($from_id) && !empty($message_id)) {
+                Editmessagetext($from_id, $message_id, $textconfrom, $Confirm_pay);
+            }
         }
         update("invoice", "Status", "active", "id_invoice", $nameloc['id_invoice']);
         $text_report = "⭕️ یک کاربر حجم اضافه خریده است
@@ -1365,7 +1399,9 @@ $textonebuy
 💎 موجودی قبل ازافزایش موجودی : {$Balance_id['Balance']}
 💸 مبلغ پرداختی: $format_price_cart تومان
 ";
-            Editmessagetext($from_id, $message_id, $textconfrom, $Confirm_pay);
+            if (!empty($from_id) && !empty($message_id)) {
+                Editmessagetext($from_id, $message_id, $textconfrom, $Confirm_pay);
+            }
         }
         update("invoice", "Status", "active", "id_invoice", $nameloc['id_invoice']);
         $text_report = "⭕️ یک کاربر زمان اضافه خریده است
@@ -1397,7 +1433,9 @@ $textonebuy
 💸 مبلغ پرداختی: $format_price_cart تومان
 💎 موجودی قبل ازافزایش موجودی : {$Balance_id['Balance']}
 ✍️ توضیحات : {$Payment_report['dec_not_confirmed']}";
-            Editmessagetext($from_id, $message_id, $textconfrom, $Confirm_pay);
+            if (!empty($from_id) && !empty($message_id)) {
+                Editmessagetext($from_id, $message_id, $textconfrom, $Confirm_pay);
+            }
         }
         sendmessage($Payment_report['id_user'], "💎 کاربر گرامی مبلغ {$Payment_report['price']} تومان به کیف پول شما واریز گردید با تشکراز پرداخت شما.
                 

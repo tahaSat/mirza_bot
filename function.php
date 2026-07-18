@@ -2968,8 +2968,21 @@ function handle_referral_start($campaign_key, $referrer_id, $invited_user_id, $w
     }
 
     $referrer = select("user", "*", "id", $referrer_id, "select");
-    $referrer_name = $referrer['username'] ?? $referrer_id;
-    sendmessage($invited_user_id, "<b>🎉 خوش آمدید!</b>\n\nشما با دعوت <b>@{$referrer_name}</b> وارد ربات شدید.", $keyboard, 'HTML');
+    $referrer_name = '';
+    $chat = telegram('getChat', ['chat_id' => $referrer_id]);
+    if (!empty($chat['ok']) && !empty($chat['result']['first_name'])) {
+        $referrer_name = sanitizeUserName($chat['result']['first_name']);
+        if (!empty($chat['result']['last_name'])) {
+            $referrer_name .= ' ' . sanitizeUserName($chat['result']['last_name']);
+        }
+    }
+    if ($referrer_name === '') {
+        $referrer_name = $referrer['namecustom'] ?? '';
+        if ($referrer_name === '' || $referrer_name === 'none') {
+            $referrer_name = 'یک کاربر';
+        }
+    }
+    sendmessage($invited_user_id, "<b>🎉 خوش آمدید!</b>\n\nشما با دعوت <b>{$referrer_name}</b> وارد ربات شدید.", $keyboard, 'HTML');
 
     $invite_count = referral_count_invites($campaign['id'], $referrer_id);
     $required = (int) $campaign['required_invites'];

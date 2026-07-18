@@ -1678,6 +1678,7 @@ $textconnect
     step('getcodesellDiscountextend', $from_id);
     deletemessage($from_id, $message_id);
 } elseif ($user['step'] == "getcodesellDiscountextend") {
+    discount_sell_ensure_schema();
     $userdate = json_decode($user['Processing_value'], true);
     $nameloc = select("invoice", "*", "id_invoice", $userdate['id_invoice'], "select");
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
@@ -1685,13 +1686,28 @@ $textconnect
         sendmessage($from_id, $textbotlang['users']['Discount']['notcode'], $backuser, 'HTML');
         return;
     }
-    $stmt = $pdo->prepare("SELECT * FROM DiscountSell WHERE (code_product = :code_product OR code_product = 'all') AND (code_panel = :code_panel OR code_panel = '/all') AND codeDiscount = :codeDiscount AND (agent = :agent OR agent = 'allusers') AND (type = 'all' OR type = 'extend')");
-    $stmt->bindParam(':code_product', $userdate['code_product'], PDO::PARAM_STR);
-    $stmt->bindParam(':code_panel', $marzban_list_get['code_panel'], PDO::PARAM_STR);
-    $stmt->bindParam(':agent', $user['agent'], PDO::PARAM_STR);
-    $stmt->bindParam(':codeDiscount', $text, PDO::PARAM_STR);
-    $stmt->execute();
-    $SellDiscountlimit = $stmt->fetch(PDO::FETCH_ASSOC);
+    $SellDiscountlimit = select("DiscountSell", "*", "codeDiscount", $text, "select");
+    $productCategory = '';
+    if (!empty($userdate['code_product'])) {
+        $prodForCat = select("product", "*", "code_product", $userdate['code_product'], "select");
+        if ($prodForCat) {
+            $productCategory = (string) ($prodForCat['category'] ?? '');
+        }
+    }
+    if (
+        $SellDiscountlimit == false
+        || !discount_sell_applies(
+            $SellDiscountlimit,
+            (string) ($userdate['code_product'] ?? ''),
+            (string) ($marzban_list_get['code_panel'] ?? ''),
+            $productCategory,
+            'extend',
+            (string) ($user['agent'] ?? '')
+        )
+    ) {
+        sendmessage($from_id, $textbotlang['Admin']['Discount']['invalidcodedis'], null, 'HTML');
+        return;
+    }
     $stmt = $pdo->prepare("SELECT * FROM Giftcodeconsumed WHERE id_user = :from_id AND code = :code");
     $stmt->bindParam(':from_id', $from_id, PDO::PARAM_STR);
     $stmt->bindParam(':code', $text, PDO::PARAM_STR);
@@ -1699,10 +1715,6 @@ $textconnect
     $Checkcodesql = $stmt->rowCount();
     if (intval($SellDiscountlimit['time']) != 0 and time() >= intval($SellDiscountlimit['time'])) {
         sendmessage($from_id, "❌ زمان کد تخفیف به پایان رسیده است.", null, 'HTML');
-        return;
-    }
-    if ($SellDiscountlimit == 0) {
-        sendmessage($from_id, $textbotlang['Admin']['Discount']['invalidcodedis'], null, 'HTML');
         return;
     }
     if (($SellDiscountlimit['limitDiscount'] <= $SellDiscountlimit['usedDiscount'])) {
@@ -4442,6 +4454,7 @@ $textonebuy
     step('getcodesellDiscount', $from_id);
     deletemessage($from_id, $message_id);
 } elseif ($user['step'] == "getcodesellDiscount") {
+    discount_sell_ensure_schema();
     $userdate = json_decode($user['Processing_value'], true);
     if (!isset($userdate['name_panel'])) {
         sendmessage($from_id, "❌ مراحل خرید را مجددا از اول انجام دهید", $keyboard, 'HTML');
@@ -4457,22 +4470,28 @@ $textonebuy
         sendmessage($from_id, $textbotlang['users']['Discount']['notcode'], $backuser, 'HTML');
         return;
     }
-    $stmt = $pdo->prepare("SELECT * FROM DiscountSell WHERE (code_product = :code_product OR code_product = 'all') AND (code_panel = :code_panel OR code_panel = '/all') AND codeDiscount = :codeDiscount AND (agent = :agent OR agent = 'allusers') AND (type = 'all' OR type = 'buy')");
-    $stmt->bindParam(':code_product', $info_product['code_product'], PDO::PARAM_STR);
-    $stmt->bindParam(':code_panel', $marzban_list_get['code_panel'], PDO::PARAM_STR);
-    $stmt->bindParam(':agent', $user['agent'], PDO::PARAM_STR);
-    $stmt->bindParam(':codeDiscount', $text, PDO::PARAM_STR);
-    $stmt->execute();
-    $SellDiscountlimit = $stmt->fetch(PDO::FETCH_ASSOC);
+    $SellDiscountlimit = select("DiscountSell", "*", "codeDiscount", $text, "select");
+    $productCode = (string) ($info_product['code_product'] ?? $user['Processing_value_one'] ?? '');
+    $productCategory = (string) ($info_product['category'] ?? '');
+    if (
+        $SellDiscountlimit == false
+        || !discount_sell_applies(
+            $SellDiscountlimit,
+            $productCode,
+            (string) ($marzban_list_get['code_panel'] ?? ''),
+            $productCategory,
+            'buy',
+            (string) ($user['agent'] ?? '')
+        )
+    ) {
+        sendmessage($from_id, $textbotlang['Admin']['Discount']['invalidcodedis'], null, 'HTML');
+        return;
+    }
     $stmt = $pdo->prepare("SELECT * FROM Giftcodeconsumed WHERE id_user = :from_id AND code = :code");
     $stmt->bindParam(':from_id', $from_id, PDO::PARAM_STR);
     $stmt->bindParam(':code', $text, PDO::PARAM_STR);
     $stmt->execute();
     $Checkcodesql = $stmt->rowCount();
-    if ($SellDiscountlimit == 0) {
-        sendmessage($from_id, $textbotlang['Admin']['Discount']['invalidcodedis'], null, 'HTML');
-        return;
-    }
     if (intval($SellDiscountlimit['time']) != 0 and time() >= intval($SellDiscountlimit['time'])) {
         sendmessage($from_id, "❌ زمان کد تخفیف به پایان رسیده است.", null, 'HTML');
         return;

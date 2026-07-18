@@ -3,6 +3,7 @@ require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
 require_auth();
 $pdo = panel_ensure_pdo();
+discount_sell_ensure_schema();
 
 function discount_agent_label(string $agent): string
 {
@@ -53,6 +54,15 @@ function discount_expiry_label(?string $time): string
   return date('Y/m/d H:i', $ts);
 }
 
+function discount_post_scope(string $key, string $allToken = 'all'): string
+{
+  $raw = $_POST[$key] ?? [];
+  if (!is_array($raw)) {
+    $raw = [$raw];
+  }
+  return discount_sell_encode_scope($raw, $allToken);
+}
+
 function discount_collect_fields(): array
 {
   $code = strtolower(trim((string) ($_POST['code'] ?? '')));
@@ -62,11 +72,12 @@ function discount_collect_fields(): array
   $agent = trim((string) ($_POST['agent'] ?? 'allusers'));
   $usefirst = trim((string) ($_POST['usefirst'] ?? '0'));
   $type = trim((string) ($_POST['type'] ?? 'all'));
-  $codePanel = trim((string) ($_POST['code_panel'] ?? '/all'));
-  $codeProduct = trim((string) ($_POST['code_product'] ?? 'all'));
+  $codePanel = discount_post_scope('code_panel', '/all');
+  $codeProduct = discount_post_scope('code_product', 'all');
+  $codeCategory = discount_post_scope('code_category', 'all');
   $timeHours = trim((string) ($_POST['time_hours'] ?? '0'));
 
-  return compact('code', 'percent', 'limitUse', 'useUser', 'agent', 'usefirst', 'type', 'codePanel', 'codeProduct', 'timeHours');
+  return compact('code', 'percent', 'limitUse', 'useUser', 'agent', 'usefirst', 'type', 'codePanel', 'codeProduct', 'codeCategory', 'timeHours');
 }
 
 function discount_validate_fields(array $f, bool $requireCode = true): ?string
@@ -121,8 +132,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
   try {
     db_query(
       $pdo,
-      'INSERT INTO DiscountSell (codeDiscount, usedDiscount, price, limitDiscount, agent, usefirst, useuser, code_panel, code_product, time, type)
-       VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO DiscountSell (codeDiscount, usedDiscount, price, limitDiscount, agent, usefirst, useuser, code_panel, code_product, code_category, time, type)
+       VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         $f['code'],
         $f['percent'],
@@ -130,8 +141,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
         $f['agent'],
         $f['usefirst'],
         $f['useUser'],
-        $f['codePanel'] !== '' ? $f['codePanel'] : '/all',
-        $f['codeProduct'] !== '' ? $f['codeProduct'] : 'all',
+        $f['codePanel'],
+        $f['codeProduct'],
+        $f['codeCategory'],
         discount_normalize_time($f['timeHours']),
         $f['usefirst'] === '1' ? 'all' : $f['type'],
       ]
@@ -181,7 +193,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
       $pdo,
       'UPDATE DiscountSell SET
         codeDiscount = ?, price = ?, limitDiscount = ?, agent = ?, usefirst = ?,
-        useuser = ?, code_panel = ?, code_product = ?, time = ?, type = ?
+        useuser = ?, code_panel = ?, code_product = ?, code_category = ?, time = ?, type = ?
        WHERE id = ?',
       [
         $f['code'],
@@ -190,8 +202,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
         $f['agent'],
         $f['usefirst'],
         $f['useUser'],
-        $f['codePanel'] !== '' ? $f['codePanel'] : '/all',
-        $f['codeProduct'] !== '' ? $f['codeProduct'] : 'all',
+        $f['codePanel'],
+        $f['codeProduct'],
+        $f['codeCategory'],
         $timeValue,
         $typeValue,
         $id,
@@ -240,8 +253,9 @@ try {
 
 $products = [];
 $panels = [];
+$categories = [];
 try {
-  $products = db_fetchAll($pdo, 'SELECT code_product, name_product FROM product ORDER BY name_product');
+  $products = db_fetchAll($pdo, 'SELECT code_product, name_product, category FROM product ORDER BY name_product');
 } catch (Exception $e) {
 }
 try {
@@ -252,6 +266,22 @@ try {
   } catch (Exception $e2) {
   }
 }
+try {
+  $categories = db_fetchAll($pdo, 'SELECT remark FROM category ORDER BY remark');
+} catch (Exception $e) {
+}
+$categoryNames = [];
+foreach ($categories as $c) {
+  $categoryNames[$c['remark']] = $c['remark'];
+}
+foreach ($products as $p) {
+  $cat = trim((string) ($p['category'] ?? ''));
+  if ($cat !== '' && !isset($categoryNames[$cat])) {
+    $categories[] = ['remark' => $cat];
+    $categoryNames[$cat] = $cat;
+  }
+}
+usort($categories, fn($a, $b) => strcmp((string) $a['remark'], (string) $b['remark']));
 
 $productNames = [];
 foreach ($products as $p) {
@@ -263,7 +293,7 @@ foreach ($panels as $p) {
 }
 
 $pageTitle = 'کدهای تخفیف';
-$pageLede = 'ساخت، ویرایش و حذف کد تخفیف درصدی برای خرید و تمدید سرویس.';
+$pageLede = 'ساخت و مدیریت کد تخفیف با فیلتر چندتایی روی محصول، دسته‌بندی و پنل.';
 $activeNav = 'discounts';
 include __DIR__ . '/inc/layout_head.php';
 ?>
@@ -302,10 +332,8 @@ include __DIR__ . '/inc/layout_head.php';
             <th>کد</th>
             <th>درصد</th>
             <th>استفاده</th>
-            <th>هر کاربر</th>
             <th>گروه</th>
-            <th>نوع</th>
-            <th>محصول / پنل</th>
+            <th>محدوده</th>
             <th>انقضا</th>
             <th>عملیات</th>
           </tr>
@@ -313,10 +341,9 @@ include __DIR__ . '/inc/layout_head.php';
         <tbody>
           <?php $i = 1;
           foreach ($discounts as $d):
-            $codeProduct = (string) ($d['code_product'] ?? 'all');
-            $codePanel = (string) ($d['code_panel'] ?? '/all');
-            $productLabel = $codeProduct === 'all' ? 'همه محصولات' : ($productNames[$codeProduct] ?? $codeProduct);
-            $panelLabel = $codePanel === '/all' ? 'همه پنل‌ها' : ($panelNames[$codePanel] ?? $codePanel);
+            $productVals = discount_scope_values($d['code_product'] ?? 'all');
+            $panelVals = discount_scope_values($d['code_panel'] ?? '/all');
+            $categoryVals = discount_scope_values($d['code_category'] ?? 'all');
             $used = (int) ($d['usedDiscount'] ?? 0);
             $limit = (int) ($d['limitDiscount'] ?? 0);
             $editPayload = [
@@ -329,8 +356,9 @@ include __DIR__ . '/inc/layout_head.php';
               'agent' => $d['agent'] ?? 'allusers',
               'usefirst' => $d['usefirst'] ?? '0',
               'type' => $d['type'] ?? 'all',
-              'code_panel' => $codePanel,
-              'code_product' => $codeProduct,
+              'code_panel' => $panelVals,
+              'code_product' => $productVals,
+              'code_category' => $categoryVals,
               'time' => $d['time'] ?? '0',
               'expiry_label' => discount_expiry_label($d['time'] ?? '0'),
             ];
@@ -340,17 +368,15 @@ include __DIR__ . '/inc/layout_head.php';
               <td class="cs"><code><?= htmlspecialchars($d['codeDiscount'] ?? '') ?></code></td>
               <td class="cn"><?= htmlspecialchars((string) ($d['price'] ?? '0')) ?>٪</td>
               <td class="cn"><?= $used ?> / <?= $limit ?></td>
-              <td class="cn"><?= htmlspecialchars((string) ($d['useuser'] ?? '—')) ?></td>
               <td><span class="tag tag-plain"><?= htmlspecialchars(discount_agent_label((string) ($d['agent'] ?? ''))) ?></span></td>
-              <td class="cn" style="font-size:.8rem">
-                <?= htmlspecialchars(discount_type_label((string) ($d['type'] ?? 'all'))) ?>
-                <?php if (($d['usefirst'] ?? '0') === '1'): ?>
-                  <div style="color:var(--mute);font-size:.72rem">فقط خرید اول</div>
-                <?php endif; ?>
-              </td>
-              <td class="cn" style="font-size:.78rem;max-width:160px">
-                <div title="<?= htmlspecialchars($productLabel) ?>"><?= htmlspecialchars(trunc($productLabel, 22)) ?></div>
-                <div style="color:var(--mute)" title="<?= htmlspecialchars($panelLabel) ?>"><?= htmlspecialchars(trunc($panelLabel, 22)) ?></div>
+              <td class="cn" style="font-size:.75rem;max-width:220px;line-height:1.45">
+                <div><span style="color:var(--mute)">محصول:</span> <?= htmlspecialchars(discount_scope_label($productVals, $productNames, 'همه')) ?></div>
+                <div><span style="color:var(--mute)">دسته:</span> <?= htmlspecialchars(discount_scope_label($categoryVals, $categoryNames, 'همه')) ?></div>
+                <div><span style="color:var(--mute)">پنل:</span> <?= htmlspecialchars(discount_scope_label($panelVals, $panelNames, 'همه')) ?></div>
+                <div style="color:var(--mute)">
+                  <?= htmlspecialchars(discount_type_label((string) ($d['type'] ?? 'all'))) ?>
+                  <?= ($d['usefirst'] ?? '0') === '1' ? ' · خرید اول' : '' ?>
+                </div>
               </td>
               <td class="cn" style="font-size:.78rem"><?= htmlspecialchars(discount_expiry_label($d['time'] ?? '0')) ?></td>
               <td>
@@ -375,9 +401,36 @@ include __DIR__ . '/inc/layout_head.php';
 </div>
 
 <?php
+function discount_scope_checklist(string $name, string $prefix, array $items, string $valueKey, string $labelKey, string $allValue, string $sectionLabel): void
+{
+  $pid = $prefix !== '' ? $prefix . '_' : '';
+  ?>
+  <div class="field full">
+    <label><?= htmlspecialchars($sectionLabel) ?> (چند انتخابی)</label>
+    <div class="discount-scope-box" id="<?= $pid ?>scope_<?= htmlspecialchars($name) ?>">
+      <label class="discount-scope-item discount-scope-all">
+        <input type="checkbox" class="discount-scope-all-cb" data-group="<?= htmlspecialchars($name) ?>" data-prefix="<?= htmlspecialchars($prefix) ?>" value="<?= htmlspecialchars($allValue) ?>" checked>
+        همه
+      </label>
+      <?php foreach ($items as $item):
+        $val = (string) ($item[$valueKey] ?? '');
+        $lab = (string) ($item[$labelKey] ?? $val);
+        if ($val === '') continue;
+      ?>
+        <label class="discount-scope-item">
+          <input type="checkbox" name="<?= htmlspecialchars($name) ?>[]" class="discount-scope-item-cb" data-group="<?= htmlspecialchars($name) ?>" data-prefix="<?= htmlspecialchars($prefix) ?>" value="<?= htmlspecialchars($val) ?>">
+          <?= htmlspecialchars($lab) ?>
+        </label>
+      <?php endforeach; ?>
+    </div>
+    <small class="cf" style="display:block;margin-top:4px">اگر «همه» انتخاب باشد، محدودیتی روی این بخش اعمال نمی‌شود. می‌توانید چند مورد را هم‌زمان انتخاب کنید.</small>
+  </div>
+  <?php
+}
+
 function discount_form_fields(string $prefix = ''): void
 {
-  global $products, $panels;
+  global $products, $panels, $categories;
   $id = static function (string $name) use ($prefix): string {
     return $prefix !== '' ? $prefix . '_' . $name : $name;
   };
@@ -429,31 +482,27 @@ function discount_form_fields(string $prefix = ''): void
       <input type="number" name="time_hours" id="<?= $id('time_hours') ?>" class="input" min="0" value="0" placeholder="۰ = نامحدود">
       <small class="cf" style="display:block;margin-top:4px">۰ یعنی بدون انقضا</small>
     </div>
-    <div class="field">
-      <label>پنل</label>
-      <select name="code_panel" id="<?= $id('code_panel') ?>" class="select">
-        <option value="/all">همه پنل‌ها</option>
-        <?php foreach ($panels as $pl): ?>
-          <option value="<?= htmlspecialchars($pl['code_panel']) ?>"><?= htmlspecialchars($pl['name_panel']) ?></option>
-        <?php endforeach; ?>
-      </select>
-    </div>
-    <div class="field">
-      <label>محصول</label>
-      <select name="code_product" id="<?= $id('code_product') ?>" class="select">
-        <option value="all">همه محصولات</option>
-        <?php foreach ($products as $pr): ?>
-          <option value="<?= htmlspecialchars($pr['code_product']) ?>"><?= htmlspecialchars($pr['name_product']) ?></option>
-        <?php endforeach; ?>
-      </select>
-    </div>
+    <?php
+    discount_scope_checklist('code_panel', $prefix, $panels, 'code_panel', 'name_panel', '/all', 'پنل');
+    discount_scope_checklist('code_category', $prefix, $categories, 'remark', 'remark', 'all', 'دسته‌بندی');
+    discount_scope_checklist('code_product', $prefix, $products, 'code_product', 'name_product', 'all', 'محصول');
+    ?>
   </div>
   <?php
 }
 ?>
 
+<style>
+.discount-scope-box{
+  max-height:160px;overflow:auto;border:1px solid var(--line);border-radius:10px;
+  padding:8px 10px;display:flex;flex-direction:column;gap:6px;background:var(--card-2, transparent);
+}
+.discount-scope-item{display:flex;align-items:center;gap:8px;font-size:.82rem;margin:0;cursor:pointer}
+.discount-scope-all{font-weight:600;padding-bottom:4px;border-bottom:1px solid var(--line);margin-bottom:2px}
+</style>
+
 <div class="modal-veil" id="addModal">
-  <div class="modal" style="max-width:720px">
+  <div class="modal" style="max-width:760px">
     <div class="modal-head">
       <h3>افزودن کد تخفیف</h3>
       <button class="modal-x" onclick="closeModal('addModal')"><?= icon('close', 14) ?></button>
@@ -473,7 +522,7 @@ function discount_form_fields(string $prefix = ''): void
 </div>
 
 <div class="modal-veil" id="editModal">
-  <div class="modal" style="max-width:720px">
+  <div class="modal" style="max-width:760px">
     <div class="modal-head">
       <h3>ویرایش کد تخفیف</h3>
       <button class="modal-x" onclick="closeModal('editModal')"><?= icon('close', 14) ?></button>
@@ -512,6 +561,69 @@ window.discountToggleType = function (prefix) {
   wrap.style.display = String(usefirst.value) === '1' ? 'none' : '';
 };
 
+function scopeBox(prefix, group) {
+  return document.getElementById((prefix ? prefix + '_' : '') + 'scope_' + group);
+}
+
+function setScopeValues(prefix, group, values, allToken) {
+  var box = scopeBox(prefix, group);
+  if (!box) return;
+  values = Array.isArray(values) ? values : [values];
+  var isAll = !values.length || values.some(function (v) { return v === 'all' || v === '/all' || v === allToken; });
+  var allCb = box.querySelector('.discount-scope-all-cb');
+  var items = box.querySelectorAll('.discount-scope-item-cb');
+  if (allCb) allCb.checked = isAll;
+  items.forEach(function (cb) {
+    cb.checked = !isAll && values.indexOf(cb.value) !== -1;
+    cb.disabled = isAll;
+  });
+  // ensure missing selected values still appear
+  if (!isAll) {
+    values.forEach(function (v) {
+      if (v === allToken || v === 'all' || v === '/all') return;
+      var found = Array.prototype.some.call(items, function (cb) { return cb.value === v; });
+      if (!found) {
+        var label = document.createElement('label');
+        label.className = 'discount-scope-item';
+        label.innerHTML = '<input type="checkbox" name="' + group + '[]" class="discount-scope-item-cb" data-group="' + group + '" data-prefix="' + prefix + '" value="' + v.replace(/"/g, '&quot;') + '" checked> ' + v;
+        box.appendChild(label);
+      }
+    });
+  }
+}
+
+function wireScopeBoxes(root) {
+  (root || document).querySelectorAll('.discount-scope-box').forEach(function (box) {
+    if (box.dataset.wired === '1') return;
+    box.dataset.wired = '1';
+    box.addEventListener('change', function (e) {
+      var t = e.target;
+      if (!t || t.type !== 'checkbox') return;
+      var allCb = box.querySelector('.discount-scope-all-cb');
+      var items = box.querySelectorAll('.discount-scope-item-cb');
+      if (t.classList.contains('discount-scope-all-cb')) {
+        if (t.checked) {
+          items.forEach(function (cb) { cb.checked = false; cb.disabled = true; });
+        } else {
+          items.forEach(function (cb) { cb.disabled = false; });
+          var any = Array.prototype.some.call(items, function (cb) { return cb.checked; });
+          if (!any && items[0]) items[0].checked = true;
+        }
+      } else if (t.classList.contains('discount-scope-item-cb')) {
+        if (t.checked && allCb) {
+          allCb.checked = false;
+          items.forEach(function (cb) { cb.disabled = false; });
+        }
+        var anyChecked = Array.prototype.some.call(items, function (cb) { return cb.checked; });
+        if (!anyChecked && allCb) {
+          allCb.checked = true;
+          items.forEach(function (cb) { cb.checked = false; cb.disabled = true; });
+        }
+      }
+    });
+  });
+}
+
 window.openEditModal = function (d) {
   document.getElementById('edit_id').value = d.id || '';
   document.getElementById('edit_code').value = d.code || '';
@@ -522,8 +634,9 @@ window.openEditModal = function (d) {
   document.getElementById('edit_agent').value = d.agent || 'allusers';
   document.getElementById('edit_usefirst').value = d.usefirst || '0';
   document.getElementById('edit_type').value = d.type || 'all';
-  ensureSelectValue(document.getElementById('edit_code_panel'), d.code_panel || '/all');
-  ensureSelectValue(document.getElementById('edit_code_product'), d.code_product || 'all');
+  setScopeValues('edit', 'code_panel', d.code_panel || ['/all'], '/all');
+  setScopeValues('edit', 'code_category', d.code_category || ['all'], 'all');
+  setScopeValues('edit', 'code_product', d.code_product || ['all'], 'all');
   document.getElementById('edit_update_time').checked = false;
   document.getElementById('edit_time_hours').value = '0';
   document.getElementById('edit_time_hours').disabled = true;
@@ -532,23 +645,35 @@ window.openEditModal = function (d) {
   openModal('editModal');
 };
 
-function ensureSelectValue(select, value) {
-  if (!select) return;
-  var found = Array.prototype.some.call(select.options, function (o) { return o.value === value; });
-  if (!found && value) {
-    var opt = document.createElement('option');
-    opt.value = value;
-    opt.textContent = value;
-    select.appendChild(opt);
-  }
-  select.value = value;
-}
-
 document.addEventListener('DOMContentLoaded', function () {
+  wireScopeBoxes(document);
   discountToggleType('add');
   discountToggleType('edit');
+  setScopeValues('add', 'code_panel', ['/all'], '/all');
+  setScopeValues('add', 'code_category', ['all'], 'all');
+  setScopeValues('add', 'code_product', ['all'], 'all');
   var editHours = document.getElementById('edit_time_hours');
   if (editHours) editHours.disabled = true;
+});
+
+// When "all" is checked, still submit the all-token via a hidden input
+document.querySelectorAll('#addModal form, #editModal form').forEach(function (form) {
+  form.addEventListener('submit', function () {
+    ['code_panel', 'code_category', 'code_product'].forEach(function (group) {
+      var allToken = group === 'code_panel' ? '/all' : 'all';
+      var boxes = form.querySelectorAll('[id$="scope_' + group + '"]');
+      boxes.forEach(function (box) {
+        var allCb = box.querySelector('.discount-scope-all-cb');
+        if (allCb && allCb.checked) {
+          var hidden = document.createElement('input');
+          hidden.type = 'hidden';
+          hidden.name = group + '[]';
+          hidden.value = allToken;
+          form.appendChild(hidden);
+        }
+      });
+    });
+  });
 });
 </script>
 

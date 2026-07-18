@@ -303,10 +303,12 @@ switch ($data['actions'] ?? '') {
             $discount = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $product = select("product", "code_product as id,name_product", null, null, "fetchAll");
             $panel = select("marzban_panel", "code_panel,name_panel", "status", "active", "fetchAll");
+            $category = select("category", "remark", null, null, "fetchAll");
             sendJsonResponse(true, "Successful", [
                 'discount' => $discount,
                 'product' => $product,
                 'panel' => $panel,
+                'category' => $category,
                 'pagination' => [
                     'total_discount' => $totalDiscount,
                     'total_pages' => $totalPages,
@@ -376,6 +378,7 @@ switch ($data['actions'] ?? '') {
         break;
     case 'discount_sell_add':
         validateMethod('POST', $method);
+        discount_sell_ensure_schema();
         $required_fields = ['code', 'percent', 'limit_use'];
         $missing_fields = array_diff($required_fields, array_keys($data));
         if (!empty($missing_fields)) {
@@ -389,7 +392,18 @@ switch ($data['actions'] ?? '') {
             sendJsonResponse(false, "invalid code", [], 200);
         }
         try {
-            // Prepare Discount data
+            $codeProduct = $data['code_product'] ?? 'all';
+            $codePanel = $data['code_panel'] ?? '/all';
+            $codeCategory = $data['code_category'] ?? 'all';
+            if (is_array($codeProduct)) {
+                $codeProduct = discount_sell_encode_scope($codeProduct, 'all');
+            }
+            if (is_array($codePanel)) {
+                $codePanel = discount_sell_encode_scope($codePanel, '/all');
+            }
+            if (is_array($codeCategory)) {
+                $codeCategory = discount_sell_encode_scope($codeCategory, 'all');
+            }
             $productData = [
                 'codeDiscount' => $data['code'],
                 'price' => $data['percent'],
@@ -397,13 +411,13 @@ switch ($data['actions'] ?? '') {
                 'usedDiscount' => 0,
                 'agent' => empty($data['agent']) ? "allusers" : $data['agent'],
                 'usefirst' => empty($data['usefirst']) ? "0" : $data['usefirst'],
-                'useuser' => empty($data['useuser']) ? $data['useuser'] : $data['useuser'],
-                'code_product' => empty($data['code_product']) ? "all" : $data['code_product'],
-                'code_panel' => empty($data['code_panel']) ? "/all" : $data['code_panel'],
-                'time' => empty($data['time']) ? null : $data['time'],
+                'useuser' => array_key_exists('useuser', $data) ? $data['useuser'] : '1',
+                'code_product' => $codeProduct === '' || $codeProduct === null ? "all" : $codeProduct,
+                'code_panel' => $codePanel === '' || $codePanel === null ? "/all" : $codePanel,
+                'code_category' => $codeCategory === '' || $codeCategory === null ? "all" : $codeCategory,
+                'time' => empty($data['time']) ? '0' : $data['time'],
                 'type' => empty($data['type']) ? "all" : $data['type'],
             ];
-            // Insert Discount into database
             $columns = implode(',', array_keys($productData));
             $placeholders = ':' . implode(', :', array_keys($productData));
             $stmt = $pdo->prepare(
@@ -425,6 +439,7 @@ switch ($data['actions'] ?? '') {
 
     case 'discount_sell_edit':
         validateMethod('POST', $method);
+        discount_sell_ensure_schema();
         $required_fields = ['id', 'code', 'percent', 'limit_use'];
         $missing_fields = array_diff($required_fields, array_keys($data));
         if (!empty($missing_fields)) {
@@ -447,6 +462,18 @@ switch ($data['actions'] ?? '') {
             if ((string) $usefirst === '1') {
                 $type = 'all';
             }
+            $codeProduct = array_key_exists('code_product', $data) ? $data['code_product'] : ($existing['code_product'] ?? 'all');
+            $codePanel = array_key_exists('code_panel', $data) ? $data['code_panel'] : ($existing['code_panel'] ?? '/all');
+            $codeCategory = array_key_exists('code_category', $data) ? $data['code_category'] : ($existing['code_category'] ?? 'all');
+            if (is_array($codeProduct)) {
+                $codeProduct = discount_sell_encode_scope($codeProduct, 'all');
+            }
+            if (is_array($codePanel)) {
+                $codePanel = discount_sell_encode_scope($codePanel, '/all');
+            }
+            if (is_array($codeCategory)) {
+                $codeCategory = discount_sell_encode_scope($codeCategory, 'all');
+            }
             $stmt = $pdo->prepare(
                 "UPDATE DiscountSell SET
                     codeDiscount = :codeDiscount,
@@ -457,6 +484,7 @@ switch ($data['actions'] ?? '') {
                     useuser = :useuser,
                     code_product = :code_product,
                     code_panel = :code_panel,
+                    code_category = :code_category,
                     time = :time,
                     type = :type
                  WHERE id = :id"
@@ -468,8 +496,9 @@ switch ($data['actions'] ?? '') {
                 ':agent' => empty($data['agent']) ? ($existing['agent'] ?? 'allusers') : $data['agent'],
                 ':usefirst' => $usefirst,
                 ':useuser' => array_key_exists('useuser', $data) ? $data['useuser'] : ($existing['useuser'] ?? '1'),
-                ':code_product' => empty($data['code_product']) ? ($existing['code_product'] ?? 'all') : $data['code_product'],
-                ':code_panel' => empty($data['code_panel']) ? ($existing['code_panel'] ?? '/all') : $data['code_panel'],
+                ':code_product' => $codeProduct === '' || $codeProduct === null ? 'all' : $codeProduct,
+                ':code_panel' => $codePanel === '' || $codePanel === null ? '/all' : $codePanel,
+                ':code_category' => $codeCategory === '' || $codeCategory === null ? 'all' : $codeCategory,
                 ':time' => array_key_exists('time', $data) ? $data['time'] : ($existing['time'] ?? '0'),
                 ':type' => $type,
                 ':id' => $data['id'],

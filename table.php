@@ -1016,8 +1016,9 @@ try {
         agent varchar(500)  NOT NULL,
         usefirst varchar(100)  NOT NULL,
         useuser varchar(100)  NOT NULL,
-        code_product varchar(100)  NOT NULL,
-        code_panel varchar(100)  NOT NULL,
+        code_product TEXT  NOT NULL,
+        code_panel TEXT  NOT NULL,
+        code_category TEXT NULL,
         time varchar(100)  NOT NULL,
         type varchar(100)  NOT NULL,
         usedDiscount varchar(500) NOT NULL)");
@@ -1042,13 +1043,19 @@ try {
         }
         $Check_filde = $connect->query("SHOW COLUMNS FROM DiscountSell LIKE 'code_panel'");
         if (mysqli_num_rows($Check_filde) != 1) {
-            $connect->query("ALTER TABLE DiscountSell ADD code_panel VARCHAR(100)");
+            $connect->query("ALTER TABLE DiscountSell ADD code_panel TEXT NULL");
             echo "The code_panel discount field was added ✅";
         }
         $Check_filde = $connect->query("SHOW COLUMNS FROM DiscountSell LIKE 'code_product'");
         if (mysqli_num_rows($Check_filde) != 1) {
-            $connect->query("ALTER TABLE DiscountSell ADD code_product VARCHAR(100)");
+            $connect->query("ALTER TABLE DiscountSell ADD code_product TEXT NULL");
             echo "The code_product discount field was added ✅";
+        }
+        $Check_filde = $connect->query("SHOW COLUMNS FROM DiscountSell LIKE 'code_category'");
+        if (mysqli_num_rows($Check_filde) != 1) {
+            $connect->query("ALTER TABLE DiscountSell ADD code_category TEXT NULL");
+            $connect->query("UPDATE DiscountSell SET code_category = 'all' WHERE code_category IS NULL OR code_category = ''");
+            echo "The code_category discount field was added ✅";
         }
         $Check_filde = $connect->query("SHOW COLUMNS FROM DiscountSell LIKE 'useuser'");
         if (mysqli_num_rows($Check_filde) != 1) {
@@ -1060,6 +1067,9 @@ try {
             $connect->query("ALTER TABLE DiscountSell ADD usefirst VARCHAR(100)");
             echo "The usefirst discount field was added ✅";
         }
+        @$connect->query("ALTER TABLE DiscountSell MODIFY code_product TEXT NULL");
+        @$connect->query("ALTER TABLE DiscountSell MODIFY code_panel TEXT NULL");
+        @$connect->query("ALTER TABLE DiscountSell MODIFY code_category TEXT NULL");
     }
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());

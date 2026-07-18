@@ -3389,3 +3389,154 @@ function agent_remove_sell_bot($agentUserId, $rootPath = null): array
     $stmt->execute([':id_user' => $agentUserId]);
     return ['ok' => true, 'msg' => 'ربات فروش حذف شد.'];
 }
+
+#-----------DiscountSell scope (multi product/panel/category)------------#
+function discount_sell_ensure_schema(): void
+{
+    static $ready = false;
+    if ($ready) {
+        return;
+    }
+    global $pdo, $connect;
+    try {
+        if ($pdo instanceof PDO) {
+            $cols = $pdo->query("SHOW COLUMNS FROM DiscountSell")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('code_category', $cols, true)) {
+                $pdo->exec("ALTER TABLE DiscountSell ADD code_category TEXT NULL");
+                $pdo->exec("UPDATE DiscountSell SET code_category = 'all' WHERE code_category IS NULL OR code_category = ''");
+            }
+            foreach (['code_product', 'code_panel', 'code_category'] as $col) {
+                $pdo->exec("ALTER TABLE DiscountSell MODIFY `$col` TEXT NULL");
+            }
+        } elseif (isset($connect) && $connect) {
+            $check = $connect->query("SHOW COLUMNS FROM DiscountSell LIKE 'code_category'");
+            if ($check && mysqli_num_rows($check) != 1) {
+                $connect->query("ALTER TABLE DiscountSell ADD code_category TEXT NULL");
+                $connect->query("UPDATE DiscountSell SET code_category = 'all' WHERE code_category IS NULL OR code_category = ''");
+            }
+            $connect->query("ALTER TABLE DiscountSell MODIFY code_product TEXT NULL");
+            $connect->query("ALTER TABLE DiscountSell MODIFY code_panel TEXT NULL");
+            $connect->query("ALTER TABLE DiscountSell MODIFY code_category TEXT NULL");
+        }
+    } catch (Throwable $e) {
+        error_log('discount_sell_ensure_schema: ' . $e->getMessage());
+    }
+    $ready = true;
+}
+
+function discount_scope_values(?string $raw): array
+{
+    $raw = trim((string) $raw);
+    if ($raw === '') {
+        return ['all'];
+    }
+    if (isset($raw[0]) && $raw[0] === '[') {
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            $out = [];
+            foreach ($decoded as $v) {
+                $v = trim((string) $v);
+                if ($v !== '') {
+                    $out[] = $v;
+                }
+            }
+            return $out !== [] ? array_values(array_unique($out)) : ['all'];
+        }
+    }
+    if (strpos($raw, ',') !== false) {
+        $out = [];
+        foreach (explode(',', $raw) as $v) {
+            $v = trim($v);
+            if ($v !== '') {
+                $out[] = $v;
+            }
+        }
+        return $out !== [] ? array_values(array_unique($out)) : ['all'];
+    }
+    return [$raw];
+}
+
+function discount_scope_is_all(array $values, array $allTokens = ['all', '/all']): bool
+{
+    if ($values === []) {
+        return true;
+    }
+    foreach ($values as $v) {
+        if (in_array($v, $allTokens, true)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function discount_scope_allows(?string $raw, string $needle, array $allTokens = ['all', '/all']): bool
+{
+    $values = discount_scope_values($raw);
+    if (discount_scope_is_all($values, $allTokens)) {
+        return true;
+    }
+    return in_array($needle, $values, true);
+}
+
+function discount_sell_encode_scope($values, string $allToken = 'all'): string
+{
+    if (!is_array($values)) {
+        $values = [$values];
+    }
+    $clean = [];
+    foreach ($values as $v) {
+        $v = trim((string) $v);
+        if ($v !== '') {
+            $clean[] = $v;
+        }
+    }
+    $clean = array_values(array_unique($clean));
+    if ($clean === [] || discount_scope_is_all($clean, ['all', '/all'])) {
+        return $allToken;
+    }
+    if (count($clean) === 1) {
+        return $clean[0];
+    }
+    return json_encode($clean, JSON_UNESCAPED_UNICODE);
+}
+
+function discount_sell_applies(array $discount, string $codeProduct, string $codePanel, ?string $category = null, ?string $type = null, ?string $agent = null): bool
+{
+    if ($agent !== null) {
+        $dAgent = (string) ($discount['agent'] ?? 'allusers');
+        if ($dAgent !== 'allusers' && $dAgent !== $agent) {
+            return false;
+        }
+    }
+    if ($type !== null) {
+        $dType = (string) ($discount['type'] ?? 'all');
+        if ($dType !== 'all' && $dType !== $type) {
+            return false;
+        }
+    }
+    if (!discount_scope_allows($discount['code_panel'] ?? '/all', $codePanel, ['all', '/all'])) {
+        return false;
+    }
+    if (!discount_scope_allows($discount['code_product'] ?? 'all', $codeProduct, ['all'])) {
+        return false;
+    }
+    if (!discount_scope_allows($discount['code_category'] ?? 'all', (string) ($category ?? ''), ['all'])) {
+        return false;
+    }
+    return true;
+}
+
+function discount_scope_label(array $values, array $nameMap, string $allLabel, int $max = 2): string
+{
+    if (discount_scope_is_all($values, ['all', '/all'])) {
+        return $allLabel;
+    }
+    $labels = [];
+    foreach ($values as $v) {
+        $labels[] = $nameMap[$v] ?? $v;
+    }
+    if (count($labels) <= $max) {
+        return implode('، ', $labels);
+    }
+    return implode('، ', array_slice($labels, 0, $max)) . ' +' . (count($labels) - $max);
+}

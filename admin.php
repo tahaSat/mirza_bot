@@ -5862,11 +5862,11 @@ $iduser  در ربات  رفع مسدود گردید
         sendmessage($from_id, "❌ محصول انتخابی وجود ندارد", $keyboardadmin, 'HTML');
         return;
     }
+    discount_sell_ensure_schema();
     $userdata = json_decode($user['Processing_value'], true);
-    $stmt = $pdo->prepare("INSERT INTO DiscountSell (codeDiscount, usedDiscount, price, limitDiscount, agent, usefirst, useuser, code_panel, code_product, time,type) VALUES (:codeDiscount, :usedDiscount, :price, :limitDiscount, :agent, :usefirst, :useuser, :code_panel, :code_product, :time,:type)");
+    $stmt = $pdo->prepare("INSERT INTO DiscountSell (codeDiscount, usedDiscount, price, limitDiscount, agent, usefirst, useuser, code_panel, code_product, code_category, time,type) VALUES (:codeDiscount, :usedDiscount, :price, :limitDiscount, :agent, :usefirst, :useuser, :code_panel, :code_product, :code_category, :time,:type)");
     $values = "0";
-    $values1 = "1";
-    $code_product = "0";
+    $code_category_all = "all";
     $stmt->bindParam(':codeDiscount', $userdata['code'], PDO::PARAM_STR);
     $stmt->bindParam(':usedDiscount', $values, PDO::PARAM_STR);
     $stmt->bindParam(':price', $userdata['price'], PDO::PARAM_STR);
@@ -5876,6 +5876,7 @@ $iduser  در ربات  رفع مسدود گردید
     $stmt->bindParam(':useuser', $userdata['useuser'], PDO::PARAM_STR);
     $stmt->bindParam(':code_panel', $userdata['code_panel'], PDO::PARAM_STR);
     $stmt->bindParam(':code_product', $product['code_product'], PDO::PARAM_STR);
+    $stmt->bindParam(':code_category', $code_category_all, PDO::PARAM_STR);
     $stmt->bindParam(':time', $userdata['time'], PDO::PARAM_STR);
     $stmt->bindParam(':type', $userdata['typediscount'], PDO::PARAM_STR);
     $stmt->execute();

@@ -776,6 +776,12 @@ function DirectPayment($order_id, $image = 'images.jpg')
     if (!is_array($datatextbot)) {
         $datatextbot = [];
     }
+    // Payment callbacks often include keyboard.php first, which may omit delivery texts.
+    // Always ensure post-purchase templates are present so users get sub link + product data, not only QR.
+    if (empty($datatextbot['textafterpay']) || empty($datatextbot['textmanual']) || empty($datatextbot['text_wgdashboard']) || empty($datatextbot['textafterpayibsng'])) {
+        $textbotRows = $pdo->query("SELECT id_text, text FROM textbot")->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+        $datatextbot = array_merge($datatextbot, $textbotRows);
+    }
     $Payment_report = select("Payment_report", "*", "id_order", $order_id, "select");
     if ($Payment_report == false || !is_array($Payment_report)) {
         return;
@@ -2487,26 +2493,30 @@ function sendMessageService($panel_info, $config, $sub_link, $username_service, 
     if (!check_active_btn($setting['keyboardmain'], "text_help"))
         $reply_markup = null;
     $user_id = $user_id == null ? $from_id : $user_id;
-    $STATUS_SEND_MESSAGE_PHOTO = $panel_info['config'] == "onconfig" && count($config) != 1 ? false : true;
-    $out_put_qrcode = "";
-    if ($panel_info['type'] == "Manualsale" || $panel_info['type'] == "ibsng" || $panel_info['type'] == "mikrotik") {
+    if (!is_array($config)) {
+        $config = (is_string($config) && $config !== '') ? [$config] : [];
     }
-    if ($panel_info['sublink'] == "onsublink" && $panel_info['config']) {
-        $out_put_qrcode = $sub_link;
-    } elseif ($panel_info['sublink'] == "onsublink") {
+    $sendAsPhoto = !($panel_info['config'] == "onconfig" && count($config) != 1);
+    $out_put_qrcode = "";
+    if ($panel_info['sublink'] == "onsublink") {
         $out_put_qrcode = $sub_link;
     } elseif ($panel_info['config'] == "onconfig") {
-        $out_put_qrcode = $config[0];
+        $out_put_qrcode = $config[0] ?? '';
     }
-    if ($STATUS_SEND_MESSAGE_PHOTO) {
+    $caption = is_string($caption) ? $caption : '';
+    // Telegram media caption max is 1024 chars — oversize captions must go as a separate text message.
+    $captionFitsMedia = $caption !== '' && mb_strlen($caption, 'UTF-8') <= 1024;
+    $captionDelivered = false;
+
+    if ($sendAsPhoto && $out_put_qrcode !== '' && $out_put_qrcode !== null) {
         if ($panel_info['type'] == "WGDashboard") {
             $urlimage = "{$panel_info['inboundid']}_{$invoice_id}.conf";
             file_put_contents($urlimage, $sub_link);
-            telegram('senddocument', [
+            $result = telegram('senddocument', [
                 'chat_id' => $user_id,
                 'document' => new CURLFile($urlimage),
-                'reply_markup' => $reply_markup,
-                'caption' => $caption,
+                'reply_markup' => $captionFitsMedia ? $reply_markup : null,
+                'caption' => $captionFitsMedia ? $caption : null,
                 'parse_mode' => "HTML",
             ]);
             unlink($urlimage);
@@ -2515,20 +2525,25 @@ function sendMessageService($panel_info, $config, $sub_link, $username_service, 
             $qrCode = createqrcode($out_put_qrcode);
             file_put_contents($urlimage, $qrCode->getString());
             addBackgroundImage($urlimage, $qrCode, $image);
-            telegram('sendphoto', [
+            $result = telegram('sendphoto', [
                 'chat_id' => $user_id,
                 'photo' => new CURLFile($urlimage),
-                'reply_markup' => $reply_markup,
-                'caption' => $caption,
+                'reply_markup' => $captionFitsMedia ? $reply_markup : null,
+                'caption' => $captionFitsMedia ? $caption : null,
                 'parse_mode' => "HTML",
             ]);
             unlink($urlimage);
         }
-    } else {
+        $captionDelivered = $captionFitsMedia && !empty($result['ok']);
+    }
+
+    // Deliver product data + sub/config text when it was not attached to the QR/media.
+    if ($caption !== '' && !$captionDelivered) {
         sendmessage($user_id, $caption, $reply_markup, 'HTML');
     }
+
     if ($panel_info['config'] == "onconfig" && $setting['status_keyboard_config'] == "1") {
-        if (is_array($config)) {
+        if (is_array($config) && count($config) > 0) {
             sendmessage($user_id, "📌 جهت دریافت کانفیگ روی دکمه دریافت کانفیگ کلیک کنید", keyboard_config($config, $invoice_id, false), 'HTML');
         }
     }

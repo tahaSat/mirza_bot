@@ -51,8 +51,13 @@ $datatextbot = array(
     'text_wheel_luck' => '',
     'text_star_telegram' => "",
     'text_extend' => '',
-    'textsnowpayment' => ''
-
+    'textsnowpayment' => '',
+    'textafterpay' => '',
+    'textaftertext' => '',
+    'textmanual' => '',
+    'text_wgdashboard' => '',
+    'textafterpayibsng' => '',
+    'textselectlocation' => '',
 );
 if ($table_exists) {
     $textdatabot = select("textbot", "*", null, null, "fetchAll");

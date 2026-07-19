@@ -25,6 +25,28 @@ $dec_payment_status = "";
 $price = "";
 $invoice_id = $order_id;
 
+$datatextbotget = select("textbot", "*", null, null, "fetchAll");
+$datatxtbot = array();
+foreach ($datatextbotget as $row) {
+    $datatxtbot[] = array(
+        'id_text' => $row['id_text'],
+        'text' => $row['text']
+    );
+}
+$datatextbot = array(
+    'textafterpay' => '',
+    'textaftertext' => '',
+    'textmanual' => '',
+    'text_wgdashboard' => '',
+    'textselectlocation' => '',
+    'textafterpayibsng' => ''
+);
+foreach ($datatxtbot as $item) {
+    if (isset($datatextbot[$item['id_text']])) {
+        $datatextbot[$item['id_text']] = $item['text'];
+    }
+}
+
 if ($order_id === '') {
     $payment_status = "ناموفق";
     $dec_payment_status = "شناسه سفارش یافت نشد";

@@ -858,6 +858,7 @@ try {
         ['aqayepardakht', '🔵 درگاه آقای پرداخت'],
         ['mowpayment', '💸 پرداخت با ارز دیجیتال'],
         ['zarinpal', '🟡 زرین پال'],
+        ['tetraminator', '💸 پرداخت تترامینیتور'],
         ['textafterpay', $textafterpay],
         ['textafterpayibsng', $textafterpayibsng],
         ['textaftertext', $textaftertext],
@@ -976,6 +977,10 @@ try {
         ['statusnowpayment', '0'],
         ['Exception_auto_cart', '{}'],
         ['marchent_floypay', '0'],
+        ['statustetraminator', 'offtetraminator'],
+        ['minbalancetetraminator', '50000'],
+        ['maxbalancetetraminator', $max],
+        ['chashbacktetraminator', '0'],
     ];
     if (!$table_exists) {
         $result = $connect->query("CREATE TABLE PaySetting (

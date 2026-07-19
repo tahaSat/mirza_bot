@@ -456,6 +456,7 @@ include __DIR__ . '/inc/layout_head.php';
                                     'Currency Rial tow' => 'ریالی ۲',
                                     'Currency Rial 3' => 'ریالی ۳',
                                     'arze digital offline' => 'ارز دیجیتال',
+                                    'tetraminator' => 'Tetraminator',
                                 ];
                                 $payStatusMap = [
                                     'paid' => ['tag-ok', 'موفق'],

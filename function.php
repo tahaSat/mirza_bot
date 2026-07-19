@@ -1901,6 +1901,60 @@ function createInvoiceiranpay1($amount, $id_invoice)
     curl_close($curl);
     return json_decode($response, true);
 }
+function createInvoiceTetraminator($price, $order_id)
+{
+    global $domainhosts, $tetraminator_api_key;
+    $curl = curl_init();
+    curl_disable_proxy($curl);
+    $price = intval($price);
+    $data = [
+        "price" => $price,
+        "callback_url" => "https://$domainhosts/payment/tetraminator.php?order_id=" . urlencode($order_id)
+    ];
+    curl_setopt_array($curl, array(
+        CURLOPT_URL => "https://api.tetraminator.com/v1/invoice/create",
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_ENCODING => '',
+        CURLOPT_MAXREDIRS => 10,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_CUSTOMREQUEST => 'POST',
+        CURLOPT_POSTFIELDS => json_encode($data),
+        CURLOPT_HTTPHEADER => array(
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'X-API-KEY: ' . $tetraminator_api_key
+        ),
+    ));
+    $response = curl_exec($curl);
+    curl_close($curl);
+    return json_decode($response, true);
+}
+function inquireTetraminatorPayment($pay_id)
+{
+    global $tetraminator_api_key;
+    $pay_id = rawurlencode($pay_id);
+    $curl = curl_init();
+    curl_disable_proxy($curl);
+    curl_setopt_array($curl, array(
+        CURLOPT_URL => "https://api.tetraminator.com/v1/payment/inquiry/" . $pay_id,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_ENCODING => '',
+        CURLOPT_MAXREDIRS => 10,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_CUSTOMREQUEST => 'GET',
+        CURLOPT_HTTPHEADER => array(
+            'Accept: application/json',
+            'X-API-KEY: ' . $tetraminator_api_key
+        ),
+    ));
+    $response = curl_exec($curl);
+    curl_close($curl);
+    return json_decode($response, true);
+}
 function sanitizeUserName($userName)
 {
     $forbiddenCharacters = [

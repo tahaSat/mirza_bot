@@ -287,7 +287,8 @@ if (in_array($text, $textadmin) || $datain == "admin") {
                 'Currency Rial 2' => $datatextbot['iranpay3'],
                 'Currency Rial 3' => $datatextbot['iranpay1'],
                 'paymentnotverify' => $datatextbot['textpaymentnotverify'],
-                'Star Telegram' => $datatextbot['text_star_telegram']
+                'Star Telegram' => $datatextbot['text_star_telegram'],
+                'tetraminator' => $datatextbot['tetraminator'] ?? 'Tetraminator'
 
             ][$tracepay['Payment_Method']];
             $paycount .= "
@@ -4423,6 +4424,9 @@ $text_expie_agent
     sendmessage($from_id, $textbotlang['users']['selectoption'], $aqayepardakht, 'HTML');
 } elseif ($datain == "zarinpalsetting" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, "📌 یک گزینه را انتخاب کنید", $keyboardzarinpal, 'HTML');
+} elseif ($datain == "tetraminatorsetting" && $adminrulecheck['rule'] == "administrator") {
+    sendmessage($from_id, "📌 یک گزینه را انتخاب کنید
+⚠️ API Key را در config.php تنظیم کنید (\$tetraminator_api_key)", $keyboardtetraminator, 'HTML');
 } elseif ($text == "تنظیم مرچنت آقای پرداخت" && $adminrulecheck['rule'] == "administrator") {
     $PaySetting = select("PaySetting", "ValuePay", "NamePay", "merchant_id_aqayepardakht")['ValuePay'];
     $textaqayepardakht = "💳 مرچنت کد خود را ازآقای پرداخت دریافت و در این قسمت وارد کنید
@@ -7585,6 +7589,13 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $keyboardzarinpal, 'HTML');
     update("textbot", "text", $text, "id_text", "zarinpal");
     step("home", $from_id);
+} elseif ($text == "🗂 نام درگاه Tetraminator") {
+    sendmessage($from_id, " 📌 نام درگاه را ارسال نمايید", $backadmin, 'HTML');
+    step("gettexttetraminator", $from_id);
+} elseif ($user['step'] == "gettexttetraminator") {
+    sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $keyboardtetraminator, 'HTML');
+    update("textbot", "text", $text, "id_text", "tetraminator");
+    step("home", $from_id);
 } elseif ($text == "⚙️  اینباند اکانت غیرفعال" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['managepanel']['Inbound']['GetProtocol'], $keyboardprotocol, 'HTML');
     step('getprotocoldisable', $from_id);
@@ -8045,6 +8056,7 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
     $arzireyali3 = getPaySettingValue('statusiranpay3', 'offiranpay3');
     $aqayepardakht = getPaySettingValue('statusaqayepardakht', 'offaqayepardakht');
     $zarinpal = getPaySettingValue('zarinpalstatus', 'offzarinpal');
+    $tetraminator_status = getPaySettingValue('statustetraminator', 'offtetraminator');
     $affilnecurrency = getPaySettingValue('digistatus', 'offdigi');
     $paymentstatussnotverify = getPaySettingValue('paymentstatussnotverify', 'offpaymentstatus');
     $paymentsstartelegram = getPaySettingValue('statusstar', '0');
@@ -8073,6 +8085,10 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
         'onzarinpal' => $textbotlang['Admin']['Status']['statuson'],
         'offzarinpal' => $textbotlang['Admin']['Status']['statusoff']
     ][$zarinpal];
+    $tetraminatorstatus = [
+        'ontetraminator' => $textbotlang['Admin']['Status']['statuson'],
+        'offtetraminator' => $textbotlang['Admin']['Status']['statusoff']
+    ][$tetraminator_status];
     $affilnecurrencystatus = [
         'ondigi' => $textbotlang['Admin']['Status']['statuson'],
         'offdigi' => $textbotlang['Admin']['Status']['statusoff']
@@ -8135,6 +8151,11 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
                 ['text' => "⚙️ تنظیمات", 'callback_data' => "zarinpalsetting"],
                 ['text' => $zarinpalstatus, 'callback_data' => "editpayment-zarinpal-$zarinpal"],
                 ['text' => "🟡 زرین پال", 'callback_data' => "zarinpal"],
+            ],
+            [
+                ['text' => "⚙️ تنظیمات", 'callback_data' => "tetraminatorsetting"],
+                ['text' => $tetraminatorstatus, 'callback_data' => "editpayment-tetraminator-$tetraminator_status"],
+                ['text' => "💸 Tetraminator", 'callback_data' => "tetraminator"],
             ],
             [
                 ['text' => "⚙️ تنظیمات", 'callback_data' => "affilnecurrencysetting"],
@@ -8233,6 +8254,13 @@ n2", $backadmin, 'HTML');
             $valuenew = "onzarinpal";
         }
         update("PaySetting", "ValuePay", $valuenew, "NamePay", "zarinpalstatus");
+    } elseif ($type == "tetraminator") {
+        if ($value == "ontetraminator") {
+            $valuenew = "offtetraminator";
+        } else {
+            $valuenew = "ontetraminator";
+        }
+        update("PaySetting", "ValuePay", $valuenew, "NamePay", "statustetraminator");
     } elseif ($type == "affilnecurrency") {
         if ($value == "ondigi") {
             $valuenew = "offdigi";
@@ -8270,6 +8298,7 @@ n2", $backadmin, 'HTML');
     $aqayepardakht = getPaySettingValue('statusaqayepardakht', 'offaqayepardakht');
     $affilnecurrency = getPaySettingValue('digistatus', 'offdigi');
     $arzireyali3 = getPaySettingValue('statusiranpay3', 'offiranpay3');
+    $tetraminator_status = getPaySettingValue('statustetraminator', 'offtetraminator');
     $paymentstatussnotverify = getPaySettingValue('paymentstatussnotverify', 'offpaymentstatus');
     $paymentsstartelegram = getPaySettingValue('statusstar', '0');
     $payment_status_nowpayment = getPaySettingValue('statusnowpayment', '0');
@@ -8297,6 +8326,10 @@ n2", $backadmin, 'HTML');
         'onzarinpal' => $textbotlang['Admin']['Status']['statuson'],
         'offzarinpal' => $textbotlang['Admin']['Status']['statusoff']
     ][$zarinpal];
+    $tetraminatorstatus = [
+        'ontetraminator' => $textbotlang['Admin']['Status']['statuson'],
+        'offtetraminator' => $textbotlang['Admin']['Status']['statusoff']
+    ][$tetraminator_status];
     $affilnecurrencystatus = [
         'ondigi' => $textbotlang['Admin']['Status']['statuson'],
         'offdigi' => $textbotlang['Admin']['Status']['statusoff']
@@ -8359,6 +8392,11 @@ n2", $backadmin, 'HTML');
                 ['text' => "⚙️ تنظیمات", 'callback_data' => "zarinpalsetting"],
                 ['text' => $zarinpalstatus, 'callback_data' => "editpayment-zarinpal-$zarinpal"],
                 ['text' => "🟡 زرین پال", 'callback_data' => "zarinpal"],
+            ],
+            [
+                ['text' => "⚙️ تنظیمات", 'callback_data' => "tetraminatorsetting"],
+                ['text' => $tetraminatorstatus, 'callback_data' => "editpayment-tetraminator-$tetraminator_status"],
+                ['text' => "💸 Tetraminator", 'callback_data' => "tetraminator"],
             ],
             [
                 ['text' => "⚙️ تنظیمات", 'callback_data' => "affilnecurrencysetting"],
@@ -8470,6 +8508,17 @@ n2", $backadmin, 'HTML');
     sendmessage($from_id, "✅ مبلغ با موفقیت ذخیره گردید.", $keyboardzarinpal, 'HTML');
     step("home", $from_id);
     update("PaySetting", "ValuePay", $text, "NamePay", "chashbackzarinpal");
+} elseif ($text == "💰 کش بک Tetraminator") {
+    sendmessage($from_id, "📌 در این بخش می توانید تعیین کنید کاربر پس از پرداخت چه درصدی به عنوان هدیه به حسابش واریز شود. ( برای غیرفعال کردن این قابلیت عدد صفر ارسال کنید)", $backadmin, 'HTML');
+    step("getcashtetraminator", $from_id);
+} elseif ($user['step'] == "getcashtetraminator") {
+    if (!ctype_digit($text)) {
+        sendmessage($from_id, $textbotlang['Admin']['agent']['invalidvlue'], $backadmin, 'HTML');
+        return;
+    }
+    sendmessage($from_id, "✅ مبلغ با موفقیت ذخیره گردید.", $keyboardtetraminator, 'HTML');
+    step("home", $from_id);
+    update("PaySetting", "ValuePay", $text, "NamePay", "chashbacktetraminator");
 } elseif ($text == "➕ اضافه کردن کانفیگ") {
     $product = [];
     $stmt = $pdo->prepare("SELECT * FROM product WHERE Location = :text or Location = '/all' ");
@@ -9007,6 +9056,32 @@ f,n.n2", $backadmin, 'HTML');
     sendmessage($from_id, "✅ حداکثر مبلغ واریزی تنظیم گردید.", $aqayepardakht, 'HTML');
     step("home", $from_id);
     update("PaySetting", "ValuePay", $text, "NamePay", "maxbalancezarinpal");
+} elseif ($text == "⬇️ حداقل مبلغ Tetraminator") {
+    sendmessage($from_id, "📌 حداقل مبلغ واریزی را ارسال نمایید (حداقل ۵۰۰۰۰ تومان)", $backadmin, 'HTML');
+    step("getmaintetraminator", $from_id);
+} elseif ($user['step'] == "getmaintetraminator") {
+    if (!ctype_digit($text)) {
+        sendmessage($from_id, $textbotlang['Admin']['agent']['invalidvlue'], $backadmin, 'HTML');
+        return;
+    }
+    if (intval($text) < 50000) {
+        sendmessage($from_id, "❌ حداقل مبلغ این درگاه نمی‌تواند کمتر از ۵۰۰۰۰ تومان باشد", $backadmin, 'HTML');
+        return;
+    }
+    sendmessage($from_id, "✅ حداقل مبلغ واریزی تنظیم گردید.", $keyboardtetraminator, 'HTML');
+    step("home", $from_id);
+    update("PaySetting", "ValuePay", $text, "NamePay", "minbalancetetraminator");
+} elseif ($text == "⬆️ حداکثر مبلغ Tetraminator") {
+    sendmessage($from_id, "📌 حداکثر مبلغ واریزی را ارسال نمایید", $backadmin, 'HTML');
+    step("getmaaxtetraminator", $from_id);
+} elseif ($user['step'] == "getmaaxtetraminator") {
+    if (!ctype_digit($text)) {
+        sendmessage($from_id, $textbotlang['Admin']['agent']['invalidvlue'], $backadmin, 'HTML');
+        return;
+    }
+    sendmessage($from_id, "✅ حداکثر مبلغ واریزی تنظیم گردید.", $keyboardtetraminator, 'HTML');
+    step("home", $from_id);
+    update("PaySetting", "ValuePay", $text, "NamePay", "maxbalancetetraminator");
 } elseif ($datain == "walletaddress") {
     $PaySetting = select("PaySetting", "ValuePay", "NamePay", "walletaddress", "select");
     $texttronseller = "💳 آدرس ولت ترون trc20 خود را ارسال کنید

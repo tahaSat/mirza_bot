@@ -43,6 +43,7 @@ $datatextbot = array(
     'iranpay3' => '',
     'aqayepardakht' => '',
     'zarinpal' => '',
+    'tetraminator' => '',
     'text_fq' => '',
     'textpaymentnotverify' => "",
     'textrequestagent' => '',
@@ -178,6 +179,15 @@ $keyboardzarinpal = json_encode([
     ],
     'resize_keyboard' => true
 ]);
+$keyboardtetraminator = json_encode([
+    'keyboard' => [
+        [['text' => "🗂 نام درگاه Tetraminator"]],
+        [['text' => "💰 کش بک Tetraminator"]],
+        [['text' => "⬇️ حداقل مبلغ Tetraminator"], ['text' => "⬆️ حداکثر مبلغ Tetraminator"]],
+        [['text' => $textbotlang['Admin']['backadmin']], ['text' => $textbotlang['Admin']['backmenu']]]
+    ],
+    'resize_keyboard' => true
+]);
 $aqayepardakht = json_encode([
     'keyboard' => [
         [['text' => "🗂 نام درگاه آقای پرداخت"]],
@@ -226,6 +236,7 @@ $stmt->bindValue(':user_id', $from_id);
 $stmt->execute();
 $paymentexits = $stmt->rowCount();
 $zarinpal = getPaySettingValue("zarinpalstatus");
+$tetraminator = getPaySettingValue("statustetraminator");
 $affilnecurrency = getPaySettingValue("digistatus");
 $arzireyali3 = getPaySettingValue("statusiranpay3");
 $paymentstatussnotverify = getPaySettingValue("paymentstatussnotverify");
@@ -285,6 +296,11 @@ if ($PaySettingaqayepardakht == "onaqayepardakht") {
 if ($zarinpal == "onzarinpal") {
     $step_payment['inline_keyboard'][] = [
         ['text' => $datatextbot['zarinpal'], 'callback_data' => "zarinpal"]
+    ];
+}
+if ($tetraminator == "ontetraminator") {
+    $step_payment['inline_keyboard'][] = [
+        ['text' => $datatextbot['tetraminator'], 'callback_data' => "tetraminator"]
     ];
 }
 if ($paymentstatussnotverify == "onverifypay") {

@@ -5288,6 +5288,69 @@ $textonebuy
         }
         $message_id = sendmessage($from_id, $textnowpayments, $paymentkeyboard, 'HTML');
         updatePaymentMessageId($message_id, $randomString);
+    } elseif ($datain == "tetraminator") {
+        $mainbalance = select("PaySetting", "ValuePay", "NamePay", "minbalancetetraminator", "select")['ValuePay'] ?? 50000;
+        $maxbalance = select("PaySetting", "ValuePay", "NamePay", "maxbalancetetraminator", "select")['ValuePay'] ?? 1000000;
+        $mainbalance = max(50000, intval($mainbalance));
+        $maxbalance = intval($maxbalance);
+        if ($user['Processing_value'] < $mainbalance || $user['Processing_value'] > $maxbalance) {
+            $mainbalance_fmt = number_format($mainbalance);
+            $maxbalance_fmt = number_format($maxbalance);
+            sendmessage($from_id, "❌ حداقل مبلغ واریزی این روش پرداخت باید $mainbalance_fmt و حداکثر $maxbalance_fmt تومان باشد", null, 'HTML');
+            return;
+        }
+        deletemessage($from_id, $message_id);
+        sendmessage($from_id, $textbotlang['users']['Balance']['linkpayments'], $keyboard, 'HTML');
+        $randomString = bin2hex(random_bytes(5));
+        $invoice = "{$user['Processing_value_tow']}|{$user['Processing_value_one']}";
+        $dateacc = date('Y/m/d H:i:s');
+        $stmt = $connect->prepare("INSERT INTO Payment_report (id_user,id_order,time,price,payment_Status,Payment_Method,id_invoice) VALUES (?,?,?,?,?,?,?)");
+        $payment_Status = "Unpaid";
+        $Payment_Method = "tetraminator";
+        $stmt->bind_param("sssssss", $from_id, $randomString, $dateacc, $user['Processing_value'], $payment_Status, $Payment_Method, $invoice);
+        $stmt->execute();
+        $pay = createInvoiceTetraminator($user['Processing_value'], $randomString);
+        if (empty($pay['status']) || empty($pay['pay_id']) || empty($pay['payment_link'])) {
+            $text_error = isset($pay['message']) ? $pay['message'] : json_encode($pay);
+            sendmessage($from_id, $textbotlang['users']['Balance']['errorLinkPayment'], $keyboard, 'HTML');
+            step('home', $from_id);
+            $ErrorsLinkPayment = "⭕️ خطا در ساخت لینک Tetraminator
+✍️ دلیل خطا : $text_error
+            
+آیدی کابر : $from_id
+نام کاربری کاربر : @$username";
+            if (strlen($setting['Channel_Report']) > 0) {
+                telegram('sendmessage', [
+                    'chat_id' => $setting['Channel_Report'],
+                    'message_thread_id' => $errorreport,
+                    'text' => $ErrorsLinkPayment,
+                    'parse_mode' => "HTML"
+                ]);
+            }
+            return;
+        }
+        update("Payment_report", "dec_not_confirmed", $pay['pay_id'], "id_order", $randomString);
+        $paymentkeyboard = json_encode([
+            'inline_keyboard' => [
+                [
+                    ['text' => $textbotlang['users']['Balance']['payments'], 'url' => $pay['payment_link']],
+                ]
+            ]
+        ]);
+        $price_format = number_format($user['Processing_value'], 0);
+        $textnowpayments = "
+✅ فاکتور پرداخت ایجاد شد.
+            
+🔢 شماره فاکتور : $randomString
+💰 مبلغ فاکتور : $price_format تومان
+
+❌ این تراکنش به مدت یک روز اعتبار دارد پس از آن امکان پرداخت این تراکنش امکان ندارد.        
+
+📌 پس از پرداخت موفق در ربات تترامینیتور، مبلغ به صورت خودکار اعمال می‌شود.
+
+جهت پرداخت از دکمه زیر استفاده کنید👇🏻";
+        $message_id = sendmessage($from_id, $textnowpayments, $paymentkeyboard, 'HTML');
+        updatePaymentMessageId($message_id, $randomString);
     } elseif ($datain == "plisio") {
         $rates = rate_arze();
         if ($rates === null) {

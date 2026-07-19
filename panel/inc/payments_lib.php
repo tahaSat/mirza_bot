@@ -34,6 +34,18 @@ const PAYMENT_GATEWAYS = [
             ['key' => 'chashbackzarinpal', 'label' => 'کش‌بک (درصد)', 'type' => 'number'],
         ],
     ],
+    'tetraminator' => [
+        'label' => 'Tetraminator',
+        'status_key' => 'statustetraminator',
+        'on' => 'ontetraminator',
+        'off' => 'offtetraminator',
+        'textbot_key' => 'tetraminator',
+        'fields' => [
+            ['key' => 'minbalancetetraminator', 'label' => 'حداقل مبلغ (تومان، حداقل ۵۰۰۰۰)', 'type' => 'number'],
+            ['key' => 'maxbalancetetraminator', 'label' => 'حداکثر مبلغ (تومان)', 'type' => 'number'],
+            ['key' => 'chashbacktetraminator', 'label' => 'کش‌بک (درصد)', 'type' => 'number'],
+        ],
+    ],
     'aqayepardakht' => [
         'label' => 'آقای پرداخت',
         'status_key' => 'statusaqayepardakht',
@@ -388,6 +400,7 @@ function panel_payment_method_label(string $method): string
         'arze digital offline' => 'ارز دیجیتال آفلاین',
         'Star Telegram' => 'استار تلگرام',
         'nowpayment' => 'NowPayment',
+        'tetraminator' => 'Tetraminator',
     ];
     return $map[$method] ?? ($method ?: '—');
 }

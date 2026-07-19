@@ -21,6 +21,7 @@ $datatextbot = array(
     'iranpay3' => '',
     'aqayepardakht' => '',
     'zarinpal' => '',
+    'tetraminator' => '',
     'perfectmoney' => '',
     'text_fq' => '',
     'textpaymentnotverify' =>"",
@@ -66,7 +67,8 @@ while ($result = $stmt->fetch(PDO::FETCH_ASSOC)) {
         'perfect' => "پرفکت مانی",
         'paymentnotverify' => $datatextbot['textpaymentnotverify'],
         'Star Telegram' => $datatextbot['text_star_telegram'],
-        'nowpayment' => $datatextbot['textsnowpayment']
+        'nowpayment' => $datatextbot['textsnowpayment'],
+        'tetraminator' => $datatextbot['tetraminator']
         
     ][$result['Payment_Method']];
     $textexpire = "⭕️ کاربر گرامی ، فاکتور زیر به دلیل عدم پرداخت در مدت زمان مشخص شده منقضی شد .

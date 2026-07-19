@@ -40,5 +40,7 @@ $telegram_polling_worker_log_file = __DIR__ . '/logs/polling.worker.log';
 // Log panel HTTP calls slower than this (ms) when debug is on
 $telegram_polling_slow_panel_ms = 3000;
 
+// Tetraminator payment gateway (https://api.tetraminator.com/v1) — set X-API-KEY here
+$tetraminator_api_key = 'xmqRQOKStDexW9rGN';
 
 ?>

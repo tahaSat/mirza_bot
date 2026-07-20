@@ -32,18 +32,18 @@ function support_media_markup(array $media): string
 {
     $html = '';
     foreach ($media as $item) {
-        $url = 'support_media.php?id=' . (int) $item['id'];
+        $id = (int) $item['id'];
+        $url = 'support_media.php?id=' . $id;
         $name = htmlspecialchars($item['file_name'] ?: 'فایل پیوست', ENT_QUOTES, 'UTF-8');
-        $type = $item['media_type'];
-        if ($type === 'photo') {
-            $html .= '<a class="support-media-photo" href="' . $url . '" target="_blank" rel="noopener"><img src="' . $url . '" loading="lazy" alt="' . $name . '"></a>';
-        } elseif ($type === 'video') {
-            $html .= '<video class="support-media-video" controls preload="none"><source src="' . $url . '"></video>';
-        } elseif (in_array($type, ['audio', 'voice'], true)) {
-            $html .= '<audio class="support-media-audio" controls preload="none"><source src="' . $url . '"></audio>';
-        } else {
-            $html .= '<a class="support-media-file" href="' . $url . '" target="_blank" rel="noopener">📎 ' . $name . '</a>';
-        }
+        $type = htmlspecialchars((string) $item['media_type'], ENT_QUOTES, 'UTF-8');
+        $label = match ($item['media_type']) {
+            'photo' => '🖼 مشاهده تصویر',
+            'video' => '🎬 پخش ویدیو',
+            'audio', 'voice' => '🎧 پخش صوت',
+            default => '📎 دانلود فایل',
+        };
+        // Do not auto-fetch Telegram files on chat open; load only after an explicit click.
+        $html .= '<button type="button" class="support-media-load" data-media-id="' . $id . '" data-media-url="' . $url . '" data-media-type="' . $type . '" data-media-name="' . $name . '">' . $label . ($name !== 'فایل پیوست' ? ' · ' . $name : '') . '</button>';
     }
     return $html;
 }
@@ -308,5 +308,45 @@ include __DIR__ . '/inc/layout_head.php';
         <?php endif; ?>
     </section>
 </div>
+
+<script>
+document.addEventListener('click', function (event) {
+  var btn = event.target.closest('.support-media-load');
+  if (!btn || btn.dataset.loading === '1') return;
+  var url = btn.dataset.mediaUrl;
+  var type = btn.dataset.mediaType;
+  var name = btn.dataset.mediaName || 'attachment';
+  var wrap = document.createElement('div');
+  wrap.className = 'support-media-ready';
+  btn.dataset.loading = '1';
+  btn.textContent = 'در حال دریافت...';
+  btn.disabled = true;
+
+  if (type === 'photo') {
+    var img = document.createElement('img');
+    img.alt = name;
+    img.loading = 'lazy';
+    img.onload = function () { btn.replaceWith(wrap); };
+    img.onerror = function () {
+      btn.dataset.loading = '0';
+      btn.disabled = false;
+      btn.textContent = 'خطا در دریافت تصویر · تلاش مجدد';
+    };
+    wrap.innerHTML = '<a class="support-media-photo" href="' + url + '" target="_blank" rel="noopener"></a>';
+    wrap.querySelector('a').appendChild(img);
+    img.src = url;
+    return;
+  }
+
+  if (type === 'video') {
+    wrap.innerHTML = '<video class="support-media-video" controls preload="metadata"><source src="' + url + '"></video>';
+  } else if (type === 'audio' || type === 'voice') {
+    wrap.innerHTML = '<audio class="support-media-audio" controls preload="none"><source src="' + url + '"></audio>';
+  } else {
+    wrap.innerHTML = '<a class="support-media-file" href="' + url + '" target="_blank" rel="noopener">📎 ' + name + '</a>';
+  }
+  btn.replaceWith(wrap);
+});
+</script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

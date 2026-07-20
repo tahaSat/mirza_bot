@@ -76,7 +76,7 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
 </div>
 
-<div class="two-col">
+<div class="two-col dash-cols">
     <div class="card fade-up d1">
         <div class="card-head">
             <div>
@@ -85,34 +85,47 @@ include __DIR__ . '/inc/layout_head.php';
             </div>
             <a href="invoice.php" class="btn-link" style="font-size:.78rem">همه ←</a>
         </div>
-        <div class="tbl-wrap">
-            <table class="tbl-sm">
-                <thead>
-                    <tr>
-                        <th>کاربر</th>
-                        <th>محصول</th>
-                        <th>مبلغ</th>
-                        <th>وضعیت</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($recentInvoices)): ?>
+        <?php
+        $statusMap = [
+            'active' => ['tag-ok', 'فعال'],
+            'end_of_time' => ['tag-warn', 'منقضی'],
+            'end_of_volume' => ['tag-no', 'اتمام حجم'],
+            'sendedwarn' => ['tag-warn', 'اخطار'],
+            'send_on_hold' => ['tag-plain', 'در انتظار'],
+        ];
+        if (empty($recentInvoices)): ?>
+            <div class="empty" style="padding:24px"><p>سفارشی ثبت نشده</p></div>
+        <?php else: ?>
+            <div class="m-list">
+                <?php foreach ($recentInvoices as $inv):
+                    [$tagClass, $label] = $statusMap[$inv['Status'] ?? ''] ?? ['tag-plain', $inv['Status'] ?? '—'];
+                    ?>
+                    <div class="m-row">
+                        <div class="m-row-main">
+                            <div class="m-row-top">
+                                <div class="m-row-title"><?= htmlspecialchars(trunc($inv['name_product'] ?? '—', 28)) ?></div>
+                                <span class="tag <?= $tagClass ?>"><?= $label ?></span>
+                            </div>
+                            <div class="m-row-meta">
+                                <span class="cm"><?= htmlspecialchars($inv['id_user'] ?? '—') ?></span>
+                                <span class="cn"><?= number_format((int) ($inv['price_product'] ?? 0)) ?> ت</span>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <div class="tbl-wrap dash-tbl">
+                <table class="tbl-sm">
+                    <thead>
                         <tr>
-                            <td colspan="4">
-                                <div class="empty" style="padding:24px">
-                                    <p>سفارشی ثبت نشده</p>
-                                </div>
-                            </td>
+                            <th>کاربر</th>
+                            <th>محصول</th>
+                            <th>مبلغ</th>
+                            <th>وضعیت</th>
                         </tr>
-                    <?php else:
-                        $statusMap = [
-                            'active' => ['tag-ok', 'فعال'],
-                            'end_of_time' => ['tag-warn', 'منقضی'],
-                            'end_of_volume' => ['tag-no', 'اتمام حجم'],
-                            'sendedwarn' => ['tag-warn', 'اخطار'],
-                            'send_on_hold' => ['tag-plain', 'در انتظار'],
-                        ];
-                        foreach ($recentInvoices as $inv):
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recentInvoices as $inv):
                             [$tagClass, $label] = $statusMap[$inv['Status'] ?? ''] ?? ['tag-plain', $inv['Status'] ?? '—'];
                             ?>
                             <tr>
@@ -126,10 +139,11 @@ include __DIR__ . '/inc/layout_head.php';
                                 </td>
                                 <td><span class="tag <?= $tagClass ?>"><?= $label ?></span></td>
                             </tr>
-                        <?php endforeach; endif; ?>
-                </tbody>
-            </table>
-        </div>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
     </div>
 
     <div class="card fade-up d2">
@@ -140,27 +154,51 @@ include __DIR__ . '/inc/layout_head.php';
             </div>
             <a href="users.php" class="btn-link" style="font-size:.78rem">همه ←</a>
         </div>
-        <div class="tbl-wrap">
-            <table class="tbl-sm">
-                <thead>
-                    <tr>
-                        <th>آیدی</th>
-                        <th>نام</th>
-                        <th>موجودی</th>
-                        <th>گروه</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($recentUsers)): ?>
+        <?php if (empty($recentUsers)): ?>
+            <div class="empty" style="padding:24px"><p>کاربری ثبت نشده</p></div>
+        <?php else: ?>
+            <div class="m-list">
+                <?php foreach ($recentUsers as $u):
+                    $agent = $u['agent'] ?? 'f';
+                    $isBlocked = ($u['User_Status'] ?? '') === 'block';
+                    $name = $u['namecustom'] ?? '';
+                    if ($name === 'none')
+                        $name = '';
+                    $uname = $u['username'] ?? '';
+                    if ($uname === 'none')
+                        $uname = '';
+                    $displayName = $name ?: ($uname ? '@' . $uname : '#' . $u['id']);
+                    ?>
+                    <div class="m-row">
+                        <a href="user.php?id=<?= (int) $u['id'] ?>" class="m-row-main">
+                            <div class="m-row-top">
+                                <div class="m-row-title"><?= htmlspecialchars($displayName) ?></div>
+                                <?php if ($isBlocked): ?>
+                                    <span class="tag tag-no">مسدود</span>
+                                <?php else: ?>
+                                    <span class="tag <?= user_role_tag($agent) ?>"><?= user_role_label($agent) ?></span>
+                                <?php endif; ?>
+                            </div>
+                            <div class="m-row-meta">
+                                <span class="cm"><?= htmlspecialchars($u['id']) ?></span>
+                                <span class="cn"><?= number_format((int) ($u['Balance'] ?? 0)) ?> ت</span>
+                            </div>
+                        </a>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <div class="tbl-wrap dash-tbl">
+                <table class="tbl-sm">
+                    <thead>
                         <tr>
-                            <td colspan="4">
-                                <div class="empty" style="padding:24px">
-                                    <p>کاربری ثبت نشده</p>
-                                </div>
-                            </td>
+                            <th>آیدی</th>
+                            <th>نام</th>
+                            <th>موجودی</th>
+                            <th>گروه</th>
                         </tr>
-                    <?php else:
-                        foreach ($recentUsers as $u):
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recentUsers as $u):
                             $agent = $u['agent'] ?? 'f';
                             $isBlocked = ($u['User_Status'] ?? '') === 'block';
                             $name = $u['namecustom'] ?? '';
@@ -194,10 +232,11 @@ include __DIR__ . '/inc/layout_head.php';
                                     <?php endif; ?>
                                 </td>
                             </tr>
-                        <?php endforeach; endif; ?>
-                </tbody>
-            </table>
-        </div>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
     </div>
 </div>
 

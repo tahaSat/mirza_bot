@@ -65,6 +65,35 @@ table.tbl-xl,table.tbl-lg,table.tbl-md{min-width:0}
 }
 
 
+/* ===== Dashboard mobile ===== */
+.dash-tbl{display:block}
+a.m-row{text-decoration:none;color:inherit}
+
+@media (max-width:768px){
+.app,.main,.content{max-width:100vw;overflow-x:hidden}
+.content{padding:12px 10px;box-sizing:border-box}
+.stats,.two-col,.dash-cols,.profile-grid,.u-profile-grid{width:100%;max-width:100%;min-width:0}
+.stats>.stat,.two-col>.card,.dash-cols>.card{min-width:0;max-width:100%}
+.stats{grid-template-columns:1fr 1fr!important;gap:8px!important;margin-bottom:12px}
+.stat{padding:12px 10px!important;min-height:0;overflow:hidden}
+.stat:hover{transform:none;box-shadow:none}
+.stat-num{font-size:clamp(.95rem,4.6vw,1.35rem)!important;overflow-wrap:anywhere;word-break:break-word;line-height:1.15}
+.stat-label{font-size:.62rem!important;letter-spacing:0}
+.stat-meta{font-size:.65rem!important}
+.two-col,.dash-cols{grid-template-columns:1fr!important;gap:12px}
+.card{max-width:100%;overflow:hidden!important}
+.card .tbl-wrap,.tbl-wrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.dash-tbl{display:none!important}
+.dash-cols .m-list{display:block}
+}
+
+@media (max-width:430px){
+.stats{gap:6px!important}
+.stat{padding:10px 8px!important}
+.stat-num{font-size:clamp(.9rem,4.2vw,1.2rem)!important}
+.content{padding:10px 8px}
+}
+
 /* ===== Login remember checkbox ===== */
 .check-row{display:flex;align-items:center;gap:8px;margin:4px 0 14px;cursor:pointer;user-select:none;-webkit-user-select:none;font-size:.82rem;color:var(--mute)}
 .check-row input{width:16px;height:16px;accent-color:var(--ac);cursor:pointer;flex-shrink:0}

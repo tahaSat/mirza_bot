@@ -4,6 +4,56 @@ require_once __DIR__ . '/inc/icons.php';
 require_once __DIR__ . '/inc/users_lib.php';
 require_auth();
 $pdo = panel_ensure_pdo();
+$currentPanelAdmin = db_fetch($pdo, 'SELECT id_admin, username, rule FROM admin WHERE username = ?', [$_SESSION['admin_user'] ?? '']);
+$canManageAdmins = ($currentPanelAdmin['rule'] ?? '') === 'administrator';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_check_post();
+    $action = $_POST['action'] ?? '';
+    if (!$canManageAdmins) {
+        flash('error', 'فقط مدیر اصلی می‌تواند ادمین‌ها را مدیریت کند.');
+    } elseif ($action === 'add_admin') {
+        $adminId = trim($_POST['admin_id'] ?? '');
+        $adminUsername = trim($_POST['admin_username'] ?? '');
+        $password = $_POST['admin_password'] ?? '';
+        $adminRule = $_POST['admin_rule'] ?? 'support';
+        if (!preg_match('/^\d{4,20}$/', $adminId)) {
+            flash('error', 'شناسه عددی تلگرام ادمین نامعتبر است.');
+        } elseif (!preg_match('/^[A-Za-z0-9_.-]{3,100}$/', $adminUsername)) {
+            flash('error', 'نام کاربری پنل باید ۳ تا ۱۰۰ کاراکتر و فقط شامل حروف، عدد، نقطه، خط تیره یا زیرخط باشد.');
+        } elseif (mb_strlen($password, 'UTF-8') < 8) {
+            flash('error', 'رمز عبور باید حداقل ۸ کاراکتر باشد.');
+        } elseif (!in_array($adminRule, ['administrator', 'support', 'Seller'], true)) {
+            flash('error', 'نقش ادمین نامعتبر است.');
+        } else {
+            try {
+                db_query(
+                    $pdo,
+                    'INSERT INTO admin (id_admin, username, password, rule) VALUES (?, ?, ?, ?)',
+                    [$adminId, $adminUsername, password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]), $adminRule]
+                );
+                flash('success', 'ادمین جدید اضافه شد.');
+            } catch (PDOException $e) {
+                flash('error', 'شناسه تلگرام یا نام کاربری پنل تکراری است.');
+            }
+        }
+    } elseif ($action === 'remove_admin') {
+        $adminId = trim($_POST['admin_id'] ?? '');
+        $target = db_fetch($pdo, 'SELECT id_admin, username, rule FROM admin WHERE id_admin = ?', [$adminId]);
+        if (!$target) {
+            flash('error', 'ادمین موردنظر یافت نشد.');
+        } elseif ($target['id_admin'] === ($currentPanelAdmin['id_admin'] ?? '')) {
+            flash('error', 'امکان حذف حساب ادمین فعلی وجود ندارد.');
+        } elseif ($target['rule'] === 'administrator' && db_count($pdo, "SELECT COUNT(*) FROM admin WHERE rule = 'administrator'") <= 1) {
+            flash('error', 'آخرین مدیر اصلی قابل حذف نیست.');
+        } else {
+            db_query($pdo, 'DELETE FROM admin WHERE id_admin = ?', [$adminId]);
+            flash('success', 'ادمین حذف شد.');
+        }
+    }
+    header('Location: users.php?view=admins');
+    exit;
+}
 
 $search = trim($_GET['q'] ?? '');
 $status = $_GET['status'] ?? '';
@@ -77,6 +127,9 @@ include __DIR__ . '/inc/layout_head.php';
             <div class="toolbar-title"><?= $view === 'admins' ? 'ادمین‌ها' : 'کاربران' ?> <small>(<?= number_format($total) ?>)</small></div>
             <a href="users.php" class="tag <?= $view === 'users' ? 'tag-info' : 'tag-plain' ?>" style="cursor:pointer">کاربران</a>
             <a href="users.php?view=admins" class="tag <?= $view === 'admins' ? 'tag-info' : 'tag-plain' ?>" style="cursor:pointer">ادمین‌ها</a>
+            <?php if ($view === 'admins' && $canManageAdmins): ?>
+                <button type="button" class="btn btn-primary btn-sm" onclick="openModal('addAdminModal')"><?= icon('plus', 14) ?> افزودن ادمین</button>
+            <?php endif; ?>
 
             <?php if ($view === 'users' && $blockedCount > 0): ?>
                 <a href="?status=block" class="tag tag-no" style="cursor:pointer"><?= $blockedCount ?> مسدود</a>
@@ -152,6 +205,16 @@ include __DIR__ . '/inc/layout_head.php';
                                 </div>
                             </div>
                         </div>
+                        <?php if ($canManageAdmins && $admin['id_admin'] !== ($currentPanelAdmin['id_admin'] ?? '')): ?>
+                            <div class="data-row-actions">
+                                <form method="POST" onsubmit="return confirm('ادمین «<?= htmlspecialchars($admin['username']) ?>» حذف شود؟')">
+                                    <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                                    <input type="hidden" name="action" value="remove_admin">
+                                    <input type="hidden" name="admin_id" value="<?= htmlspecialchars($admin['id_admin']) ?>">
+                                    <button class="btn btn-no btn-sm btn-icon" title="حذف ادمین" type="submit"><?= icon('trash', 14) ?></button>
+                                </form>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -274,6 +337,44 @@ include __DIR__ . '/inc/layout_head.php';
         </div>
     </div>
 </div>
+
+<?php if ($canManageAdmins): ?>
+<div class="modal-veil" id="addAdminModal">
+    <div class="modal">
+        <div class="modal-head"><h3>افزودن ادمین</h3><button class="modal-x" type="button" onclick="closeModal('addAdminModal')"><?= icon('close', 14) ?></button></div>
+        <form method="POST">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="add_admin">
+                <div class="field">
+                    <label>شناسه عددی تلگرام</label>
+                    <input class="input" type="text" name="admin_id" inputmode="numeric" required>
+                </div>
+                <div class="field">
+                    <label>نام کاربری پنل</label>
+                    <input class="input" type="text" name="admin_username" autocomplete="username" required>
+                </div>
+                <div class="field">
+                    <label>رمز عبور</label>
+                    <input class="input" type="password" name="admin_password" autocomplete="new-password" minlength="8" required>
+                </div>
+                <div class="field">
+                    <label>نقش</label>
+                    <select class="select" name="admin_rule">
+                        <option value="support">پشتیبان</option>
+                        <option value="Seller">فروشنده</option>
+                        <option value="administrator">مدیر اصلی</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-primary" type="submit">افزودن</button>
+                <button class="btn btn-ghost" type="button" onclick="closeModal('addAdminModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
 
 <script src="js/users.js"></script>
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

@@ -3465,12 +3465,17 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
     deletemessage($from_id, $message_id);
     sendmessage($from_id, "📌 پیام خود را ارسال نمایید", $backuser, 'HTML');
     step("gettextticket", $from_id);
-} elseif ($user['step'] == "gettextticket" && $text) {
+} elseif ($user['step'] == "gettextticket" && ($text || $caption || $photo || $video || $document || $audio || $voice)) {
     $userdata = json_decode($user['Processing_value'], true);
     $departeman = select("departman", "*", "id", $userdata['iddeparteman'], "select");
     $time = date('Y/m/d H:i:s');
     $timejalali = jdate('Y/m/d H:i:s');
     $randomString = bin2hex(random_bytes(4));
+    $supportText = trim($text . "\n" . $caption);
+    if ($supportText === '') {
+        $supportText = '📎 فایل پیوست شد';
+    }
+    $incomingMedia = support_incoming_media($photo, $photoid, $video, $videoid, $document, $fileid, $audio, $audioid, $voice, $voiceid);
     $stmt = $pdo->prepare("INSERT IGNORE INTO support_message (Tracking,idsupport,iduser,user_name,name_departman,text,time,status) VALUES (:Tracking,:idsupport,:iduser,:user_name,:name_departman,:text,:time,:status)");
     $status = "Unseen";
     $stmt->bindParam(':Tracking', $randomString);
@@ -3478,10 +3483,11 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
     $stmt->bindParam(':iduser', $from_id);
     $stmt->bindParam(':user_name', $first_name, PDO::PARAM_STR);
     $stmt->bindParam(':name_departman', $departeman['name_departman']);
-    $stmt->bindParam(':text', $text, PDO::PARAM_STR);
+    $stmt->bindParam(':text', $supportText, PDO::PARAM_STR);
     $stmt->bindParam(':time', $time);
     $stmt->bindParam(':status', $status);
     $stmt->execute();
+    support_store_media($pdo, (int) $pdo->lastInsertId(), 'in', $incomingMedia);
     $textsuppoer = "
     📣 پشتیبان عزیز یک پیام از سمت کاربر برای شما ارسال گردید.
 
@@ -3491,7 +3497,7 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
 نام کاربری کاربر : @$username    
 نام دپارتمان : {$departeman['name_departman']}
 
-متن پیام : $text $caption";
+متن پیام : $supportText";
     $Response = json_encode([
         'inline_keyboard' => [
             [
@@ -3545,13 +3551,18 @@ $text";
     sendmessage($from_id, "📌 متن پیام خود را ارسال نمایید", $backuser, 'HTML');
     update("user", "Processing_value", $idtraking, "id", $from_id);
     step("getextuserfors", $from_id);
-} elseif ($user['step'] == "getextuserfors") {
+} elseif ($user['step'] == "getextuserfors" && ($text || $caption || $photo || $video || $document || $audio || $voice)) {
     $trakingdetail = select("support_message", "*", "Tracking", $user['Processing_value']);
     step("home", $from_id);
     $time = date('Y/m/d H:i:s');
     $timejalali = jdate('Y/m/d H:i:s');
     Editmessagetext($from_id, $message_id, $text_inline, json_encode(['inline_keyboard' => []]));
     $randomString = bin2hex(random_bytes(4));
+    $supportText = trim($text . "\n" . $caption);
+    if ($supportText === '') {
+        $supportText = '📎 فایل پیوست شد';
+    }
+    $incomingMedia = support_incoming_media($photo, $photoid, $video, $videoid, $document, $fileid, $audio, $audioid, $voice, $voiceid);
     $stmt = $pdo->prepare("INSERT IGNORE INTO support_message (Tracking,idsupport,iduser,user_name,name_departman,text,time,status) VALUES (:Tracking,:idsupport,:iduser,:user_name,:name_departman,:text,:time,:status)");
     $status = "Customerresponse";
     $stmt->bindParam(':Tracking', $randomString);
@@ -3559,10 +3570,11 @@ $text";
     $stmt->bindParam(':iduser', $trakingdetail['iduser']);
     $stmt->bindParam(':user_name', $first_name, PDO::PARAM_STR);
     $stmt->bindParam(':name_departman', $trakingdetail['name_departman']);
-    $stmt->bindParam(':text', $text, PDO::PARAM_STR);
+    $stmt->bindParam(':text', $supportText, PDO::PARAM_STR);
     $stmt->bindParam(':time', $time);
     $stmt->bindParam(':status', $status);
     $stmt->execute();
+    support_store_media($pdo, (int) $pdo->lastInsertId(), 'in', $incomingMedia);
     $textsuppoer = "
     📣 پشتیبان عزیز یک پیام از سمت کاربر برای شما ارسال گردید.
 
@@ -3572,7 +3584,7 @@ $text";
 نام کاربری کاربر : @$username    
 نام دپارتمان : {$trakingdetail['name_departman']}
 
-متن پیام : $text";
+متن پیام : $supportText";
     $Response = json_encode([
         'inline_keyboard' => [
             [

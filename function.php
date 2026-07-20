@@ -3137,6 +3137,42 @@ function notify_support_admins($text, $keyboard, $photo = false, $video = false,
     }
 }
 
+function support_incoming_media($photo, $photoid, $video, $videoid, $document, $fileid, $audio, $audioid, $voice, $voiceid): array
+{
+    $media = [];
+    if ($photo && $photoid) {
+        $largest = end($photo) ?: [];
+        $media[] = ['photo', $photoid, $largest['file_unique_id'] ?? null, 'image/jpeg', null, $largest['file_size'] ?? null];
+    }
+    if ($video && $videoid) {
+        $media[] = ['video', $videoid, $video['file_unique_id'] ?? null, $video['mime_type'] ?? null, $video['file_name'] ?? null, $video['file_size'] ?? null];
+    }
+    if ($document && $fileid) {
+        $media[] = ['document', $fileid, $document['file_unique_id'] ?? null, $document['mime_type'] ?? null, $document['file_name'] ?? null, $document['file_size'] ?? null];
+    }
+    if ($audio && $audioid) {
+        $media[] = ['audio', $audioid, $audio['file_unique_id'] ?? null, $audio['mime_type'] ?? null, $audio['file_name'] ?? null, $audio['file_size'] ?? null];
+    }
+    if ($voice && $voiceid) {
+        $media[] = ['voice', $voiceid, $voice['file_unique_id'] ?? null, $voice['mime_type'] ?? 'audio/ogg', null, $voice['file_size'] ?? null];
+    }
+    return $media;
+}
+
+function support_store_media(PDO $pdo, int $messageId, string $direction, array $media): void
+{
+    if (!$media) {
+        return;
+    }
+    $stmt = $pdo->prepare(
+        'INSERT INTO support_media (message_id, direction, media_type, telegram_file_id, telegram_file_unique_id, mime_type, file_name, file_size)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    foreach ($media as [$type, $fileId, $uniqueId, $mime, $fileName, $fileSize]) {
+        $stmt->execute([$messageId, $direction, $type, $fileId, $uniqueId, $mime, $fileName, $fileSize]);
+    }
+}
+
 function product_ensure_sort_order_column(): void
 {
     static $ensured = false;

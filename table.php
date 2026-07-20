@@ -1399,6 +1399,30 @@ try {
     file_put_contents('error_log suppeor_message', $e->getMessage());
 }
 try {
+    $tableName = 'support_media';
+    $stmt = $pdo->prepare("SELECT 1 FROM information_schema.tables WHERE table_name = :tableName");
+    $stmt->execute([':tableName' => $tableName]);
+    if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
+        $stmt = $pdo->prepare("CREATE TABLE support_media (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            message_id INT(6) UNSIGNED NOT NULL,
+            direction ENUM('in','out') NOT NULL,
+            media_type ENUM('photo','video','document','audio','voice') NOT NULL,
+            telegram_file_id VARCHAR(255) NOT NULL,
+            telegram_file_unique_id VARCHAR(255) NULL,
+            mime_type VARCHAR(255) NULL,
+            file_name VARCHAR(500) NULL,
+            file_size INT UNSIGNED NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_support_media_message (message_id),
+            CONSTRAINT fk_support_media_message FOREIGN KEY (message_id) REFERENCES support_message(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $stmt->execute();
+    }
+} catch (PDOException $e) {
+    file_put_contents('error_log support_media', $e->getMessage());
+}
+try {
     $result = $connect->query("SHOW TABLES LIKE 'wheel_list'");
     $table_exists = ($result->num_rows > 0);
     if (!$table_exists) {

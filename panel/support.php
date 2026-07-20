@@ -26,6 +26,26 @@ function support_inbox_url(array $overrides = []): string
     return 'support.php?' . http_build_query($params);
 }
 
+function support_media_markup(array $media): string
+{
+    $html = '';
+    foreach ($media as $item) {
+        $url = 'support_media.php?id=' . (int) $item['id'];
+        $name = htmlspecialchars($item['file_name'] ?: 'فایل پیوست', ENT_QUOTES, 'UTF-8');
+        $type = $item['media_type'];
+        if ($type === 'photo') {
+            $html .= '<a class="support-media-photo" href="' . $url . '" target="_blank" rel="noopener"><img src="' . $url . '" loading="lazy" alt="' . $name . '"></a>';
+        } elseif ($type === 'video') {
+            $html .= '<video class="support-media-video" controls preload="none"><source src="' . $url . '"></video>';
+        } elseif (in_array($type, ['audio', 'voice'], true)) {
+            $html .= '<audio class="support-media-audio" controls preload="none"><source src="' . $url . '"></audio>';
+        } else {
+            $html .= '<a class="support-media-file" href="' . $url . '" target="_blank" rel="noopener">📎 ' . $name . '</a>';
+        }
+    }
+    return $html;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check_post();
     $action = $_POST['action'] ?? '';
@@ -36,20 +56,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flash('error', 'پیام پشتیبانی یافت نشد.');
     } elseif ($action === 'reply') {
         $reply = trim($_POST['reply'] ?? '');
-        if ($reply === '') {
-            flash('error', 'متن پاسخ را وارد کنید.');
+        $uploadResult = panel_support_prepare_upload($_FILES['attachment'] ?? []);
+        $upload = $uploadResult['upload'] ?? null;
+        if (!$uploadResult['ok']) {
+            flash('error', $uploadResult['msg']);
+        } elseif ($reply === '' && !$upload) {
+            flash('error', 'متن پاسخ یا فایل را وارد کنید.');
         } elseif (mb_strlen($reply, 'UTF-8') > 3500) {
             flash('error', 'متن پاسخ نباید بیشتر از ۳۵۰۰ کاراکتر باشد.');
         } elseif (!in_array($ticket['status'], panel_support_unanswered_statuses(), true)) {
             flash('warning', 'این پیام پیش‌تر پاسخ داده یا بسته شده است.');
         } else {
-            $result = panel_support_send_reply($ticket, $reply);
+            $result = panel_support_send_reply($ticket, $reply, $upload);
             if ($result['ok']) {
                 db_query(
                     $pdo,
                     "UPDATE support_message SET status = 'Answered', result = ? WHERE id = ?",
                     [$reply, $ticket['id']]
                 );
+                support_store_media($pdo, (int) $ticket['id'], 'out', $result['media'] ?? []);
                 flash('success', $result['msg']);
             } else {
                 flash('error', $result['msg']);
@@ -117,6 +142,14 @@ $conversation = $userId !== '' ? db_fetchAll(
      ORDER BY s.id ASC",
     [$userId]
 ) : [];
+$mediaByMessage = [];
+if ($conversation) {
+    $messageIds = array_map(fn($message) => (int) $message['id'], $conversation);
+    $media = db_fetchAll($pdo, 'SELECT * FROM support_media WHERE message_id IN (' . implode(',', $messageIds) . ') ORDER BY id ASC');
+    foreach ($media as $item) {
+        $mediaByMessage[(int) $item['message_id']][$item['direction']][] = $item;
+    }
+}
 $ticket = $conversation[0] ?? null;
 $replyTicket = null;
 foreach (array_reverse($conversation) as $message) {
@@ -226,21 +259,27 @@ include __DIR__ . '/inc/layout_head.php';
                     <div class="support-bubble from-user">
                         <small>کاربر · <?= htmlspecialchars($message['time']) ?> · <?= htmlspecialchars($message['name_departman']) ?></small>
                         <div><?= nl2br(htmlspecialchars($message['text'])) ?></div>
+                        <?= support_media_markup($mediaByMessage[(int) $message['id']]['in'] ?? []) ?>
                     </div>
-                    <?php if (trim((string) $message['result']) !== ''): ?>
+                    <?php if (trim((string) $message['result']) !== '' || !empty($mediaByMessage[(int) $message['id']]['out'])): ?>
                         <div class="support-bubble from-admin">
                             <small>ادمین <?= htmlspecialchars($message['idsupport']) ?></small>
-                            <div><?= nl2br(htmlspecialchars($message['result'])) ?></div>
+                            <?php if (trim((string) $message['result']) !== ''): ?><div><?= nl2br(htmlspecialchars($message['result'])) ?></div><?php endif; ?>
+                            <?= support_media_markup($mediaByMessage[(int) $message['id']]['out'] ?? []) ?>
                         </div>
                     <?php endif; ?>
                 <?php endforeach; ?>
             </div>
             <?php if ($replyTicket): ?>
-                <form method="POST" class="support-reply">
+                <form method="POST" class="support-reply" enctype="multipart/form-data">
                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                     <input type="hidden" name="action" value="reply">
                     <input type="hidden" name="tracking" value="<?= htmlspecialchars($replyTicket['Tracking']) ?>">
-                    <textarea class="textarea" name="reply" required maxlength="3500" placeholder="پاسخ خود را برای کاربر بنویسید..."></textarea>
+                    <textarea class="textarea" name="reply" maxlength="3500" placeholder="پاسخ خود را برای کاربر بنویسید..."></textarea>
+                    <label class="support-attachment-picker">
+                        <input type="file" name="attachment" onchange="this.nextElementSibling.textContent=this.files[0] ? this.files[0].name : '📎 افزودن فایل'">
+                        <span>📎 افزودن فایل</span>
+                    </label>
                     <button class="btn btn-primary" type="submit"><?= icon('message', 15) ?> ارسال پاسخ</button>
                 </form>
                 <form method="POST" class="support-close-form">

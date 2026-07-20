@@ -370,6 +370,11 @@
 .support-bubble small{display:block;margin-bottom:4px;opacity:.7;font-size:.67rem}
 .from-user{align-self:flex-start;background:var(--sf);border:1px solid var(--bd);border-top-right-radius:3px}
 .from-admin{align-self:flex-end;background:var(--ac);color:var(--btn-ac-text,#fff);border-top-left-radius:3px}
+.support-media-photo{display:block;margin-top:8px}.support-media-photo img{display:block;max-width:100%;max-height:280px;border-radius:8px;object-fit:contain;background:rgba(0,0,0,.08)}
+.support-media-video{display:block;width:min(100%,360px);max-height:260px;margin-top:8px;border-radius:8px;background:#000}
+.support-media-audio{display:block;width:min(100%,320px);margin-top:8px}
+.support-media-file{display:inline-flex;align-items:center;gap:5px;max-width:100%;margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.16);color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.support-attachment-picker{display:inline-flex;align-self:flex-start;position:relative;overflow:hidden;cursor:pointer;color:var(--ac);font-size:.78rem}.support-attachment-picker input{position:absolute;inset:0;opacity:0;cursor:pointer}.support-attachment-picker span{padding:7px 9px;border:1px dashed var(--bd);border-radius:7px}
 .support-reply{padding:14px;display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--bd)}
 .support-reply .textarea{min-height:110px}
 .support-reply .btn{align-self:flex-end}

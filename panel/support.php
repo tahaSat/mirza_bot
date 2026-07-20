@@ -12,7 +12,7 @@ if (!in_array($tab, ['unanswered', 'all', 'Answered', 'close'], true)) {
 $search = trim($_GET['q'] ?? '');
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 25;
-$tracking = trim($_GET['tracking'] ?? '');
+$userId = trim($_GET['user_id'] ?? '');
 
 function support_inbox_url(array $overrides = []): string
 {
@@ -20,6 +20,7 @@ function support_inbox_url(array $overrides = []): string
         'tab' => $GLOBALS['tab'],
         'q' => $GLOBALS['search'],
         'page' => $GLOBALS['page'],
+        'user_id' => $GLOBALS['userId'],
     ], $overrides);
     $params = array_filter($params, fn($value) => $value !== '' && $value !== null);
     return 'support.php?' . http_build_query($params);
@@ -59,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flash('success', 'پیام پشتیبانی بسته شد.');
     }
 
-    header('Location: ' . support_inbox_url(['tracking' => $tracking, 'page' => null]));
+    header('Location: ' . support_inbox_url(['user_id' => $ticket['iduser'] ?? null, 'page' => null]));
     exit;
 }
 
@@ -81,13 +82,20 @@ $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 $offset = ($page - 1) * $perPage;
 
 try {
-    $total = db_count($pdo, "SELECT COUNT(*) FROM support_message s LEFT JOIN user u ON u.id = s.iduser $whereSql", $params);
+    $groupSql = "SELECT s.iduser FROM support_message s LEFT JOIN user u ON u.id = s.iduser $whereSql GROUP BY s.iduser";
+    $total = db_count($pdo, "SELECT COUNT(*) FROM ($groupSql) grouped_tickets", $params);
     $tickets = db_fetchAll(
         $pdo,
         "SELECT s.*, u.username, u.namecustom
          FROM support_message s
+         INNER JOIN (
+             SELECT MAX(s.id) AS id
+             FROM support_message s
+             LEFT JOIN user u ON u.id = s.iduser
+             $whereSql
+             GROUP BY s.iduser
+         ) latest ON latest.id = s.id
          LEFT JOIN user u ON u.id = s.iduser
-         $whereSql
          ORDER BY s.id DESC
          LIMIT $perPage OFFSET $offset",
         $params
@@ -100,15 +108,23 @@ try {
 
 $totalPages = max(1, (int) ceil($total / $perPage));
 $unansweredCount = panel_support_unanswered_count($pdo);
-$ticket = $tracking !== '' ? db_fetch(
+$conversation = $userId !== '' ? db_fetchAll(
     $pdo,
     "SELECT s.*, u.username, u.namecustom
      FROM support_message s
      LEFT JOIN user u ON u.id = s.iduser
-     WHERE s.Tracking = ?
-     ORDER BY s.id DESC LIMIT 1",
-    [$tracking]
-) : null;
+     WHERE s.iduser = ?
+     ORDER BY s.id ASC",
+    [$userId]
+) : [];
+$ticket = $conversation[0] ?? null;
+$replyTicket = null;
+foreach (array_reverse($conversation) as $message) {
+    if (in_array($message['status'], panel_support_unanswered_statuses(), true)) {
+        $replyTicket = $message;
+        break;
+    }
+}
 
 $pageTitle = 'صندوق پشتیبانی';
 $pageLede = 'پیام‌های ثبت‌شده در بخش پشتیبانی ربات و پاسخ به کاربران.';
@@ -129,10 +145,10 @@ include __DIR__ . '/inc/layout_head.php';
         </div>
 
         <div class="support-tabs">
-            <a class="<?= $tab === 'unanswered' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'unanswered', 'page' => null, 'tracking' => null]) ?>">پاسخ‌نداده <b><?= $unansweredCount ?></b></a>
-            <a class="<?= $tab === 'all' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'all', 'page' => null, 'tracking' => null]) ?>">همه</a>
-            <a class="<?= $tab === 'Answered' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'Answered', 'page' => null, 'tracking' => null]) ?>">پاسخ داده‌شده</a>
-            <a class="<?= $tab === 'close' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'close', 'page' => null, 'tracking' => null]) ?>">بسته‌شده</a>
+            <a class="<?= $tab === 'unanswered' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'unanswered', 'page' => null, 'user_id' => null]) ?>">پاسخ‌نداده <b><?= $unansweredCount ?></b></a>
+            <a class="<?= $tab === 'all' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'all', 'page' => null, 'user_id' => null]) ?>">همه</a>
+            <a class="<?= $tab === 'Answered' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'Answered', 'page' => null, 'user_id' => null]) ?>">پاسخ داده‌شده</a>
+            <a class="<?= $tab === 'close' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'close', 'page' => null, 'user_id' => null]) ?>">بسته‌شده</a>
         </div>
 
         <div class="support-ticket-list">
@@ -143,7 +159,7 @@ include __DIR__ . '/inc/layout_head.php';
                 [$tagClass, $statusLabel] = panel_support_status_info($item['status']);
                 $displayName = ($item['namecustom'] && $item['namecustom'] !== 'none') ? $item['namecustom'] : (($item['username'] && $item['username'] !== 'none') ? '@' . $item['username'] : 'کاربر #' . $item['iduser']);
                 ?>
-                <a class="support-ticket <?= $tracking === $item['Tracking'] ? 'selected' : '' ?>" href="<?= support_inbox_url(['tracking' => $item['Tracking']]) ?>">
+                <a class="support-ticket <?= $userId === (string) $item['iduser'] ? 'selected' : '' ?>" href="<?= support_inbox_url(['user_id' => $item['iduser']]) ?>">
                     <div class="support-ticket-head">
                         <strong><?= htmlspecialchars($displayName) ?></strong>
                         <span class="tag <?= $tagClass ?>"><?= htmlspecialchars($statusLabel) ?></span>
@@ -172,9 +188,9 @@ include __DIR__ . '/inc/layout_head.php';
         <?php if (!$ticket): ?>
             <div class="empty support-empty"><p>یک پیام را از فهرست انتخاب کنید.</p></div>
         <?php else:
-            [$tagClass, $statusLabel] = panel_support_status_info($ticket['status']);
+            [$tagClass, $statusLabel] = panel_support_status_info($conversation[count($conversation) - 1]['status']);
             $displayName = ($ticket['namecustom'] && $ticket['namecustom'] !== 'none') ? $ticket['namecustom'] : (($ticket['username'] && $ticket['username'] !== 'none') ? '@' . $ticket['username'] : 'کاربر #' . $ticket['iduser']);
-            $canReply = in_array($ticket['status'], panel_support_unanswered_statuses(), true);
+            $adminId = (string) ($replyTicket['idsupport'] ?? $conversation[count($conversation) - 1]['idsupport'] ?? '—');
             ?>
             <div class="support-conversation-head">
                 <div>
@@ -184,34 +200,39 @@ include __DIR__ . '/inc/layout_head.php';
                 <span class="tag <?= $tagClass ?>"><?= htmlspecialchars($statusLabel) ?></span>
             </div>
             <div class="support-meta">
-                <span>دپارتمان: <?= htmlspecialchars($ticket['name_departman']) ?></span>
-                <span>پیگیری: <b><?= htmlspecialchars($ticket['Tracking']) ?></b></span>
-                <span><?= htmlspecialchars($ticket['time']) ?></span>
+                <span>تعداد پیام‌ها: <?= count($conversation) ?></span>
+                <span>آخرین پیام: <?= htmlspecialchars($conversation[count($conversation) - 1]['time']) ?></span>
+            </div>
+            <div class="support-identities">
+                <span><small>شناسه کاربر</small><b><?= htmlspecialchars($ticket['iduser']) ?></b></span>
+                <span><small>شناسه ادمین مسئول</small><b><?= htmlspecialchars($adminId) ?></b></span>
             </div>
             <div class="support-messages">
-                <div class="support-bubble from-user">
-                    <small>پیام کاربر</small>
-                    <div><?= nl2br(htmlspecialchars($ticket['text'])) ?></div>
-                </div>
-                <?php if (trim((string) $ticket['result']) !== ''): ?>
-                    <div class="support-bubble from-admin">
-                        <small>پاسخ پشتیبانی</small>
-                        <div><?= nl2br(htmlspecialchars($ticket['result'])) ?></div>
+                <?php foreach ($conversation as $message): ?>
+                    <div class="support-bubble from-user">
+                        <small>کاربر · <?= htmlspecialchars($message['time']) ?> · <?= htmlspecialchars($message['name_departman']) ?></small>
+                        <div><?= nl2br(htmlspecialchars($message['text'])) ?></div>
                     </div>
-                <?php endif; ?>
+                    <?php if (trim((string) $message['result']) !== ''): ?>
+                        <div class="support-bubble from-admin">
+                            <small>ادمین <?= htmlspecialchars($message['idsupport']) ?></small>
+                            <div><?= nl2br(htmlspecialchars($message['result'])) ?></div>
+                        </div>
+                    <?php endif; ?>
+                <?php endforeach; ?>
             </div>
-            <?php if ($canReply): ?>
+            <?php if ($replyTicket): ?>
                 <form method="POST" class="support-reply">
                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                     <input type="hidden" name="action" value="reply">
-                    <input type="hidden" name="tracking" value="<?= htmlspecialchars($ticket['Tracking']) ?>">
+                    <input type="hidden" name="tracking" value="<?= htmlspecialchars($replyTicket['Tracking']) ?>">
                     <textarea class="textarea" name="reply" required maxlength="3500" placeholder="پاسخ خود را برای کاربر بنویسید..."></textarea>
                     <button class="btn btn-primary" type="submit"><?= icon('message', 15) ?> ارسال پاسخ</button>
                 </form>
                 <form method="POST" class="support-close-form">
                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                     <input type="hidden" name="action" value="close">
-                    <input type="hidden" name="tracking" value="<?= htmlspecialchars($ticket['Tracking']) ?>">
+                    <input type="hidden" name="tracking" value="<?= htmlspecialchars($replyTicket['Tracking']) ?>">
                     <button class="btn btn-ghost btn-sm" type="submit">بستن بدون پاسخ</button>
                 </form>
             <?php endif; ?>

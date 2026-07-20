@@ -1,10 +1,12 @@
 <?php
 require_once __DIR__ . '/icons.php';
+require_once __DIR__ . '/support_lib.php';
 $pageLede = $pageLede ?? '';
 $activeNav = $activeNav ?? '';
 $showPageHead = $showPageHead ?? true;
 $currentUser = $_SESSION['admin_user'] ?? 'ادمین';
 $initials = mb_strtoupper(mb_substr($currentUser, 0, 1, 'UTF-8'), 'UTF-8');
+$supportUnansweredCount = isset($pdo) && $pdo instanceof PDO ? panel_support_unanswered_count($pdo) : 0;
 ?>
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
@@ -16,6 +18,8 @@ $initials = mb_strtoupper(mb_substr($currentUser, 0, 1, 'UTF-8'), 'UTF-8');
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/panel/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/panel/icons/apple-touch-icon.png">
   <title>پنل مدیریت میرزا بات</title>
   <link rel="stylesheet" href="<?= htmlspecialchars(panel_asset('css/style.css')) ?>">
   <script>
@@ -66,7 +70,7 @@ $initials = mb_strtoupper(mb_substr($currentUser, 0, 1, 'UTF-8'), 'UTF-8');
 
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
-        <div class="brand-mark">M</div>
+        <div class="brand-mark"><img src="/panel/icons/icon-192.png" alt="" width="28" height="28" style="display:block;border-radius:8px"></div>
         <div class="brand-name">میرزا<span> · پنل</span></div>
       </div>
       <nav class="sidebar-nav">
@@ -116,6 +120,10 @@ $initials = mb_strtoupper(mb_substr($currentUser, 0, 1, 'UTF-8'), 'UTF-8');
           </a>
           <a href="reports.php" class="nav-item <?= $activeNav === 'reports' ? 'active' : '' ?>" title="گزارشات">
             <span class="nav-icon"><?= icon('search') ?></span><span class="nav-label">گزارشات</span>
+          </a>
+          <a href="support.php" class="nav-item <?= $activeNav === 'support' ? 'active' : '' ?>" title="صندوق پشتیبانی">
+            <span class="nav-icon"><?= icon('message') ?></span><span class="nav-label">صندوق پشتیبانی</span>
+            <?php if ($supportUnansweredCount > 0): ?><span class="nav-count"><?= number_format($supportUnansweredCount) ?></span><?php endif; ?>
           </a>
           <a href="settings.php?tab=bot" class="nav-item <?= $activeNav === 'bot_menu' ? 'active' : '' ?>" title="منوی ربات">
             <span class="nav-icon"><?= icon('menu') ?></span><span class="nav-label">منوی ربات</span>

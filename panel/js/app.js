@@ -41,6 +41,15 @@ var _lb = (function () {
     return { start: start, done: done };
 }());
 
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/panel/sw.js', { scope: '/panel/' })
+            .catch(function (error) {
+                console.warn('Panel service worker registration failed:', error);
+            });
+    });
+}
+
 window.openModal = function (id) {
     var m = document.getElementById(id);
     if (m) m.classList.add('open');

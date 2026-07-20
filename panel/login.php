@@ -85,6 +85,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
   <meta name="theme-color" content="#0F172A" id="mtc">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/panel/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/panel/icons/apple-touch-icon.png">
   <title>ورود — پنل مدیریت میرزا</title>
   <link rel="stylesheet" href="css/style.css">
   <script>(function () { var t = localStorage.getItem('panel-theme') || 'navy'; document.documentElement.setAttribute('data-theme', t); var c = { navy: '#0F172A', purple: '#180D2E', emerald: '#0A1F1C', sunset: '#1A0D0D', slate: '#080808', light: '#F1F5F9', linen: '#FAF7F2', mint: '#F0FDF4', lavender: '#FAF5FF' }; var m = document.getElementById('mtc'); if (m && c[t]) m.content = c[t]; })();</script>
@@ -94,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <div class="auth">
     <aside class="auth-aside">
       <div class="auth-mark">
-        <div class="dot">M</div>
+        <div class="dot"><img src="/panel/icons/icon-192.png" alt="" width="28" height="28" style="display:block;border-radius:8px"></div>
         <span>پنل مدیریت میرزا</span>
       </div>
       <div class="auth-quote">
@@ -142,6 +147,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </main>
   </div>
   <script src="js/login.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/panel/sw.js', { scope: '/panel/' })
+          .catch(function (error) {
+            console.warn('Panel service worker registration failed:', error);
+          });
+      });
+    }
+  </script>
 </body>
 
 </html>

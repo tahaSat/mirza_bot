@@ -1,8 +1,8 @@
 <?php
-session_start();
-
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
+
+panel_session_start();
 
 $pdo = panel_ensure_pdo();
 
@@ -13,8 +13,11 @@ if (!empty($_SESSION['admin_user'])) {
 
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  csrf_check_post();
+
   $username = trim($_POST['username'] ?? '');
   $password = $_POST['password'] ?? '';
+  $remember = !empty($_POST['remember']);
   $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
   if ($username === '' || $password === '') {
@@ -55,6 +58,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       session_regenerate_id(true);
       $_SESSION['admin_user'] = $admin['username'];
       $_SESSION['login_time'] = time();
+      $_SESSION['csrf'] = bin2hex(random_bytes(32));
+
+      if ($remember) {
+        panel_enable_remember();
+      } else {
+        panel_clear_remember();
+        // Session cookie only (cleared when browser closes)
+        setcookie(session_name(), session_id(), panel_cookie_options(0));
+      }
+
       flash('success', 'خوش آمدید، ' . $admin['username']);
       header('Location: index.php');
       exit;
@@ -101,7 +114,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <div class="notice notice-no" style="margin-bottom:20px"><?= htmlspecialchars($error) ?></div>
         <?php endif; ?>
         <form class="auth-form" method="POST" autocomplete="on">
-          <?php ?>
           <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
           <div class="field">
             <label for="username">نام کاربری</label>
@@ -114,6 +126,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <input type="password" id="password" name="password" class="input" placeholder="••••••••"
               autocomplete="current-password" required maxlength="200">
           </div>
+          <label class="check-row" for="remember">
+            <input type="checkbox" id="remember" name="remember" value="1"
+              <?= (!isset($_POST['username']) || !empty($_POST['remember'])) ? 'checked' : '' ?>>
+            <span>مرا به خاطر بسپار (۳۰ روز)</span>
+          </label>
           <button type="submit" class="btn btn-primary" id="loginBtn">
             <span id="loginText">ورود به پنل</span>
             <span id="loginSpin"

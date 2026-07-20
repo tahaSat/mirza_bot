@@ -1,5 +1,6 @@
 <?php
-session_start();
-session_destroy();
+require_once __DIR__ . '/inc/config.php';
+
+panel_logout();
 header('Location: login.php');
 exit;

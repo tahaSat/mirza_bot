@@ -193,6 +193,7 @@ include __DIR__ . '/inc/layout_head.php';
 
     <?php if ($userId !== ''): ?>
         <a class="support-sheet-backdrop" href="<?= support_inbox_url(['user_id' => null]) ?>" aria-label="بستن گفتگو"></a>
+        <script>document.body.classList.add('support-sheet-open');</script>
     <?php endif; ?>
     <section class="card support-conversation">
         <?php if (!$ticket): ?>

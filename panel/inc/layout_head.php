@@ -87,9 +87,6 @@ $initials = mb_strtoupper(mb_substr($currentUser, 0, 1, 'UTF-8'), 'UTF-8');
           <a href="invoice.php" class="nav-item <?= $activeNav === 'invoice' ? 'active' : '' ?>" title="سفارشات">
             <span class="nav-icon"><?= icon('invoice') ?></span><span class="nav-label">سفارشات</span>
           </a>
-          <a href="service.php" class="nav-item <?= $activeNav === 'service' ? 'active' : '' ?>" title="سرویس‌ها">
-            <span class="nav-icon"><?= icon('server') ?></span><span class="nav-label">سرویس‌ها</span>
-          </a>
           <a href="product.php" class="nav-item <?= $activeNav === 'product' ? 'active' : '' ?>" title="محصولات">
             <span class="nav-icon"><?= icon('package') ?></span><span class="nav-label">محصولات</span>
           </a>

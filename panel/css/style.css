@@ -272,3 +272,58 @@
   .data-row-fields{grid-template-columns:1fr}
   .data-field{min-width:0;flex:auto}
 }
+
+/* Keep complete data rows side by side on phones; swipe to view all columns. */
+@media (max-width:768px){
+  .data-list{
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior-x:contain;
+  }
+  .data-row{
+    flex-direction:row;
+    align-items:center;
+    width:max-content;
+    min-width:720px;
+    padding:12px 14px;
+  }
+  .data-row-body{
+    display:flex;
+    align-items:center;
+    gap:16px;
+  }
+  .data-row-head{
+    flex:0 0 180px;
+    min-width:180px;
+    margin:0;
+  }
+  .data-row-fields{
+    display:flex;
+    flex:1;
+    flex-wrap:nowrap;
+    min-width:max-content;
+  }
+  .data-field,
+  .data-field:nth-child(3n + 1){
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    justify-content:center;
+    flex:0 0 116px;
+    min-width:116px;
+    margin:0;
+    padding:0 12px;
+    border:0;
+    border-right:1px solid var(--bd);
+  }
+  .data-field:first-child{border-right:0}
+  .data-field-label{margin:0 0 3px}
+  .data-row-actions{
+    width:auto;
+    padding:0 12px 0 0;
+    border-top:0;
+    border-right:1px solid var(--bd);
+  }
+  .user-data-row{cursor:pointer}
+  .user-data-row:focus-visible{outline:2px solid var(--ac);outline-offset:-2px}
+}

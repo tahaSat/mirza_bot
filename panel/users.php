@@ -139,7 +139,10 @@ include __DIR__ . '/inc/layout_head.php';
                 $displayName = $name ?: ($uname ? '@' . $uname : 'کاربر #' . $u['id']);
                 $phone = (!empty($u['number']) && $u['number'] !== 'none') ? $u['number'] : '';
                 ?>
-                <div class="data-row">
+                <div class="data-row user-data-row" role="link" tabindex="0"
+                    data-user-url="user.php?id=<?= (int) $u['id'] ?>"
+                    onclick="if (!event.target.closest('a,button')) window.location.href = this.dataset.userUrl"
+                    onkeydown="if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('a,button')) { event.preventDefault(); window.location.href = this.dataset.userUrl; }">
                     <div class="data-row-body">
                         <div class="data-row-head">
                             <div class="data-row-title">

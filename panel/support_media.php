@@ -3,6 +3,11 @@ require_once __DIR__ . '/inc/config.php';
 require_auth();
 $pdo = panel_ensure_pdo();
 
+if (!support_ensure_media_table($pdo)) {
+    http_response_code(503);
+    exit('سامانه فایل پشتیبانی در دسترس نیست.');
+}
+
 $mediaId = (int) ($_GET['id'] ?? 0);
 if ($mediaId < 1) {
     http_response_code(404);

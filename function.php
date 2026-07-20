@@ -3159,9 +3159,38 @@ function support_incoming_media($photo, $photoid, $video, $videoid, $document, $
     return $media;
 }
 
+function support_ensure_media_table(PDO $pdo): bool
+{
+    static $ready = null;
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS support_media (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            message_id INT(6) UNSIGNED NOT NULL,
+            direction ENUM('in','out') NOT NULL,
+            media_type ENUM('photo','video','document','audio','voice') NOT NULL,
+            telegram_file_id VARCHAR(255) NOT NULL,
+            telegram_file_unique_id VARCHAR(255) NULL,
+            mime_type VARCHAR(255) NULL,
+            file_name VARCHAR(500) NULL,
+            file_size INT UNSIGNED NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_support_media_message (message_id),
+            CONSTRAINT fk_support_media_message FOREIGN KEY (message_id) REFERENCES support_message(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        return $ready = true;
+    } catch (PDOException $e) {
+        error_log('Unable to create support_media table: ' . $e->getMessage());
+        return $ready = false;
+    }
+}
+
 function support_store_media(PDO $pdo, int $messageId, string $direction, array $media): void
 {
-    if (!$media) {
+    if (!$media || !support_ensure_media_table($pdo)) {
         return;
     }
     $stmt = $pdo->prepare(

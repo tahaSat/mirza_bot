@@ -8,34 +8,37 @@ $pdo = panel_ensure_pdo();
 $search = trim($_GET['q'] ?? '');
 $status = $_GET['status'] ?? '';
 $role = $_GET['role'] ?? '';
+$view = $_GET['view'] === 'admins' ? 'admins' : 'users';
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 25;
 $offset = ($page - 1) * $perPage;
 
-$where = [];
-$params = [];
-
-if ($search !== '') {
-    $where[] = "(id LIKE ? OR COALESCE(username,'') LIKE ? OR COALESCE(namecustom,'') LIKE ? OR COALESCE(number,'') LIKE ?)";
-    $params = ["%$search%", "%$search%", "%$search%", "%$search%"];
-}
-
-if ($status === 'block') {
-    $where[] = "LOWER(User_Status) = 'block'";
-} elseif ($status === 'active') {
-    $where[] = "(User_Status IS NULL OR User_Status = '' OR LOWER(User_Status) != 'block')";
-}
-
-if ($role !== '') {
-    $where[] = "agent = ?";
-    $params[] = $role;
-}
-
-$whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
-
 try {
-    $total = db_count($pdo, "SELECT COUNT(*) FROM user $whereSQL", $params);
-    $users = db_fetchAll($pdo, "SELECT * FROM user $whereSQL ORDER BY register DESC LIMIT $perPage OFFSET $offset", $params);
+    if ($view === 'admins') {
+        $params = $search !== '' ? ["%$search%", "%$search%", "%$search%"] : [];
+        $whereSQL = $search !== '' ? 'WHERE (id_admin LIKE ? OR username LIKE ? OR rule LIKE ?)' : '';
+        $total = db_count($pdo, "SELECT COUNT(*) FROM admin $whereSQL", $params);
+        $users = db_fetchAll($pdo, "SELECT id_admin, username, rule FROM admin $whereSQL ORDER BY username ASC LIMIT $perPage OFFSET $offset", $params);
+    } else {
+        $where = [];
+        $params = [];
+        if ($search !== '') {
+            $where[] = "(id LIKE ? OR COALESCE(username,'') LIKE ? OR COALESCE(namecustom,'') LIKE ? OR COALESCE(number,'') LIKE ?)";
+            $params = ["%$search%", "%$search%", "%$search%", "%$search%"];
+        }
+        if ($status === 'block') {
+            $where[] = "LOWER(User_Status) = 'block'";
+        } elseif ($status === 'active') {
+            $where[] = "(User_Status IS NULL OR User_Status = '' OR LOWER(User_Status) != 'block')";
+        }
+        if ($role !== '') {
+            $where[] = "agent = ?";
+            $params[] = $role;
+        }
+        $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+        $total = db_count($pdo, "SELECT COUNT(*) FROM user $whereSQL", $params);
+        $users = db_fetchAll($pdo, "SELECT * FROM user $whereSQL ORDER BY register DESC LIMIT $perPage OFFSET $offset", $params);
+    }
 } catch (Exception $e) {
     $total = 0;
     $users = [];
@@ -56,8 +59,10 @@ try {
 }
 
 $serviceCounts = [];
-foreach ($users as $u) {
-    $serviceCounts[(int) $u['id']] = panel_count_user_services($pdo, $u['id']);
+if ($view === 'users') {
+    foreach ($users as $u) {
+        $serviceCounts[(int) $u['id']] = panel_count_user_services($pdo, $u['id']);
+    }
 }
 
 $pageTitle = 'کاربران';
@@ -69,20 +74,24 @@ include __DIR__ . '/inc/layout_head.php';
 <div class="card fade-up">
     <div class="toolbar">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            <div class="toolbar-title">کاربران <small>(<?= number_format($total) ?>)</small></div>
+            <div class="toolbar-title"><?= $view === 'admins' ? 'ادمین‌ها' : 'کاربران' ?> <small>(<?= number_format($total) ?>)</small></div>
+            <a href="users.php" class="tag <?= $view === 'users' ? 'tag-info' : 'tag-plain' ?>" style="cursor:pointer">کاربران</a>
+            <a href="users.php?view=admins" class="tag <?= $view === 'admins' ? 'tag-info' : 'tag-plain' ?>" style="cursor:pointer">ادمین‌ها</a>
 
-            <?php if ($blockedCount > 0): ?>
+            <?php if ($view === 'users' && $blockedCount > 0): ?>
                 <a href="?status=block" class="tag tag-no" style="cursor:pointer"><?= $blockedCount ?> مسدود</a>
             <?php endif; ?>
-            <?php if ($agentCount > 0): ?>
+            <?php if ($view === 'users' && $agentCount > 0): ?>
                 <a href="?role=n" class="tag tag-info" style="cursor:pointer"><?= $agentCount ?> نماینده</a>
             <?php endif; ?>
-            <?php if ($agentAdvCount > 0): ?>
+            <?php if ($view === 'users' && $agentAdvCount > 0): ?>
                 <a href="?role=n2" class="tag tag-warn" style="cursor:pointer"><?= $agentAdvCount ?> نماینده پیشرفته</a>
             <?php endif; ?>
         </div>
 
         <form method="GET" id="usersForm" class="toolbar-end">
+            <input type="hidden" name="view" value="<?= htmlspecialchars($view) ?>">
+            <?php if ($view === 'users'): ?>
             <select name="status" class="select" style="width:auto"
                 onchange="document.getElementById('usersForm').submit()">
                 <option value="">همه وضعیت‌ها</option>
@@ -97,22 +106,57 @@ include __DIR__ . '/inc/layout_head.php';
                 <option value="n" <?= $role === 'n' ? 'selected' : '' ?>>نماینده</option>
                 <option value="n2" <?= $role === 'n2' ? 'selected' : '' ?>>نماینده پیشرفته</option>
             </select>
+            <?php endif; ?>
 
             <div class="search-box users-search">
                 <?= icon('search', 15) ?>
-                <input type="text" name="q" placeholder="آیدی، یوزرنیم، نام، شماره..."
+                <input type="text" name="q" placeholder="<?= $view === 'admins' ? 'آیدی، یوزرنیم یا نقش...' : 'آیدی، یوزرنیم، نام، شماره...' ?>"
                     value="<?= htmlspecialchars($search) ?>" autocomplete="off">
                 <button type="button" class="search-clear">✕</button>
                 <button type="submit" class="search-btn">جستجو</button>
             </div>
 
-            <?php if ($search || $status || $role): ?>
-                <a href="users.php" class="btn-link" style="font-size:.78rem;white-space:nowrap">پاک کردن</a>
+            <?php if ($search || ($view === 'users' && ($status || $role))): ?>
+                <a href="users.php<?= $view === 'admins' ? '?view=admins' : '' ?>" class="btn-link" style="font-size:.78rem;white-space:nowrap">پاک کردن</a>
             <?php endif; ?>
         </form>
     </div>
 
-    <?php if (empty($users)): ?>
+    <?php if ($view === 'admins'): ?>
+        <?php if (empty($users)): ?>
+            <div class="empty"><p><?= $search ? 'ادمینی یافت نشد' : 'هنوز ادمینی ثبت نشده' ?></p></div>
+        <?php else: ?>
+            <div class="data-list">
+                <?php foreach ($users as $index => $admin): ?>
+                    <div class="data-row">
+                        <div class="data-row-body">
+                            <div class="data-row-head">
+                                <div class="data-row-title">
+                                    <span class="data-row-index"><?= $offset + $index + 1 ?></span>
+                                    <strong><?= htmlspecialchars($admin['username']) ?></strong>
+                                </div>
+                                <span class="tag tag-info"><?= htmlspecialchars($admin['rule']) ?></span>
+                            </div>
+                            <div class="data-row-fields">
+                                <div class="data-field">
+                                    <span class="data-field-label">شناسه تلگرام</span>
+                                    <span class="data-field-val cm"><?= htmlspecialchars($admin['id_admin']) ?></span>
+                                </div>
+                                <div class="data-field">
+                                    <span class="data-field-label">نام کاربری پنل</span>
+                                    <span class="data-field-val cm"><?= htmlspecialchars($admin['username']) ?></span>
+                                </div>
+                                <div class="data-field">
+                                    <span class="data-field-label">نقش</span>
+                                    <span class="data-field-val"><?= htmlspecialchars($admin['rule']) ?></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    <?php elseif (empty($users)): ?>
         <div class="empty">
             <svg class="ill" viewBox="0 0 200 160" fill="none">
                 <circle cx="100" cy="60" r="40" fill="var(--sf3)" />
@@ -213,10 +257,11 @@ include __DIR__ . '/inc/layout_head.php';
     <?php endif; ?>
 
     <div class="tbl-foot">
-        <span><?= number_format($total) ?> کاربر · صفحه <?= $page ?> از <?= $totalPages ?></span>
+        <span><?= number_format($total) ?> <?= $view === 'admins' ? 'ادمین' : 'کاربر' ?> · صفحه <?= $page ?> از <?= $totalPages ?></span>
         <div class="pager">
             <?php
-            $qs = fn($p) => '?q=' . urlencode($search)
+            $qs = fn($p) => '?view=' . urlencode($view)
+                . '&q=' . urlencode($search)
                 . '&status=' . urlencode($status)
                 . '&role=' . urlencode($role)
                 . '&page=' . $p;

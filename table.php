@@ -1387,6 +1387,9 @@ try {
             name_departman VARCHAR(600) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
             text TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
             result TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+            answered_by_admin_id VARCHAR(100) NULL,
+            answered_by_admin_username VARCHAR(1000) NULL,
+            answered_at VARCHAR(200) NULL,
             time VARCHAR(200) NOT NULL,
             status ENUM('Answered','Pending','Unseen','Customerresponse','close') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
@@ -1394,6 +1397,9 @@ try {
     } else {
         addFieldToTable("support_message", "result", "0", "TEXT");
         addFieldToTable("support_message", "user_name", null, "VARCHAR(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        addFieldToTable("support_message", "answered_by_admin_id", null, "VARCHAR(100)");
+        addFieldToTable("support_message", "answered_by_admin_username", null, "VARCHAR(1000)");
+        addFieldToTable("support_message", "answered_at", null, "VARCHAR(200)");
     }
 } catch (PDOException $e) {
     file_put_contents('error_log suppeor_message', $e->getMessage());

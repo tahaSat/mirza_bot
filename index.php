@@ -3529,8 +3529,20 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
 } elseif ($user['step'] == "getextsupport") {
     $trakingdetail = select("support_message", "*", "Tracking", $user['Processing_value']);
     $time = date('Y/m/d H:i:s');
-    update("support_message", "status", "Answered", "Tracking", $user['Processing_value']);
-    update("support_message", "result", $text, "Tracking", $user['Processing_value']);
+    $replyAdmin = select("admin", "*", "id_admin", $from_id, "select");
+    $stmt = $pdo->prepare(
+        "UPDATE support_message
+         SET status = 'Answered', result = :result, answered_by_admin_id = :admin_id,
+             answered_by_admin_username = :admin_username, answered_at = :answered_at
+         WHERE Tracking = :tracking"
+    );
+    $stmt->execute([
+        ':result' => $text,
+        ':admin_id' => $from_id,
+        ':admin_username' => $replyAdmin['username'] ?? '',
+        ':answered_at' => $time,
+        ':tracking' => $user['Processing_value'],
+    ]);
     $textSendAdminToUser = "
 📩 یک پیام از سمت مدیریت برای شما ارسال گردید.
                     

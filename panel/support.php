@@ -4,6 +4,7 @@ require_once __DIR__ . '/inc/icons.php';
 require_once __DIR__ . '/inc/support_lib.php';
 require_auth();
 $pdo = panel_ensure_pdo();
+$currentAdmin = db_fetch($pdo, 'SELECT id_admin, username FROM admin WHERE username = ?', [$_SESSION['admin_user'] ?? '']);
 
 $tab = $_GET['tab'] ?? 'unanswered';
 if (!in_array($tab, ['unanswered', 'all', 'Answered', 'close'], true)) {
@@ -71,8 +72,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($result['ok']) {
                 db_query(
                     $pdo,
-                    "UPDATE support_message SET status = 'Answered', result = ? WHERE id = ?",
-                    [$reply, $ticket['id']]
+                    "UPDATE support_message
+                     SET status = 'Answered', result = ?, answered_by_admin_id = ?,
+                         answered_by_admin_username = ?, answered_at = ?
+                     WHERE id = ?",
+                    [$reply, $currentAdmin['id_admin'] ?? '', $currentAdmin['username'] ?? '', date('Y/m/d H:i:s'), $ticket['id']]
                 );
                 support_store_media($pdo, (int) $ticket['id'], 'out', $result['media'] ?? []);
                 flash('success', $result['msg']);
@@ -143,11 +147,15 @@ $conversation = $userId !== '' ? db_fetchAll(
     [$userId]
 ) : [];
 $mediaByMessage = [];
-if ($conversation) {
+if ($conversation && support_ensure_media_table($pdo)) {
     $messageIds = array_map(fn($message) => (int) $message['id'], $conversation);
-    $media = db_fetchAll($pdo, 'SELECT * FROM support_media WHERE message_id IN (' . implode(',', $messageIds) . ') ORDER BY id ASC');
-    foreach ($media as $item) {
-        $mediaByMessage[(int) $item['message_id']][$item['direction']][] = $item;
+    try {
+        $media = db_fetchAll($pdo, 'SELECT * FROM support_media WHERE message_id IN (' . implode(',', $messageIds) . ') ORDER BY id ASC');
+        foreach ($media as $item) {
+            $mediaByMessage[(int) $item['message_id']][$item['direction']][] = $item;
+        }
+    } catch (PDOException $e) {
+        error_log('Unable to load support media: ' . $e->getMessage());
     }
 }
 $ticket = $conversation[0] ?? null;
@@ -252,7 +260,7 @@ include __DIR__ . '/inc/layout_head.php';
             </div>
             <div class="support-identities">
                 <span><small>شناسه کاربر</small><b><?= htmlspecialchars($ticket['iduser']) ?></b></span>
-                <span><small>شناسه ادمین مسئول</small><b><?= htmlspecialchars($adminId) ?></b></span>
+                <span><small>شناسه ادمین دپارتمان</small><b><?= htmlspecialchars($adminId) ?></b></span>
             </div>
             <div class="support-messages">
                 <?php foreach ($conversation as $message): ?>
@@ -263,7 +271,14 @@ include __DIR__ . '/inc/layout_head.php';
                     </div>
                     <?php if (trim((string) $message['result']) !== '' || !empty($mediaByMessage[(int) $message['id']]['out'])): ?>
                         <div class="support-bubble from-admin">
-                            <small>ادمین <?= htmlspecialchars($message['idsupport']) ?></small>
+                            <?php
+                            $replyAdminName = $message['answered_by_admin_username'] ?? '';
+                            $replyAdminId = $message['answered_by_admin_id'] ?? '';
+                            ?>
+                            <small>
+                                <?= $replyAdminName !== '' ? 'ادمین ' . htmlspecialchars($replyAdminName) : 'پاسخ ادمین (قدیمی)' ?>
+                                <?= $replyAdminId !== '' ? ' · ' . htmlspecialchars($replyAdminId) : '' ?>
+                            </small>
                             <?php if (trim((string) $message['result']) !== ''): ?><div><?= nl2br(htmlspecialchars($message['result'])) ?></div><?php endif; ?>
                             <?= support_media_markup($mediaByMessage[(int) $message['id']]['out'] ?? []) ?>
                         </div>

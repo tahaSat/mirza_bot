@@ -191,6 +191,9 @@ include __DIR__ . '/inc/layout_head.php';
         <?php endif; ?>
     </section>
 
+    <?php if ($userId !== ''): ?>
+        <a class="support-sheet-backdrop" href="<?= support_inbox_url(['user_id' => null]) ?>" aria-label="بستن گفتگو"></a>
+    <?php endif; ?>
     <section class="card support-conversation">
         <?php if (!$ticket): ?>
             <div class="empty support-empty"><p>یک پیام را از فهرست انتخاب کنید.</p></div>

@@ -3137,26 +3137,64 @@ function notify_support_admins($text, $keyboard, $photo = false, $video = false,
     }
 }
 
-function support_incoming_media($photo, $photoid, $video, $videoid, $document, $fileid, $audio, $audioid, $voice, $voiceid): array
+function support_incoming_media($photo, $photoid, $video, $videoid, $document, $fileid, $audio = 0, $audioid = 0, $voice = 0, $voiceid = 0): array
 {
     $media = [];
     if ($photo && $photoid) {
-        $largest = end($photo) ?: [];
+        $largest = is_array($photo) ? (end($photo) ?: []) : [];
         $media[] = ['photo', $photoid, $largest['file_unique_id'] ?? null, 'image/jpeg', null, $largest['file_size'] ?? null];
     }
-    if ($video && $videoid) {
+    if (is_array($video) && $videoid) {
         $media[] = ['video', $videoid, $video['file_unique_id'] ?? null, $video['mime_type'] ?? null, $video['file_name'] ?? null, $video['file_size'] ?? null];
     }
-    if ($document && $fileid) {
+    if (is_array($document) && $fileid) {
         $media[] = ['document', $fileid, $document['file_unique_id'] ?? null, $document['mime_type'] ?? null, $document['file_name'] ?? null, $document['file_size'] ?? null];
     }
-    if ($audio && $audioid) {
+    if (is_array($audio) && $audioid) {
         $media[] = ['audio', $audioid, $audio['file_unique_id'] ?? null, $audio['mime_type'] ?? null, $audio['file_name'] ?? null, $audio['file_size'] ?? null];
     }
-    if ($voice && $voiceid) {
+    if (is_array($voice) && $voiceid) {
         $media[] = ['voice', $voiceid, $voice['file_unique_id'] ?? null, $voice['mime_type'] ?? 'audio/ogg', null, $voice['file_size'] ?? null];
     }
     return $media;
+}
+
+function support_add_column_if_missing(PDO $pdo, string $table, string $column, string $datatype): void
+{
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+    );
+    $stmt->execute([$table, $column]);
+    if ((int) $stmt->fetchColumn() > 0) {
+        return;
+    }
+    $pdo->exec("ALTER TABLE `$table` ADD `$column` $datatype");
+}
+
+function support_ensure_schema(PDO $pdo): bool
+{
+    static $ready = null;
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    try {
+        support_add_column_if_missing(
+            $pdo,
+            'support_message',
+            'user_name',
+            'VARCHAR(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL'
+        );
+        support_add_column_if_missing($pdo, 'support_message', 'answered_by_admin_id', 'VARCHAR(100) NULL');
+        support_add_column_if_missing($pdo, 'support_message', 'answered_by_admin_username', 'VARCHAR(1000) NULL');
+        support_add_column_if_missing($pdo, 'support_message', 'answered_at', 'VARCHAR(200) NULL');
+        support_ensure_media_table($pdo);
+        return $ready = true;
+    } catch (Throwable $e) {
+        error_log('Unable to ensure support schema: ' . $e->getMessage());
+        return $ready = false;
+    }
 }
 
 function support_ensure_media_table(PDO $pdo): bool
@@ -3167,6 +3205,7 @@ function support_ensure_media_table(PDO $pdo): bool
     }
 
     try {
+        // No FOREIGN KEY: avoids metadata locks / engine mismatches that can freeze webhook requests.
         $pdo->exec("CREATE TABLE IF NOT EXISTS support_media (
             id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             message_id INT(6) UNSIGNED NOT NULL,
@@ -3178,8 +3217,7 @@ function support_ensure_media_table(PDO $pdo): bool
             file_name VARCHAR(500) NULL,
             file_size INT UNSIGNED NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_support_media_message (message_id),
-            CONSTRAINT fk_support_media_message FOREIGN KEY (message_id) REFERENCES support_message(id) ON DELETE CASCADE
+            INDEX idx_support_media_message (message_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         return $ready = true;
     } catch (PDOException $e) {
@@ -3190,15 +3228,19 @@ function support_ensure_media_table(PDO $pdo): bool
 
 function support_store_media(PDO $pdo, int $messageId, string $direction, array $media): void
 {
-    if (!$media || !support_ensure_media_table($pdo)) {
+    if ($messageId < 1 || !$media || !support_ensure_media_table($pdo)) {
         return;
     }
-    $stmt = $pdo->prepare(
-        'INSERT INTO support_media (message_id, direction, media_type, telegram_file_id, telegram_file_unique_id, mime_type, file_name, file_size)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    );
-    foreach ($media as [$type, $fileId, $uniqueId, $mime, $fileName, $fileSize]) {
-        $stmt->execute([$messageId, $direction, $type, $fileId, $uniqueId, $mime, $fileName, $fileSize]);
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO support_media (message_id, direction, media_type, telegram_file_id, telegram_file_unique_id, mime_type, file_name, file_size)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        foreach ($media as [$type, $fileId, $uniqueId, $mime, $fileName, $fileSize]) {
+            $stmt->execute([$messageId, $direction, $type, $fileId, $uniqueId, $mime, $fileName, $fileSize]);
+        }
+    } catch (Throwable $e) {
+        error_log('support_store_media: ' . $e->getMessage());
     }
 }
 

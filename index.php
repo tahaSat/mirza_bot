@@ -3465,30 +3465,40 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
     deletemessage($from_id, $message_id);
     sendmessage($from_id, "📌 پیام خود را ارسال نمایید", $backuser, 'HTML');
     step("gettextticket", $from_id);
-} elseif ($user['step'] == "gettextticket" && ($text || $caption || $photo || $video || $document || $audio || $voice)) {
-    $userdata = json_decode($user['Processing_value'], true);
-    $departeman = select("departman", "*", "id", $userdata['iddeparteman'], "select");
-    $time = date('Y/m/d H:i:s');
-    $timejalali = jdate('Y/m/d H:i:s');
-    $randomString = bin2hex(random_bytes(4));
-    $supportText = trim($text . "\n" . $caption);
-    if ($supportText === '') {
-        $supportText = '📎 فایل پیوست شد';
-    }
-    $incomingMedia = support_incoming_media($photo, $photoid, $video, $videoid, $document, $fileid, $audio, $audioid, $voice, $voiceid);
-    $stmt = $pdo->prepare("INSERT IGNORE INTO support_message (Tracking,idsupport,iduser,user_name,name_departman,text,time,status) VALUES (:Tracking,:idsupport,:iduser,:user_name,:name_departman,:text,:time,:status)");
-    $status = "Unseen";
-    $stmt->bindParam(':Tracking', $randomString);
-    $stmt->bindParam(':idsupport', $departeman['idsupport']);
-    $stmt->bindParam(':iduser', $from_id);
-    $stmt->bindParam(':user_name', $first_name, PDO::PARAM_STR);
-    $stmt->bindParam(':name_departman', $departeman['name_departman']);
-    $stmt->bindParam(':text', $supportText, PDO::PARAM_STR);
-    $stmt->bindParam(':time', $time);
-    $stmt->bindParam(':status', $status);
-    $stmt->execute();
-    support_store_media($pdo, (int) $pdo->lastInsertId(), 'in', $incomingMedia);
-    $textsuppoer = "
+} elseif ($user['step'] == "gettextticket" && ($text || $caption || $photo || $video || $document || ($audio ?? 0) || ($voice ?? 0))) {
+    try {
+        support_ensure_schema($pdo);
+        $userdata = json_decode($user['Processing_value'], true);
+        $departeman = select("departman", "*", "id", $userdata['iddeparteman'] ?? null, "select");
+        if (!$departeman) {
+            sendmessage($from_id, "❌ دپارتمان پشتیبانی یافت نشد. دوباره تلاش کنید.", $keyboard, 'HTML');
+            step("home", $from_id);
+            return;
+        }
+        $time = date('Y/m/d H:i:s');
+        $timejalali = jdate('Y/m/d H:i:s');
+        $randomString = bin2hex(random_bytes(4));
+        $supportText = trim($text . "\n" . $caption);
+        if ($supportText === '') {
+            $supportText = '📎 فایل پیوست شد';
+        }
+        $incomingMedia = support_incoming_media($photo, $photoid, $video, $videoid, $document, $fileid, $audio ?? 0, $audioid ?? 0, $voice ?? 0, $voiceid ?? 0);
+        $stmt = $pdo->prepare("INSERT IGNORE INTO support_message (Tracking,idsupport,iduser,user_name,name_departman,text,time,status) VALUES (:Tracking,:idsupport,:iduser,:user_name,:name_departman,:text,:time,:status)");
+        $status = "Unseen";
+        $stmt->bindParam(':Tracking', $randomString);
+        $stmt->bindParam(':idsupport', $departeman['idsupport']);
+        $stmt->bindParam(':iduser', $from_id);
+        $stmt->bindParam(':user_name', $first_name, PDO::PARAM_STR);
+        $stmt->bindParam(':name_departman', $departeman['name_departman']);
+        $stmt->bindParam(':text', $supportText, PDO::PARAM_STR);
+        $stmt->bindParam(':time', $time);
+        $stmt->bindParam(':status', $status);
+        $stmt->execute();
+        $messageId = (int) $pdo->lastInsertId();
+        if ($messageId > 0) {
+            support_store_media($pdo, $messageId, 'in', $incomingMedia);
+        }
+        $textsuppoer = "
     📣 پشتیبان عزیز یک پیام از سمت کاربر برای شما ارسال گردید.
 
 آیدی عددی کاربر : <a href = \"tg://user?id=$from_id\">$from_id</a>
@@ -3498,16 +3508,21 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
 نام دپارتمان : {$departeman['name_departman']}
 
 متن پیام : $supportText";
-    $Response = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => $textbotlang['users']['support']['answermessage'], 'callback_data' => 'Responsesupport_' . $randomString],
-            ],
-        ]
-    ]);
-    notify_support_admins($textsuppoer, $Response, $photo, $video, $photoid, $videoid);
-    sendmessage($from_id, "✅ پیام شما با موفقیت ارسال و پس از بررسی به شما پاسخ داده خواهد شد.", $keyboard, 'HTML');
-    step("home", $from_id);
+        $Response = json_encode([
+            'inline_keyboard' => [
+                [
+                    ['text' => $textbotlang['users']['support']['answermessage'], 'callback_data' => 'Responsesupport_' . $randomString],
+                ],
+            ]
+        ]);
+        notify_support_admins($textsuppoer, $Response, $photo, $video, $photoid, $videoid);
+        sendmessage($from_id, "✅ پیام شما با موفقیت ارسال و پس از بررسی به شما پاسخ داده خواهد شد.", $keyboard, 'HTML');
+        step("home", $from_id);
+    } catch (Throwable $e) {
+        error_log('support gettextticket: ' . $e->getMessage());
+        sendmessage($from_id, "❌ خطایی در ثبت پیام پشتیبانی رخ داد. لطفاً دوباره تلاش کنید.", $keyboard, 'HTML');
+        step("home", $from_id);
+    }
 } elseif (preg_match('/Responsesupport_(\w+)/', $datain, $dataget)) {
     if (!in_array($from_id, $admin_ids)) {
         return;
@@ -3527,67 +3542,89 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
     update("user", "Processing_value", $idtraking, "id", $from_id);
     step("getextsupport", $from_id);
 } elseif ($user['step'] == "getextsupport") {
-    $trakingdetail = select("support_message", "*", "Tracking", $user['Processing_value']);
-    $time = date('Y/m/d H:i:s');
-    $replyAdmin = select("admin", "*", "id_admin", $from_id, "select");
-    $stmt = $pdo->prepare(
-        "UPDATE support_message
-         SET status = 'Answered', result = :result, answered_by_admin_id = :admin_id,
-             answered_by_admin_username = :admin_username, answered_at = :answered_at
-         WHERE Tracking = :tracking"
-    );
-    $stmt->execute([
-        ':result' => $text,
-        ':admin_id' => $from_id,
-        ':admin_username' => $replyAdmin['username'] ?? '',
-        ':answered_at' => $time,
-        ':tracking' => $user['Processing_value'],
-    ]);
-    $textSendAdminToUser = "
+    try {
+        support_ensure_schema($pdo);
+        $trakingdetail = select("support_message", "*", "Tracking", $user['Processing_value']);
+        if (!$trakingdetail) {
+            sendmessage($from_id, "❌ پیام پشتیبانی یافت نشد.", null, 'HTML');
+            step("home", $from_id);
+            return;
+        }
+        $time = date('Y/m/d H:i:s');
+        $replyAdmin = select("admin", "*", "id_admin", $from_id, "select");
+        $stmt = $pdo->prepare(
+            "UPDATE support_message
+             SET status = 'Answered', result = :result, answered_by_admin_id = :admin_id,
+                 answered_by_admin_username = :admin_username, answered_at = :answered_at
+             WHERE Tracking = :tracking"
+        );
+        $stmt->execute([
+            ':result' => $text,
+            ':admin_id' => $from_id,
+            ':admin_username' => $replyAdmin['username'] ?? '',
+            ':answered_at' => $time,
+            ':tracking' => $user['Processing_value'],
+        ]);
+        $textSendAdminToUser = "
 📩 یک پیام از سمت مدیریت برای شما ارسال گردید.
                     
 متن پیام : 
 $text";
-    $Response = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => $textbotlang['users']['support']['answermessage'], 'callback_data' => 'Responsesusera_' . $trakingdetail['Tracking']],
-            ],
-        ]
-    ]);
-    sendmessage($trakingdetail['iduser'], $textSendAdminToUser, $Response, 'HTML');
-    sendmessage($from_id, "پیام با موفقیت ارسال گردید", null, 'HTML');
-    step("home", $from_id);
+        $Response = json_encode([
+            'inline_keyboard' => [
+                [
+                    ['text' => $textbotlang['users']['support']['answermessage'], 'callback_data' => 'Responsesusera_' . $trakingdetail['Tracking']],
+                ],
+            ]
+        ]);
+        sendmessage($trakingdetail['iduser'], $textSendAdminToUser, $Response, 'HTML');
+        sendmessage($from_id, "پیام با موفقیت ارسال گردید", null, 'HTML');
+        step("home", $from_id);
+    } catch (Throwable $e) {
+        error_log('support getextsupport: ' . $e->getMessage());
+        sendmessage($from_id, "❌ ارسال پاسخ با خطا روبه‌رو شد. دوباره تلاش کنید.", null, 'HTML');
+        step("home", $from_id);
+    }
 } elseif (preg_match('/Responsesusera_(\w+)/', $datain, $dataget)) {
     $idtraking = $dataget[1];
     sendmessage($from_id, "📌 متن پیام خود را ارسال نمایید", $backuser, 'HTML');
     update("user", "Processing_value", $idtraking, "id", $from_id);
     step("getextuserfors", $from_id);
-} elseif ($user['step'] == "getextuserfors" && ($text || $caption || $photo || $video || $document || $audio || $voice)) {
-    $trakingdetail = select("support_message", "*", "Tracking", $user['Processing_value']);
-    step("home", $from_id);
-    $time = date('Y/m/d H:i:s');
-    $timejalali = jdate('Y/m/d H:i:s');
-    Editmessagetext($from_id, $message_id, $text_inline, json_encode(['inline_keyboard' => []]));
-    $randomString = bin2hex(random_bytes(4));
-    $supportText = trim($text . "\n" . $caption);
-    if ($supportText === '') {
-        $supportText = '📎 فایل پیوست شد';
-    }
-    $incomingMedia = support_incoming_media($photo, $photoid, $video, $videoid, $document, $fileid, $audio, $audioid, $voice, $voiceid);
-    $stmt = $pdo->prepare("INSERT IGNORE INTO support_message (Tracking,idsupport,iduser,user_name,name_departman,text,time,status) VALUES (:Tracking,:idsupport,:iduser,:user_name,:name_departman,:text,:time,:status)");
-    $status = "Customerresponse";
-    $stmt->bindParam(':Tracking', $randomString);
-    $stmt->bindParam(':idsupport', $trakingdetail['idsupport']);
-    $stmt->bindParam(':iduser', $trakingdetail['iduser']);
-    $stmt->bindParam(':user_name', $first_name, PDO::PARAM_STR);
-    $stmt->bindParam(':name_departman', $trakingdetail['name_departman']);
-    $stmt->bindParam(':text', $supportText, PDO::PARAM_STR);
-    $stmt->bindParam(':time', $time);
-    $stmt->bindParam(':status', $status);
-    $stmt->execute();
-    support_store_media($pdo, (int) $pdo->lastInsertId(), 'in', $incomingMedia);
-    $textsuppoer = "
+} elseif ($user['step'] == "getextuserfors" && ($text || $caption || $photo || $video || $document || ($audio ?? 0) || ($voice ?? 0))) {
+    try {
+        support_ensure_schema($pdo);
+        $trakingdetail = select("support_message", "*", "Tracking", $user['Processing_value']);
+        if (!$trakingdetail) {
+            sendmessage($from_id, "❌ پیام پشتیبانی یافت نشد.", null, 'HTML');
+            step("home", $from_id);
+            return;
+        }
+        step("home", $from_id);
+        $time = date('Y/m/d H:i:s');
+        $timejalali = jdate('Y/m/d H:i:s');
+        Editmessagetext($from_id, $message_id, $text_inline, json_encode(['inline_keyboard' => []]));
+        $randomString = bin2hex(random_bytes(4));
+        $supportText = trim($text . "\n" . $caption);
+        if ($supportText === '') {
+            $supportText = '📎 فایل پیوست شد';
+        }
+        $incomingMedia = support_incoming_media($photo, $photoid, $video, $videoid, $document, $fileid, $audio ?? 0, $audioid ?? 0, $voice ?? 0, $voiceid ?? 0);
+        $stmt = $pdo->prepare("INSERT IGNORE INTO support_message (Tracking,idsupport,iduser,user_name,name_departman,text,time,status) VALUES (:Tracking,:idsupport,:iduser,:user_name,:name_departman,:text,:time,:status)");
+        $status = "Customerresponse";
+        $stmt->bindParam(':Tracking', $randomString);
+        $stmt->bindParam(':idsupport', $trakingdetail['idsupport']);
+        $stmt->bindParam(':iduser', $trakingdetail['iduser']);
+        $stmt->bindParam(':user_name', $first_name, PDO::PARAM_STR);
+        $stmt->bindParam(':name_departman', $trakingdetail['name_departman']);
+        $stmt->bindParam(':text', $supportText, PDO::PARAM_STR);
+        $stmt->bindParam(':time', $time);
+        $stmt->bindParam(':status', $status);
+        $stmt->execute();
+        $messageId = (int) $pdo->lastInsertId();
+        if ($messageId > 0) {
+            support_store_media($pdo, $messageId, 'in', $incomingMedia);
+        }
+        $textsuppoer = "
     📣 پشتیبان عزیز یک پیام از سمت کاربر برای شما ارسال گردید.
 
 آیدی عددی کاربر : <a href = \"tg://user?id=$from_id\">$from_id</a>
@@ -3597,15 +3634,20 @@ $text";
 نام دپارتمان : {$trakingdetail['name_departman']}
 
 متن پیام : $supportText";
-    $Response = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => $textbotlang['users']['support']['answermessage'], 'callback_data' => 'Responsesupport_' . $randomString],
-            ],
-        ]
-    ]);
-    notify_support_admins($textsuppoer, $Response, $photo, $video, $photoid, $videoid);
-    sendmessage($from_id, "✅  پیام شما برای این درخواست با موفقیت ارسال گردید پس از بررسی پاسخ داده خواهد شد.", null, 'HTML');
+        $Response = json_encode([
+            'inline_keyboard' => [
+                [
+                    ['text' => $textbotlang['users']['support']['answermessage'], 'callback_data' => 'Responsesupport_' . $randomString],
+                ],
+            ]
+        ]);
+        notify_support_admins($textsuppoer, $Response, $photo, $video, $photoid, $videoid);
+        sendmessage($from_id, "✅  پیام شما برای این درخواست با موفقیت ارسال گردید پس از بررسی پاسخ داده خواهد شد.", null, 'HTML');
+    } catch (Throwable $e) {
+        error_log('support getextuserfors: ' . $e->getMessage());
+        sendmessage($from_id, "❌ خطایی در ثبت پیام پشتیبانی رخ داد. لطفاً دوباره تلاش کنید.", null, 'HTML');
+        step("home", $from_id);
+    }
 } elseif ($datain == "fqQuestions") {
     sendmessage($from_id, $datatextbot['text_dec_fq'], null, 'HTML');
 } elseif (user_text_matches_main_button($text, 'accountwallet', $datatextbot) || $datain == "account" || $text == "/wallet") {

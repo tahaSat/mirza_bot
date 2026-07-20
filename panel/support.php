@@ -4,6 +4,7 @@ require_once __DIR__ . '/inc/icons.php';
 require_once __DIR__ . '/inc/support_lib.php';
 require_auth();
 $pdo = panel_ensure_pdo();
+support_ensure_schema($pdo);
 $currentAdmin = db_fetch($pdo, 'SELECT id_admin, username FROM admin WHERE username = ?', [$_SESSION['admin_user'] ?? '']);
 
 $tab = $_GET['tab'] ?? 'unanswered';

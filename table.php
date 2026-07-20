@@ -1420,8 +1420,7 @@ try {
             file_name VARCHAR(500) NULL,
             file_size INT UNSIGNED NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_support_media_message (message_id),
-            CONSTRAINT fk_support_media_message FOREIGN KEY (message_id) REFERENCES support_message(id) ON DELETE CASCADE
+            INDEX idx_support_media_message (message_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         $stmt->execute();
     }

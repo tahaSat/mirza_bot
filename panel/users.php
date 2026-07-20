@@ -55,6 +55,11 @@ try {
 } catch (Exception $e) {
 }
 
+$serviceCounts = [];
+foreach ($users as $u) {
+    $serviceCounts[(int) $u['id']] = panel_count_user_services($pdo, $u['id']);
+}
+
 $pageTitle = 'کاربران';
 $pageLede = 'فهرست کاربران ربات.';
 $activeNav = 'users';
@@ -93,9 +98,9 @@ include __DIR__ . '/inc/layout_head.php';
                 <option value="n2" <?= $role === 'n2' ? 'selected' : '' ?>>نماینده پیشرفته</option>
             </select>
 
-            <div class="search-box" style="min-width:260px">
+            <div class="search-box users-search">
                 <?= icon('search', 15) ?>
-                <input type="text" name="q" placeholder="آیدی، یوزرنیم، نام سفارشی، شماره..."
+                <input type="text" name="q" placeholder="آیدی، یوزرنیم، نام، شماره..."
                     value="<?= htmlspecialchars($search) ?>" autocomplete="off">
                 <button type="button" class="search-clear">✕</button>
                 <button type="submit" class="search-btn">جستجو</button>
@@ -107,39 +112,90 @@ include __DIR__ . '/inc/layout_head.php';
         </form>
     </div>
 
-    <div class="tbl-wrap">
-        <table class="tbl-xl">
-            <thead>
-                <tr>
-                    <th style="width:36px">#</th>
-                    <th>آیدی</th>
-                    <th>یوزرنیم</th>
-                    <th>نام سفارشی</th>
-                    <th>شماره</th>
-                    <th>موجودی</th>
-                    <th>امتیاز</th>
-                    <th>سرویس</th>
-                    <th>ثبت‌نام</th>
-                    <th>گروه</th>
-                    <th style="width:120px"></th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if (empty($users)): ?>
+    <?php if (empty($users)): ?>
+        <div class="empty">
+            <svg class="ill" viewBox="0 0 200 160" fill="none">
+                <circle cx="100" cy="60" r="40" fill="var(--sf3)" />
+                <circle cx="100" cy="47" r="18" fill="var(--bds)" />
+                <path d="M62 105 Q100 88 138 105" stroke="var(--bds)" stroke-width="8"
+                    stroke-linecap="round" fill="none" />
+            </svg>
+            <p><?= $search ? 'نتیجه‌ای یافت نشد' : 'هنوز کاربری ثبت نشده' ?></p>
+        </div>
+    <?php else: ?>
+        <div class="m-list users-m-list">
+            <?php
+            foreach ($users as $u):
+                $agent = $u['agent'] ?? 'f';
+                $isBlocked = panel_user_is_blocked($u);
+                $name = $u['namecustom'] ?? '';
+                if ($name === 'none')
+                    $name = '';
+                $uname = $u['username'] ?? '';
+                if ($uname === 'none')
+                    $uname = '';
+                $serviceCount = $serviceCounts[(int) $u['id']] ?? 0;
+                $displayName = $name ?: ($uname ? '@' . $uname : '#' . $u['id']);
+                ?>
+                <div class="m-row">
+                    <a href="user.php?id=<?= (int) $u['id'] ?>" class="m-row-main">
+                        <div class="m-row-top">
+                            <div class="m-row-title"><?= htmlspecialchars($displayName) ?></div>
+                            <?php if ($isBlocked): ?>
+                                <span class="tag tag-no">مسدود</span>
+                            <?php else: ?>
+                                <span class="tag <?= user_role_tag($agent) ?>"><?= user_role_label($agent) ?></span>
+                            <?php endif; ?>
+                        </div>
+                        <div class="m-row-meta">
+                            <span class="cm"><?= htmlspecialchars($u['id']) ?></span>
+                            <?php if ($uname && $name): ?>
+                                <span class="cm" style="color:var(--ac)">@<?= htmlspecialchars($uname) ?></span>
+                            <?php endif; ?>
+                            <span class="cn"><?= number_format((int) ($u['Balance'] ?? 0)) ?> ت</span>
+                            <?php if ($serviceCount > 0): ?>
+                                <span><?= number_format($serviceCount) ?> سرویس</span>
+                            <?php endif; ?>
+                        </div>
+                    </a>
+                    <div class="m-row-actions">
+                        <a href="user.php?id=<?= (int) $u['id'] ?>" class="btn btn-ghost btn-sm btn-icon"
+                            title="مدیریت کاربر"><?= icon('eye', 14) ?></a>
+                        <a href="user_services.php?id=<?= (int) $u['id'] ?>" class="btn btn-ghost btn-sm btn-icon"
+                            title="سرویس‌های کاربر"><?= icon('package', 14) ?></a>
+                        <?php if ($isBlocked): ?>
+                            <a href="user_action.php?action=unblock&id=<?= (int) $u['id'] ?>&_csrf=<?= csrf_token() ?>&back=users.php"
+                                class="btn btn-ok btn-sm btn-icon" title="رفع مسدودیت"
+                                data-confirm="رفع مسدودیت کاربر <?= htmlspecialchars($name ?: $u['id']) ?>؟"><?= icon('check', 13) ?></a>
+                        <?php else: ?>
+                            <a href="user_action.php?action=block&id=<?= (int) $u['id'] ?>&_csrf=<?= csrf_token() ?>&back=users.php"
+                                class="btn btn-no btn-sm btn-icon" title="مسدود کردن"
+                                data-confirm="مسدود کردن کاربر <?= htmlspecialchars($name ?: $u['id']) ?>؟"><?= icon('block', 13) ?></a>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+
+        <div class="tbl-wrap users-tbl">
+            <table class="tbl-xl">
+                <thead>
                     <tr>
-                        <td colspan="11">
-                            <div class="empty">
-                                <svg class="ill" viewBox="0 0 200 160" fill="none">
-                                    <circle cx="100" cy="60" r="40" fill="var(--sf3)" />
-                                    <circle cx="100" cy="47" r="18" fill="var(--bds)" />
-                                    <path d="M62 105 Q100 88 138 105" stroke="var(--bds)" stroke-width="8"
-                                        stroke-linecap="round" fill="none" />
-                                </svg>
-                                <p><?= $search ? 'نتیجه‌ای یافت نشد' : 'هنوز کاربری ثبت نشده' ?></p>
-                            </div>
-                        </td>
+                        <th style="width:36px">#</th>
+                        <th>آیدی</th>
+                        <th>یوزرنیم</th>
+                        <th>نام سفارشی</th>
+                        <th data-m="0">شماره</th>
+                        <th>موجودی</th>
+                        <th data-m="0">امتیاز</th>
+                        <th>سرویس</th>
+                        <th data-m="0">ثبت‌نام</th>
+                        <th>گروه</th>
+                        <th style="width:120px"></th>
                     </tr>
-                <?php else:
+                </thead>
+                <tbody>
+                    <?php
                     $i = $offset + 1;
                     foreach ($users as $u):
                         $agent = $u['agent'] ?? 'f';
@@ -150,7 +206,7 @@ include __DIR__ . '/inc/layout_head.php';
                         $uname = $u['username'] ?? '';
                         if ($uname === 'none')
                             $uname = '';
-                        $serviceCount = panel_count_user_services($pdo, $u['id']);
+                        $serviceCount = $serviceCounts[(int) $u['id']] ?? 0;
                         ?>
                         <tr>
                             <td class="cf"><?= $i++ ?></td>
@@ -163,13 +219,13 @@ include __DIR__ . '/inc/layout_head.php';
                                 <?php endif; ?>
                             </td>
                             <td class="cs"><?= $name ? htmlspecialchars(trunc($name, 20)) : '<span class="cf">—</span>' ?></td>
-                            <td class="cm cf">
+                            <td class="cm cf" data-m="0">
                                 <?= (!empty($u['number']) && $u['number'] !== 'none') ? htmlspecialchars($u['number']) : '—' ?>
                             </td>
                             <td class="cn cs" style="white-space:nowrap">
                                 <?= number_format((int) ($u['Balance'] ?? 0)) ?> <span class="cf">ت</span>
                             </td>
-                            <td class="cn">
+                            <td class="cn" data-m="0">
                                 <?= (int) ($u['score'] ?? 0) > 0
                                     ? '<span style="color:var(--warn)">⭐ ' . number_format((int) ($u['score'] ?? 0)) . '</span>'
                                     : '<span class="cf">—</span>' ?>
@@ -183,7 +239,7 @@ include __DIR__ . '/inc/layout_head.php';
                                     <span class="cf">—</span>
                                 <?php endif; ?>
                             </td>
-                            <td class="cf"><?= safe_date($u['register'] ?? null) ?></td>
+                            <td class="cf" data-m="0"><?= safe_date($u['register'] ?? null) ?></td>
                             <td>
                                 <?php if ($isBlocked): ?>
                                     <span class="tag tag-no">مسدود</span>
@@ -219,10 +275,11 @@ include __DIR__ . '/inc/layout_head.php';
                                 </div>
                             </td>
                         </tr>
-                    <?php endforeach; endif; ?>
-            </tbody>
-        </table>
-    </div>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    <?php endif; ?>
 
     <div class="tbl-foot">
         <span><?= number_format($total) ?> کاربر · صفحه <?= $page ?> از <?= $totalPages ?></span>

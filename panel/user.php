@@ -218,11 +218,13 @@ include __DIR__ . '/inc/layout_head.php';
             </div>
         </div>
 
-        <div class="card fade-up d1">
-            <div class="card-head">
-                <div class="card-title">عملیات مدیریت</div>
-            </div>
-            <div style="padding:12px;display:flex;flex-direction:column;gap:6px">
+        <div class="card fade-up d1 u-actions-card">
+            <details class="u-actions-details" open>
+                <summary class="card-head u-actions-summary">
+                    <div class="card-title">عملیات مدیریت</div>
+                    <span class="u-actions-chevron" aria-hidden="true">▾</span>
+                </summary>
+                <div class="u-actions-list">
                 <a href="user_services.php?id=<?= $id ?>" class="btn btn-primary btn-sm" style="justify-content:center">
                     <?= icon('package', 13) ?> سرویس‌های کاربر (<?= $activeServiceCount ?>)
                 </a>
@@ -244,7 +246,7 @@ include __DIR__ . '/inc/layout_head.php';
                 <button class="btn btn-ghost btn-sm" style="justify-content:center" onclick="openModal('testLimitModal')">
                     ➕ محدودیت اکانت تست
                 </button>
-                <div style="height:1px;background:var(--bd);margin:2px 0"></div>
+                <div class="u-actions-sep"></div>
                 <?php if ($isBlocked): ?>
                     <a href="user_action.php?action=unblock&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
                         class="btn btn-ok btn-sm" style="justify-content:center" data-confirm="رفع مسدودیت این کاربر؟">
@@ -299,67 +301,73 @@ include __DIR__ . '/inc/layout_head.php';
                         سقف خرید نماینده
                     </button>
                 <?php endif; ?>
-            </div>
+                </div>
+            </details>
         </div>
 
     </div>
 
     <div class="u-main-col" style="display:flex;flex-direction:column;gap:16px">
 
-        <div class="card fade-up">
-            <div class="card-head">
-                <div class="u-tab-bar" style="display:flex;gap:4px;background:var(--sf2);border-radius:7px;padding:3px">
-                    <button class="btn btn-sm" id="tabServices" onclick="switchTab('services')"
-                        style="background:var(--ac);color:#fff;border-radius:5px;font-size:.75rem">
+        <div class="card fade-up u-tabs-card">
+            <div class="card-head u-tabs-head">
+                <div class="u-tab-bar">
+                    <button class="btn btn-sm u-tab active" id="tabServices" onclick="switchTab('services')">
                         سرویس‌ها
                         <?php if ($activeServiceCount > 0): ?>
-                            <span style="background:rgba(255,255,255,.2);padding:1px 6px;border-radius:99px;font-size:.65rem;margin-right:4px"><?= $activeServiceCount ?></span>
+                            <span class="u-tab-badge"><?= $activeServiceCount ?></span>
                         <?php endif; ?>
                     </button>
-                    <button class="btn btn-sm" id="tabOrders" onclick="switchTab('orders')"
-                        style="background:transparent;color:var(--mute);border-radius:5px;font-size:.75rem;border:none">
+                    <button class="btn btn-sm u-tab" id="tabOrders" onclick="switchTab('orders')">
                         همه سفارشات
                     </button>
-                    <button class="btn btn-sm" id="tabPay" onclick="switchTab('pay')"
-                        style="background:transparent;color:var(--mute);border-radius:5px;font-size:.75rem;border:none">
+                    <button class="btn btn-sm u-tab" id="tabPay" onclick="switchTab('pay')">
                         تراکنش‌ها
                     </button>
                     <?php if (count($referrals) > 0): ?>
-                        <button class="btn btn-sm" id="tabRefs" onclick="switchTab('refs')"
-                            style="background:transparent;color:var(--mute);border-radius:5px;font-size:.75rem;border:none">
+                        <button class="btn btn-sm u-tab" id="tabRefs" onclick="switchTab('refs')">
                             زیرمجموعه
-                            <span
-                                style="background:var(--acs);color:var(--ac);padding:1px 6px;border-radius:99px;font-size:.65rem">
-                                <?= count($referrals) ?>
-                            </span>
+                            <span class="u-tab-badge muted"><?= count($referrals) ?></span>
                         </button>
                     <?php endif; ?>
                 </div>
-                <a href="user_services.php?id=<?= $id ?>" class="btn-link" style="font-size:.75rem">همه سرویس‌ها ←</a>
+                <a href="user_services.php?id=<?= $id ?>" class="btn-link u-tabs-all">همه سرویس‌ها ←</a>
             </div>
 
             <div id="paneServices">
-                <div class="tbl-wrap">
-                    <table class="tbl-lg">
-                        <thead>
-                            <tr>
-                                <th>نام کاربری</th>
-                                <th>محصول</th>
-                                <th>پنل</th>
-                                <th>وضعیت</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (empty($activeServicesList)): ?>
+                <?php if (empty($activeServicesList)): ?>
+                    <div class="empty" style="padding:30px"><p>سرویس فعالی ثبت نشده</p></div>
+                <?php else: ?>
+                    <div class="m-list">
+                        <?php foreach ($activeServicesList as $svc):
+                            [$tagClass, $label] = panel_invoice_status_label(panel_invoice_get_status($svc));
+                            ?>
+                            <div class="m-row">
+                                <div class="m-row-main">
+                                    <div class="m-row-top">
+                                        <div class="m-row-title cm" style="color:var(--ac)"><?= htmlspecialchars(panel_service_button_label($svc)) ?></div>
+                                        <span class="tag <?= $tagClass ?>"><?= $label ?></span>
+                                    </div>
+                                    <div class="m-row-meta">
+                                        <span><?= htmlspecialchars(trunc($svc['name_product'] ?? '—', 28)) ?></span>
+                                        <span class="cf"><?= htmlspecialchars($svc['Service_location'] ?? '—') ?></span>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="tbl-wrap u-d-table">
+                        <table class="tbl-lg">
+                            <thead>
                                 <tr>
-                                    <td colspan="4">
-                                        <div class="empty" style="padding:30px">
-                                            <p>سرویس فعالی ثبت نشده</p>
-                                        </div>
-                                    </td>
+                                    <th>نام کاربری</th>
+                                    <th>محصول</th>
+                                    <th>پنل</th>
+                                    <th>وضعیت</th>
                                 </tr>
-                            <?php else:
-                                foreach ($activeServicesList as $svc):
+                            </thead>
+                            <tbody>
+                                <?php foreach ($activeServicesList as $svc):
                                     [$tagClass, $label] = panel_invoice_status_label(panel_invoice_get_status($svc));
                                     ?>
                                     <tr>
@@ -370,36 +378,51 @@ include __DIR__ . '/inc/layout_head.php';
                                         <td class="cf"><?= htmlspecialchars($svc['Service_location'] ?? '—') ?></td>
                                         <td><span class="tag <?= $tagClass ?>"><?= $label ?></span></td>
                                     </tr>
-                                <?php endforeach; endif; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
             </div>
 
             <div id="paneOrders" style="display:none">
-                <div class="tbl-wrap">
-                    <table class="tbl-lg">
-                        <thead>
-                            <tr>
-                                <th>محصول</th>
-                                <th>قیمت</th>
-                                <th>حجم</th>
-                                <th>تاریخ</th>
-                                <th>وضعیت</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (empty($invoices)): ?>
+                <?php if (empty($invoices)): ?>
+                    <div class="empty" style="padding:30px"><p>سفارشی ثبت نشده</p></div>
+                <?php else:
+                    $statusMap = panel_invoice_status_map();
+                    ?>
+                    <div class="m-list">
+                        <?php foreach ($invoices as $inv):
+                            [$tagClass, $label] = $statusMap[panel_invoice_get_status($inv)] ?? ['tag-plain', panel_invoice_get_status($inv) ?: '—'];
+                            ?>
+                            <div class="m-row">
+                                <div class="m-row-main">
+                                    <div class="m-row-top">
+                                        <div class="m-row-title"><?= htmlspecialchars($inv['name_product'] ?? '—') ?></div>
+                                        <span class="tag <?= $tagClass ?>"><?= $label ?></span>
+                                    </div>
+                                    <div class="m-row-meta">
+                                        <span class="cn"><?= number_format((int) ($inv['price_product'] ?? 0)) ?> ت</span>
+                                        <span><?= htmlspecialchars($inv['Volume'] ?? '—') ?></span>
+                                        <span class="cf"><?= safe_date($inv['time_sell'] ?? null, 'Y/m/d') ?></span>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="tbl-wrap u-d-table">
+                        <table class="tbl-lg">
+                            <thead>
                                 <tr>
-                                    <td colspan="5">
-                                        <div class="empty" style="padding:30px">
-                                            <p>سفارشی ثبت نشده</p>
-                                        </div>
-                                    </td>
+                                    <th>محصول</th>
+                                    <th>قیمت</th>
+                                    <th>حجم</th>
+                                    <th>تاریخ</th>
+                                    <th>وضعیت</th>
                                 </tr>
-                            <?php else:
-                                $statusMap = panel_invoice_status_map();
-                                foreach ($invoices as $inv):
+                            </thead>
+                            <tbody>
+                                <?php foreach ($invoices as $inv):
                                     [$tagClass, $label] = $statusMap[panel_invoice_get_status($inv)] ?? ['tag-plain', panel_invoice_get_status($inv) ?: '—'];
                                     ?>
                                     <tr>
@@ -416,57 +439,73 @@ include __DIR__ . '/inc/layout_head.php';
                                         </td>
                                         <td><span class="tag <?= $tagClass ?>"><?= $label ?></span></td>
                                     </tr>
-                                <?php endforeach; endif; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
             </div>
 
             <div id="panePay" style="display:none">
-                <div class="tbl-wrap">
-                    <table class="tbl-md">
-                        <thead>
-                            <tr>
-                                <th>مبلغ</th>
-                                <th>روش</th>
-                                <th>تاریخ</th>
-                                <th>وضعیت</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (empty($payments)): ?>
+                <?php if (empty($payments)): ?>
+                    <div class="empty" style="padding:30px"><p>تراکنشی ثبت نشده</p></div>
+                <?php else:
+                    $methodLabels = [
+                        'cart to cart' => 'کارت→کارت',
+                        'add balance by admin' => 'افزایش ادمین',
+                        'low balance by admin' => 'کسر ادمین',
+                        'zarinpal' => 'زرین‌پال',
+                        'aqayepardakht' => 'آقای پرداخت',
+                        'plisio' => 'Plisio',
+                        'nowpayment' => 'NowPayment',
+                        'Star Telegram' => 'استار تلگرام',
+                        'Currency Rial 1' => 'ریالی ۱',
+                        'Currency Rial tow' => 'ریالی ۲',
+                        'Currency Rial 3' => 'ریالی ۳',
+                        'arze digital offline' => 'ارز دیجیتال',
+                        'tetraminator' => 'Tetraminator',
+                    ];
+                    $payStatusMap = [
+                        'paid' => ['tag-ok', 'موفق'],
+                        'Unpaid' => ['tag-no', 'ناموفق'],
+                        'expire' => ['tag-plain', 'منقضی'],
+                        'reject' => ['tag-no', 'رد'],
+                        'waiting' => ['tag-warn', 'در انتظار'],
+                        'pending' => ['tag-warn', 'در انتظار'],
+                    ];
+                    ?>
+                    <div class="m-list">
+                        <?php foreach ($payments as $p):
+                            $payStatus = $p['payment_Status'] ?? '';
+                            [$tagClass, $label] = $payStatusMap[$payStatus] ?? ['tag-plain', $payStatus ?: '—'];
+                            $method = $methodLabels[$p['Payment_Method'] ?? ''] ?? ($p['Payment_Method'] ?? '—');
+                            ?>
+                            <div class="m-row">
+                                <div class="m-row-main">
+                                    <div class="m-row-top">
+                                        <div class="m-row-title cn"><?= number_format((int) ($p['price'] ?? 0)) ?> ت</div>
+                                        <span class="tag <?= $tagClass ?>"><?= $label ?></span>
+                                    </div>
+                                    <div class="m-row-meta">
+                                        <span><?= htmlspecialchars($method) ?></span>
+                                        <span class="cf"><?= safe_date($p['time'] ?? null, 'Y/m/d H:i') ?></span>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="tbl-wrap u-d-table">
+                        <table class="tbl-md">
+                            <thead>
                                 <tr>
-                                    <td colspan="4">
-                                        <div class="empty" style="padding:30px">
-                                            <p>تراکنشی ثبت نشده</p>
-                                        </div>
-                                    </td>
+                                    <th>مبلغ</th>
+                                    <th>روش</th>
+                                    <th>تاریخ</th>
+                                    <th>وضعیت</th>
                                 </tr>
-                            <?php else:
-                                $methodLabels = [
-                                    'cart to cart' => 'کارت→کارت',
-                                    'add balance by admin' => 'افزایش ادمین',
-                                    'low balance by admin' => 'کسر ادمین',
-                                    'zarinpal' => 'زرین‌پال',
-                                    'aqayepardakht' => 'آقای پرداخت',
-                                    'plisio' => 'Plisio',
-                                    'nowpayment' => 'NowPayment',
-                                    'Star Telegram' => 'استار تلگرام',
-                                    'Currency Rial 1' => 'ریالی ۱',
-                                    'Currency Rial tow' => 'ریالی ۲',
-                                    'Currency Rial 3' => 'ریالی ۳',
-                                    'arze digital offline' => 'ارز دیجیتال',
-                                    'tetraminator' => 'Tetraminator',
-                                ];
-                                $payStatusMap = [
-                                    'paid' => ['tag-ok', 'موفق'],
-                                    'Unpaid' => ['tag-no', 'ناموفق'],
-                                    'expire' => ['tag-plain', 'منقضی'],
-                                    'reject' => ['tag-no', 'رد'],
-                                    'waiting' => ['tag-warn', 'در انتظار'],
-                                    'pending' => ['tag-warn', 'در انتظار'],
-                                ];
-                                foreach ($payments as $p):
+                            </thead>
+                            <tbody>
+                                <?php foreach ($payments as $p):
                                     $payStatus = $p['payment_Status'] ?? '';
                                     [$tagClass, $label] = $payStatusMap[$payStatus] ?? ['tag-plain', $payStatus ?: '—'];
                                     $method = $methodLabels[$p['Payment_Method'] ?? ''] ?? ($p['Payment_Method'] ?? '—');
@@ -481,15 +520,42 @@ include __DIR__ . '/inc/layout_head.php';
                                         </td>
                                         <td><span class="tag <?= $tagClass ?>"><?= $label ?></span></td>
                                     </tr>
-                                <?php endforeach; endif; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
             </div>
 
             <?php if (count($referrals) > 0): ?>
                 <div id="paneRefs" style="display:none">
-                    <div class="tbl-wrap">
+                    <div class="m-list">
+                        <?php foreach ($referrals as $ref):
+                            $refName = $ref['namecustom'] ?? '';
+                            if ($refName === 'none')
+                                $refName = '';
+                            $refUname = $ref['username'] ?? '';
+                            if ($refUname === 'none')
+                                $refUname = '';
+                            $refAgent = $ref['agent'] ?? 'f';
+                            $refDisplay = $refName ?: ($refUname ? '@' . $refUname : '#' . $ref['id']);
+                            ?>
+                            <div class="m-row">
+                                <a href="user.php?id=<?= (int) $ref['id'] ?>" class="m-row-main">
+                                    <div class="m-row-top">
+                                        <div class="m-row-title"><?= htmlspecialchars($refDisplay) ?></div>
+                                        <span class="tag <?= user_role_tag($refAgent) ?>"><?= user_role_label($refAgent) ?></span>
+                                    </div>
+                                    <div class="m-row-meta">
+                                        <span class="cm"><?= htmlspecialchars($ref['id']) ?></span>
+                                        <span class="cn"><?= number_format((int) ($ref['Balance'] ?? 0)) ?> ت</span>
+                                        <span class="cf"><?= safe_date($ref['register'] ?? null, 'm/d') ?></span>
+                                    </div>
+                                </a>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="tbl-wrap u-d-table">
                         <table class="tbl-md">
                             <thead>
                                 <tr>

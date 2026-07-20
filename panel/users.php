@@ -123,8 +123,9 @@ include __DIR__ . '/inc/layout_head.php';
             <p><?= $search ? 'نتیجه‌ای یافت نشد' : 'هنوز کاربری ثبت نشده' ?></p>
         </div>
     <?php else: ?>
-        <div class="m-list users-m-list">
+        <div class="data-list">
             <?php
+            $i = $offset + 1;
             foreach ($users as $u):
                 $agent = $u['agent'] ?? 'f';
                 $isBlocked = panel_user_is_blocked($u);
@@ -135,30 +136,60 @@ include __DIR__ . '/inc/layout_head.php';
                 if ($uname === 'none')
                     $uname = '';
                 $serviceCount = $serviceCounts[(int) $u['id']] ?? 0;
-                $displayName = $name ?: ($uname ? '@' . $uname : '#' . $u['id']);
+                $displayName = $name ?: ($uname ? '@' . $uname : 'کاربر #' . $u['id']);
+                $phone = (!empty($u['number']) && $u['number'] !== 'none') ? $u['number'] : '';
                 ?>
-                <div class="m-row">
-                    <a href="user.php?id=<?= (int) $u['id'] ?>" class="m-row-main">
-                        <div class="m-row-top">
-                            <div class="m-row-title"><?= htmlspecialchars($displayName) ?></div>
+                <div class="data-row">
+                    <div class="data-row-body">
+                        <div class="data-row-head">
+                            <div class="data-row-title">
+                                <span class="data-row-index"><?= $i++ ?></span>
+                                <a href="user.php?id=<?= (int) $u['id'] ?>"><?= htmlspecialchars($displayName) ?></a>
+                            </div>
                             <?php if ($isBlocked): ?>
                                 <span class="tag tag-no">مسدود</span>
                             <?php else: ?>
                                 <span class="tag <?= user_role_tag($agent) ?>"><?= user_role_label($agent) ?></span>
                             <?php endif; ?>
                         </div>
-                        <div class="m-row-meta">
-                            <span class="cm"><?= htmlspecialchars($u['id']) ?></span>
-                            <?php if ($uname && $name): ?>
-                                <span class="cm" style="color:var(--ac)">@<?= htmlspecialchars($uname) ?></span>
+                        <div class="data-row-fields">
+                            <div class="data-field">
+                                <span class="data-field-label">آیدی</span>
+                                <span class="data-field-val cm"><?= htmlspecialchars($u['id']) ?></span>
+                            </div>
+                            <?php if ($uname): ?>
+                                <div class="data-field">
+                                    <span class="data-field-label">یوزرنیم</span>
+                                    <span class="data-field-val cm" style="color:var(--ac)">@<?= htmlspecialchars($uname) ?></span>
+                                </div>
                             <?php endif; ?>
-                            <span class="cn"><?= number_format((int) ($u['Balance'] ?? 0)) ?> ت</span>
-                            <?php if ($serviceCount > 0): ?>
-                                <span><?= number_format($serviceCount) ?> سرویس</span>
+                            <?php if ($phone): ?>
+                                <div class="data-field">
+                                    <span class="data-field-label">شماره</span>
+                                    <span class="data-field-val cm"><?= htmlspecialchars($phone) ?></span>
+                                </div>
                             <?php endif; ?>
+                            <div class="data-field">
+                                <span class="data-field-label">موجودی</span>
+                                <span class="data-field-val cn"><?= number_format((int) ($u['Balance'] ?? 0)) ?> ت</span>
+                            </div>
+                            <div class="data-field">
+                                <span class="data-field-label">سرویس</span>
+                                <span class="data-field-val">
+                                    <?php if ($serviceCount > 0): ?>
+                                        <a href="user_services.php?id=<?= (int) $u['id'] ?>"><?= number_format($serviceCount) ?></a>
+                                    <?php else: ?>
+                                        —
+                                    <?php endif; ?>
+                                </span>
+                            </div>
+                            <div class="data-field">
+                                <span class="data-field-label">ثبت‌نام</span>
+                                <span class="data-field-val"><?= safe_date($u['register'] ?? null) ?></span>
+                            </div>
                         </div>
-                    </a>
-                    <div class="m-row-actions">
+                    </div>
+                    <div class="data-row-actions">
                         <a href="user.php?id=<?= (int) $u['id'] ?>" class="btn btn-ghost btn-sm btn-icon"
                             title="مدیریت کاربر"><?= icon('eye', 14) ?></a>
                         <a href="user_services.php?id=<?= (int) $u['id'] ?>" class="btn btn-ghost btn-sm btn-icon"
@@ -175,109 +206,6 @@ include __DIR__ . '/inc/layout_head.php';
                     </div>
                 </div>
             <?php endforeach; ?>
-        </div>
-
-        <div class="tbl-wrap users-tbl">
-            <table class="tbl-xl">
-                <thead>
-                    <tr>
-                        <th style="width:36px">#</th>
-                        <th>آیدی</th>
-                        <th>یوزرنیم</th>
-                        <th>نام سفارشی</th>
-                        <th data-m="0">شماره</th>
-                        <th>موجودی</th>
-                        <th data-m="0">امتیاز</th>
-                        <th>سرویس</th>
-                        <th data-m="0">ثبت‌نام</th>
-                        <th>گروه</th>
-                        <th style="width:120px"></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php
-                    $i = $offset + 1;
-                    foreach ($users as $u):
-                        $agent = $u['agent'] ?? 'f';
-                        $isBlocked = panel_user_is_blocked($u);
-                        $name = $u['namecustom'] ?? '';
-                        if ($name === 'none')
-                            $name = '';
-                        $uname = $u['username'] ?? '';
-                        if ($uname === 'none')
-                            $uname = '';
-                        $serviceCount = $serviceCounts[(int) $u['id']] ?? 0;
-                        ?>
-                        <tr>
-                            <td class="cf"><?= $i++ ?></td>
-                            <td class="cm"><?= htmlspecialchars($u['id']) ?></td>
-                            <td>
-                                <?php if ($uname): ?>
-                                    <span class="cm" style="color:var(--ac)">@<?= htmlspecialchars($uname) ?></span>
-                                <?php else: ?>
-                                    <span class="cf">—</span>
-                                <?php endif; ?>
-                            </td>
-                            <td class="cs"><?= $name ? htmlspecialchars(trunc($name, 20)) : '<span class="cf">—</span>' ?></td>
-                            <td class="cm cf" data-m="0">
-                                <?= (!empty($u['number']) && $u['number'] !== 'none') ? htmlspecialchars($u['number']) : '—' ?>
-                            </td>
-                            <td class="cn cs" style="white-space:nowrap">
-                                <?= number_format((int) ($u['Balance'] ?? 0)) ?> <span class="cf">ت</span>
-                            </td>
-                            <td class="cn" data-m="0">
-                                <?= (int) ($u['score'] ?? 0) > 0
-                                    ? '<span style="color:var(--warn)">⭐ ' . number_format((int) ($u['score'] ?? 0)) . '</span>'
-                                    : '<span class="cf">—</span>' ?>
-                            </td>
-                            <td class="cn">
-                                <?php if ($serviceCount > 0): ?>
-                                    <a href="user_services.php?id=<?= (int) $u['id'] ?>" class="tag tag-info" style="cursor:pointer">
-                                        <?= number_format($serviceCount) ?> سرویس
-                                    </a>
-                                <?php else: ?>
-                                    <span class="cf">—</span>
-                                <?php endif; ?>
-                            </td>
-                            <td class="cf" data-m="0"><?= safe_date($u['register'] ?? null) ?></td>
-                            <td>
-                                <?php if ($isBlocked): ?>
-                                    <span class="tag tag-no">مسدود</span>
-                                <?php else: ?>
-                                    <span class="tag <?= user_role_tag($agent) ?>">
-                                        <?= user_role_label($agent) ?>
-                                    </span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <div style="display:flex;gap:4px;flex-wrap:wrap">
-                                    <a href="user.php?id=<?= (int) $u['id'] ?>" class="btn btn-ghost btn-sm btn-icon"
-                                        title="مدیریت کاربر">
-                                        <?= icon('eye', 14) ?>
-                                    </a>
-                                    <a href="user_services.php?id=<?= (int) $u['id'] ?>" class="btn btn-ghost btn-sm btn-icon"
-                                        title="سرویس‌های کاربر">
-                                        <?= icon('package', 14) ?>
-                                    </a>
-                                    <?php if ($isBlocked): ?>
-                                        <a href="user_action.php?action=unblock&id=<?= (int) $u['id'] ?>&_csrf=<?= csrf_token() ?>&back=users.php"
-                                            class="btn btn-ok btn-sm btn-icon" title="رفع مسدودیت"
-                                            data-confirm="رفع مسدودیت کاربر <?= htmlspecialchars($name ?: $u['id']) ?>؟">
-                                            <?= icon('check', 13) ?>
-                                        </a>
-                                    <?php else: ?>
-                                        <a href="user_action.php?action=block&id=<?= (int) $u['id'] ?>&_csrf=<?= csrf_token() ?>&back=users.php"
-                                            class="btn btn-no btn-sm btn-icon" title="مسدود کردن"
-                                            data-confirm="مسدود کردن کاربر <?= htmlspecialchars($name ?: $u['id']) ?>؟">
-                                            <?= icon('block', 13) ?>
-                                        </a>
-                                    <?php endif; ?>
-                                </div>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
         </div>
     <?php endif; ?>
 

@@ -2,6 +2,7 @@
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
 require_auth();
+$pdo = panel_ensure_pdo();
 
 $totalUsers = 0;
 $newToday = 0;
@@ -96,52 +97,31 @@ include __DIR__ . '/inc/layout_head.php';
         if (empty($recentInvoices)): ?>
             <div class="empty" style="padding:24px"><p>سفارشی ثبت نشده</p></div>
         <?php else: ?>
-            <div class="m-list">
+            <div class="data-list">
                 <?php foreach ($recentInvoices as $inv):
                     [$tagClass, $label] = $statusMap[$inv['Status'] ?? ''] ?? ['tag-plain', $inv['Status'] ?? '—'];
                     ?>
-                    <div class="m-row">
-                        <div class="m-row-main">
-                            <div class="m-row-top">
-                                <div class="m-row-title"><?= htmlspecialchars(trunc($inv['name_product'] ?? '—', 28)) ?></div>
+                    <div class="data-row">
+                        <div class="data-row-body">
+                            <div class="data-row-head">
+                                <div class="data-row-title"><?= htmlspecialchars(trunc($inv['name_product'] ?? '—', 36)) ?></div>
                                 <span class="tag <?= $tagClass ?>"><?= $label ?></span>
                             </div>
-                            <div class="m-row-meta">
-                                <span class="cm"><?= htmlspecialchars($inv['id_user'] ?? '—') ?></span>
-                                <span class="cn"><?= number_format((int) ($inv['price_product'] ?? 0)) ?> ت</span>
+                            <div class="data-row-fields">
+                                <div class="data-field">
+                                    <span class="data-field-label">کاربر</span>
+                                    <span class="data-field-val cm">
+                                        <a href="user.php?id=<?= (int) ($inv['id_user'] ?? 0) ?>"><?= htmlspecialchars($inv['id_user'] ?? '—') ?></a>
+                                    </span>
+                                </div>
+                                <div class="data-field">
+                                    <span class="data-field-label">مبلغ</span>
+                                    <span class="data-field-val cn"><?= number_format((int) ($inv['price_product'] ?? 0)) ?> ت</span>
+                                </div>
                             </div>
                         </div>
                     </div>
                 <?php endforeach; ?>
-            </div>
-            <div class="tbl-wrap dash-tbl">
-                <table class="tbl-sm">
-                    <thead>
-                        <tr>
-                            <th>کاربر</th>
-                            <th>محصول</th>
-                            <th>مبلغ</th>
-                            <th>وضعیت</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($recentInvoices as $inv):
-                            [$tagClass, $label] = $statusMap[$inv['Status'] ?? ''] ?? ['tag-plain', $inv['Status'] ?? '—'];
-                            ?>
-                            <tr>
-                                <td class="cm cf"><?= htmlspecialchars($inv['id_user'] ?? '—') ?></td>
-                                <td class="cs"
-                                    style="max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                                    <?= htmlspecialchars(trunc($inv['name_product'] ?? '—', 20)) ?>
-                                </td>
-                                <td class="cn" style="white-space:nowrap">
-                                    <?= number_format((int) ($inv['price_product'] ?? 0)) ?> <span class="cf">ت</span>
-                                </td>
-                                <td><span class="tag <?= $tagClass ?>"><?= $label ?></span></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
             </div>
         <?php endif; ?>
     </div>
@@ -157,7 +137,7 @@ include __DIR__ . '/inc/layout_head.php';
         <?php if (empty($recentUsers)): ?>
             <div class="empty" style="padding:24px"><p>کاربری ثبت نشده</p></div>
         <?php else: ?>
-            <div class="m-list">
+            <div class="data-list">
                 <?php foreach ($recentUsers as $u):
                     $agent = $u['agent'] ?? 'f';
                     $isBlocked = ($u['User_Status'] ?? '') === 'block';
@@ -167,74 +147,33 @@ include __DIR__ . '/inc/layout_head.php';
                     $uname = $u['username'] ?? '';
                     if ($uname === 'none')
                         $uname = '';
-                    $displayName = $name ?: ($uname ? '@' . $uname : '#' . $u['id']);
+                    $displayName = $name ?: ($uname ? '@' . $uname : 'کاربر #' . $u['id']);
                     ?>
-                    <div class="m-row">
-                        <a href="user.php?id=<?= (int) $u['id'] ?>" class="m-row-main">
-                            <div class="m-row-top">
-                                <div class="m-row-title"><?= htmlspecialchars($displayName) ?></div>
+                    <div class="data-row">
+                        <div class="data-row-body">
+                            <div class="data-row-head">
+                                <div class="data-row-title">
+                                    <a href="user.php?id=<?= (int) $u['id'] ?>"><?= htmlspecialchars($displayName) ?></a>
+                                </div>
                                 <?php if ($isBlocked): ?>
                                     <span class="tag tag-no">مسدود</span>
                                 <?php else: ?>
                                     <span class="tag <?= user_role_tag($agent) ?>"><?= user_role_label($agent) ?></span>
                                 <?php endif; ?>
                             </div>
-                            <div class="m-row-meta">
-                                <span class="cm"><?= htmlspecialchars($u['id']) ?></span>
-                                <span class="cn"><?= number_format((int) ($u['Balance'] ?? 0)) ?> ت</span>
+                            <div class="data-row-fields">
+                                <div class="data-field">
+                                    <span class="data-field-label">آیدی</span>
+                                    <span class="data-field-val cm"><?= htmlspecialchars($u['id']) ?></span>
+                                </div>
+                                <div class="data-field">
+                                    <span class="data-field-label">موجودی</span>
+                                    <span class="data-field-val cn"><?= number_format((int) ($u['Balance'] ?? 0)) ?> ت</span>
+                                </div>
                             </div>
-                        </a>
+                        </div>
                     </div>
                 <?php endforeach; ?>
-            </div>
-            <div class="tbl-wrap dash-tbl">
-                <table class="tbl-sm">
-                    <thead>
-                        <tr>
-                            <th>آیدی</th>
-                            <th>نام</th>
-                            <th>موجودی</th>
-                            <th>گروه</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($recentUsers as $u):
-                            $agent = $u['agent'] ?? 'f';
-                            $isBlocked = ($u['User_Status'] ?? '') === 'block';
-                            $name = $u['namecustom'] ?? '';
-                            if ($name === 'none')
-                                $name = '';
-                            $uname = $u['username'] ?? '';
-                            if ($uname === 'none')
-                                $uname = '';
-                            ?>
-                            <tr>
-                                <td class="cm cf"><?= htmlspecialchars($u['id']) ?></td>
-                                <td>
-                                    <?php if ($name): ?>
-                                        <span class="cs"><?= htmlspecialchars(trunc($name, 14)) ?></span>
-                                    <?php elseif ($uname): ?>
-                                        <span class="cm" style="color:var(--ac)">@<?= htmlspecialchars(trunc($uname, 12)) ?></span>
-                                    <?php else: ?>
-                                        <span class="cf">—</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="cn" style="white-space:nowrap">
-                                    <?= number_format((int) ($u['Balance'] ?? 0)) ?> <span class="cf">ت</span>
-                                </td>
-                                <td>
-                                    <?php if ($isBlocked): ?>
-                                        <span class="tag tag-no" style="font-size:.65rem">مسدود</span>
-                                    <?php else: ?>
-                                        <span class="tag <?= user_role_tag($agent) ?>" style="font-size:.65rem">
-                                            <?= user_role_label($agent) ?>
-                                        </span>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
             </div>
         <?php endif; ?>
     </div>

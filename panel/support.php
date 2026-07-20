@@ -157,8 +157,11 @@ include __DIR__ . '/inc/layout_head.php';
             <?php endif; ?>
             <?php foreach ($tickets as $item):
                 [$tagClass, $statusLabel] = panel_support_status_info($item['status']);
-                $displayName = ($item['namecustom'] && $item['namecustom'] !== 'none') ? $item['namecustom'] : 'کاربر #' . $item['iduser'];
+                $displayName = !empty($item['user_name']) ? $item['user_name'] : (($item['namecustom'] && $item['namecustom'] !== 'none') ? $item['namecustom'] : (($item['username'] && $item['username'] !== 'none') ? '@' . $item['username'] : 'کاربر ناشناس'));
                 $userHandle = ($item['username'] && $item['username'] !== 'none') ? '@' . $item['username'] : '';
+                if ($userHandle === $displayName) {
+                    $userHandle = '';
+                }
                 ?>
                 <a class="support-ticket <?= $userId === (string) $item['iduser'] ? 'selected' : '' ?>" href="<?= support_inbox_url(['user_id' => $item['iduser']]) ?>">
                     <div class="support-ticket-head">
@@ -193,7 +196,7 @@ include __DIR__ . '/inc/layout_head.php';
             <div class="empty support-empty"><p>یک پیام را از فهرست انتخاب کنید.</p></div>
         <?php else:
             [$tagClass, $statusLabel] = panel_support_status_info($conversation[count($conversation) - 1]['status']);
-            $displayName = ($ticket['namecustom'] && $ticket['namecustom'] !== 'none') ? $ticket['namecustom'] : (($ticket['username'] && $ticket['username'] !== 'none') ? '@' . $ticket['username'] : 'کاربر #' . $ticket['iduser']);
+            $displayName = !empty($ticket['user_name']) ? $ticket['user_name'] : (($ticket['namecustom'] && $ticket['namecustom'] !== 'none') ? $ticket['namecustom'] : (($ticket['username'] && $ticket['username'] !== 'none') ? '@' . $ticket['username'] : 'کاربر ناشناس'));
             $adminId = (string) ($replyTicket['idsupport'] ?? $conversation[count($conversation) - 1]['idsupport'] ?? '—');
             ?>
             <div class="support-conversation-head">

@@ -1383,6 +1383,7 @@ try {
             Tracking VARCHAR(100) NOT NULL,
             idsupport VARCHAR(100) NOT NULL,
             iduser VARCHAR(100) NOT NULL,
+            user_name VARCHAR(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
             name_departman VARCHAR(600) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
             text TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
             result TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -1392,6 +1393,7 @@ try {
         $stmt->execute();
     } else {
         addFieldToTable("support_message", "result", "0", "TEXT");
+        addFieldToTable("support_message", "user_name", null, "VARCHAR(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     }
 } catch (PDOException $e) {
     file_put_contents('error_log suppeor_message', $e->getMessage());

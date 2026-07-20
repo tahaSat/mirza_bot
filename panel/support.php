@@ -132,7 +132,7 @@ $activeNav = 'support';
 include __DIR__ . '/inc/layout_head.php';
 ?>
 
-<div class="support-shell fade-up">
+<div class="support-shell <?= $userId !== '' ? 'support-chat-open' : '' ?> fade-up">
     <section class="card support-list">
         <div class="toolbar support-toolbar">
             <div class="toolbar-title"><?= icon('message', 17) ?> صندوق ورودی <small>(<?= number_format($total) ?>)</small></div>
@@ -157,11 +157,15 @@ include __DIR__ . '/inc/layout_head.php';
             <?php endif; ?>
             <?php foreach ($tickets as $item):
                 [$tagClass, $statusLabel] = panel_support_status_info($item['status']);
-                $displayName = ($item['namecustom'] && $item['namecustom'] !== 'none') ? $item['namecustom'] : (($item['username'] && $item['username'] !== 'none') ? '@' . $item['username'] : 'کاربر #' . $item['iduser']);
+                $displayName = ($item['namecustom'] && $item['namecustom'] !== 'none') ? $item['namecustom'] : 'کاربر #' . $item['iduser'];
+                $userHandle = ($item['username'] && $item['username'] !== 'none') ? '@' . $item['username'] : '';
                 ?>
                 <a class="support-ticket <?= $userId === (string) $item['iduser'] ? 'selected' : '' ?>" href="<?= support_inbox_url(['user_id' => $item['iduser']]) ?>">
                     <div class="support-ticket-head">
-                        <strong><?= htmlspecialchars($displayName) ?></strong>
+                        <div class="support-contact">
+                            <strong><?= htmlspecialchars($displayName) ?></strong>
+                            <?php if ($userHandle): ?><small><?= htmlspecialchars($userHandle) ?></small><?php endif; ?>
+                        </div>
                         <span class="tag <?= $tagClass ?>"><?= htmlspecialchars($statusLabel) ?></span>
                     </div>
                     <p><?= htmlspecialchars(trunc($item['text'], 80)) ?></p>
@@ -197,7 +201,10 @@ include __DIR__ . '/inc/layout_head.php';
                     <h2><?= htmlspecialchars($displayName) ?></h2>
                     <a href="user.php?id=<?= urlencode($ticket['iduser']) ?>">مشاهده پروفایل کاربر</a>
                 </div>
-                <span class="tag <?= $tagClass ?>"><?= htmlspecialchars($statusLabel) ?></span>
+                <div class="support-head-actions">
+                    <span class="tag <?= $tagClass ?>"><?= htmlspecialchars($statusLabel) ?></span>
+                    <a class="support-back" href="<?= support_inbox_url(['user_id' => null]) ?>"><?= icon('arrow-left', 15) ?> بازگشت</a>
+                </div>
             </div>
             <div class="support-meta">
                 <span>تعداد پیام‌ها: <?= count($conversation) ?></span>

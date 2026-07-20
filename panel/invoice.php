@@ -2,30 +2,56 @@
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
 require_auth();
+$pdo = panel_ensure_pdo();
 
 $search = trim($_GET['q'] ?? '');
 
 $status = $_GET['status'] ?? '';
+$serviceType = $_GET['service_type'] ?? '';
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 30;
 $offset = ($page - 1) * $perPage;
 
+$serviceTypeMap = [
+  'order' => 'خرید سرویس',
+  'change_location' => 'تغییر لوکیشن',
+  'extra_user' => 'افزایش حجم',
+  'extra_time_user' => 'افزایش زمان',
+  'extends_not_user' => 'تمدید',
+  'extend_user' => 'تمدید',
+  'transfertouser' => 'انتقال سفارش به کاربر دیگر',
+];
+
+$recordsSQL = "
+  SELECT id_user, username, name_product AS product_name, price_product AS price,
+         time_sell AS transaction_time, Status AS transaction_status, 'order' AS service_type
+  FROM invoice
+  UNION ALL
+  SELECT id_user, username, value AS product_name, price,
+         time AS transaction_time, status AS transaction_status, type AS service_type
+  FROM service_other
+";
+
 $where = [];
 $params = [];
 if ($search !== '') {
-  $where[] = "(id_user LIKE ? OR COALESCE(name_product,'') LIKE ? OR COALESCE(username,'') LIKE ?)";
+  $where[] = "(id_user LIKE ? OR COALESCE(product_name,'') LIKE ? OR COALESCE(username,'') LIKE ? OR COALESCE(service_type,'') LIKE ?)";
   $params = ["%$search%", "%$search%", "%$search%"];
+  $params[] = "%$search%";
 }
 if ($status !== '') {
-
-  $where[] = "Status = ?";
+  $where[] = "transaction_status = ?";
   $params[] = $status;
+}
+if ($serviceType !== '') {
+  $where[] = "service_type = ?";
+  $params[] = $serviceType;
 }
 $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
 try {
-  $total = db_count($pdo, "SELECT COUNT(*) FROM invoice $whereSQL", $params);
-  $invoices = db_fetchAll($pdo, "SELECT * FROM invoice $whereSQL ORDER BY time_sell DESC LIMIT $perPage OFFSET $offset", $params);
+  $total = db_count($pdo, "SELECT COUNT(*) FROM ($recordsSQL) AS records $whereSQL", $params);
+  $invoices = db_fetchAll($pdo, "SELECT * FROM ($recordsSQL) AS records $whereSQL ORDER BY transaction_time DESC LIMIT $perPage OFFSET $offset", $params);
 } catch (Exception $e) {
   $total = 0;
   $invoices = [];
@@ -41,6 +67,10 @@ $statusMap = [
   'send_on_hold' => ['tag-plain', 'اعلان متصنل نشدن ارسال شده'],
   'unpaid' => ['tag-plain', 'پرداخت نشده'],
   'Unsuccessful' => ['tag-plain', 'خطا دریافت اطلاعات'],
+  'paid' => ['tag-ok', 'انجام شده'],
+  'done' => ['tag-ok', 'انجام شده'],
+  'pending' => ['tag-warn', 'در انتظار'],
+  'reject' => ['tag-no', 'رد شده'],
 ];
 
 $pageTitle = 'سفارشات';
@@ -53,6 +83,13 @@ include __DIR__ . '/inc/layout_head.php';
   <div class="toolbar">
     <div class="toolbar-title">سفارشات <small>(<?= number_format($total) ?>)</small></div>
     <form method="GET" id="invoiceForm" class="toolbar-end">
+      <select name="service_type" class="select" style="width:auto"
+        onchange="document.getElementById('invoiceForm').submit()">
+        <option value="">همه نوع سرویس‌ها</option>
+        <?php foreach ($serviceTypeMap as $k => $lbl): ?>
+          <option value="<?= $k ?>" <?= $serviceType === $k ? 'selected' : '' ?>><?= $lbl ?></option>
+        <?php endforeach; ?>
+      </select>
       <select name="status" class="select" style="width:auto"
         onchange="document.getElementById('invoiceForm').submit()">
         <option value="">همه وضعیت‌ها</option>
@@ -67,7 +104,7 @@ include __DIR__ . '/inc/layout_head.php';
         <button type="button" class="search-clear">✕</button>
         <button type="submit" class="search-btn">جستجو</button>
       </div>
-      <?php if ($search || $status): ?>
+      <?php if ($search || $status || $serviceType): ?>
         <a href="invoice.php" class="btn-link" style="font-size:.78rem">پاک کردن</a>
       <?php endif; ?>
     </form>
@@ -80,6 +117,7 @@ include __DIR__ . '/inc/layout_head.php';
           <th>#</th>
           <th>کاربر</th>
           <th>محصول</th>
+          <th>نوع سرویس</th>
           <th>قیمت</th>
           <th>تاریخ</th>
           <th>وضعیت</th>
@@ -88,7 +126,7 @@ include __DIR__ . '/inc/layout_head.php';
       <tbody>
         <?php if (empty($invoices)): ?>
           <tr>
-            <td colspan="6">
+            <td colspan="7">
               <div class="empty">
                 <svg class="ill" viewBox="0 0 160 120" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <rect x="30" y="15" width="100" height="90" rx="8" fill="var(--sf3)" />
@@ -104,15 +142,17 @@ include __DIR__ . '/inc/layout_head.php';
         <?php else:
           $i = $offset + 1;
           foreach ($invoices as $inv):
-            $st = $inv['Status'] ?? '';
+            $st = $inv['transaction_status'] ?? '';
             [$cls, $lbl] = $statusMap[$st] ?? ['tag-plain', $st ?: '—'];
+            $typeLabel = $serviceTypeMap[$inv['service_type'] ?? ''] ?? ($inv['service_type'] ?? '—');
             ?>
             <tr>
               <td class="cf"><?= $i++ ?></td>
               <td class="cm"><?= htmlspecialchars($inv['id_user'] ?? '—') ?></td>
-              <td class="cs"><?= htmlspecialchars(trunc($inv['name_product'] ?? '—', 28)) ?></td>
-              <td class="cn cs"><?= number_format((int) ($inv['price_product'] ?? 0)) ?> <span class="cf">ت</span></td>
-              <td class="cf"><?= safe_date($inv['time_sell'] ?? null, 'Y/m/d') ?></td>
+              <td class="cs"><?= htmlspecialchars(trunc($inv['product_name'] ?? '—', 28)) ?></td>
+              <td style="font-size:.82rem;color:var(--text2)"><?= htmlspecialchars($typeLabel) ?></td>
+              <td class="cn cs"><?= number_format((int) ($inv['price'] ?? 0)) ?> <span class="cf">ت</span></td>
+              <td class="cf"><?= safe_date($inv['transaction_time'] ?? null, 'Y/m/d') ?></td>
               <td><span class="tag <?= $cls ?>"><?= $lbl ?></span></td>
             </tr>
           <?php endforeach; endif; ?>
@@ -123,7 +163,7 @@ include __DIR__ . '/inc/layout_head.php';
   <div class="tbl-foot">
     <span><?= number_format($total) ?> رکورد · صفحه <?= $page ?> از <?= $totalPages ?></span>
     <div class="pager">
-      <?php $qs = fn($p) => '?q=' . urlencode($search) . '&status=' . urlencode($status) . '&page=' . $p; ?>
+      <?php $qs = fn($p) => '?q=' . urlencode($search) . '&status=' . urlencode($status) . '&service_type=' . urlencode($serviceType) . '&page=' . $p; ?>
       <a class="<?= $page <= 1 ? 'dis' : '' ?>" href="<?= $qs(max(1, $page - 1)) ?>">‹</a>
       <?php for ($p = max(1, $page - 2); $p <= min($totalPages, $page + 2); $p++): ?>
         <a class="<?= $p === $page ? 'cur' : '' ?>" href="<?= $qs($p) ?>"><?= $p ?></a>

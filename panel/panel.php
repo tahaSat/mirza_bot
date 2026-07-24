@@ -253,7 +253,7 @@ include __DIR__ . '/inc/layout_head.php';
     <input type="hidden" name="pasarguard_group_ids" value="<?= htmlspecialchars($pasarguardGroupIds) ?>">
     <?php endif; ?>
     <?php if (($panel['status'] ?? '') === 'active'): ?><input type="hidden" name="status_active" value="1"><?php endif; ?>
-    <?php if (($panel['TestAccount'] ?? '') === 'ONTestAccount'): ?><input type="hidden" name="test_on" value="1"><?php endif; ?>
+    <?php if ($tab !== 'features' && ($panel['TestAccount'] ?? '') === 'ONTestAccount'): ?><input type="hidden" name="test_on" value="1"><?php endif; ?>
   <?php endif; ?>
   <?php if ($tab !== 'features'): ?>
     <?php
@@ -430,6 +430,7 @@ include __DIR__ . '/inc/layout_head.php';
         <div style="display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">
           <?php
           $toggles = [
+              'test_on' => ['label' => 'اکانت تست', 'on' => ($panel['TestAccount'] ?? '') === 'ONTestAccount', 'feat' => 'test'],
               'extend_on' => ['label' => 'وضعیت تمدید', 'on' => ($panel['status_extend'] ?? '') === 'on_extend', 'feat' => 'extend'],
               'config_on' => ['label' => 'ارسال کانفیگ', 'on' => ($panel['config'] ?? '') === 'onconfig', 'feat' => 'config'],
               'sublink_on' => ['label' => 'ارسال لینک اشتراک', 'on' => ($panel['sublink'] ?? '') === 'onsublink', 'feat' => 'sublink'],

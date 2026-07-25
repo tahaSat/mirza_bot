@@ -9,6 +9,7 @@ const PAYMENT_GATEWAYS = [
         'on' => 'oncard',
         'off' => 'offcard',
         'textbot_key' => 'carttocart',
+        'help_key' => 'helpcart',
         'fields' => [
             ['key' => 'CartDirect', 'label' => 'آیدی تلگرام دریافت کارت (بدون @)', 'type' => 'text'],
             ['key' => 'Cartstatuspv', 'label' => 'درگاه آفلاین در پیوی', 'type' => 'toggle', 'on' => 'oncardpv', 'off' => 'offcardpv'],
@@ -27,6 +28,7 @@ const PAYMENT_GATEWAYS = [
         'on' => 'onzarinpal',
         'off' => 'offzarinpal',
         'textbot_key' => 'textzarinpal',
+        'help_key' => 'helpzarinpal',
         'fields' => [
             ['key' => 'merchant_zarinpal', 'label' => 'مرچنت زرین‌پال', 'type' => 'text'],
             ['key' => 'minbalancezarinpal', 'label' => 'حداقل مبلغ (تومان)', 'type' => 'number'],
@@ -52,6 +54,7 @@ const PAYMENT_GATEWAYS = [
         'on' => 'onaqayepardakht',
         'off' => 'offaqayepardakht',
         'textbot_key' => 'textaqayepardakht',
+        'help_key' => 'helpaqayepardakht',
         'fields' => [
             ['key' => 'merchant_id_aqayepardakht', 'label' => 'مرچنت آقای پرداخت', 'type' => 'text'],
             ['key' => 'minbalanceaqayepardakht', 'label' => 'حداقل مبلغ (تومان)', 'type' => 'number'],
@@ -65,6 +68,7 @@ const PAYMENT_GATEWAYS = [
         'on' => 'onnowpayment',
         'off' => 'offnowpayment',
         'textbot_key' => 'textnowpayment',
+        'help_key' => 'helpplisio',
         'fields' => [
             ['key' => 'apinowpayment', 'label' => 'API Plisio', 'type' => 'text'],
             ['key' => 'minbalanceplisio', 'label' => 'حداقل مبلغ (تومان)', 'type' => 'number'],
@@ -79,6 +83,7 @@ const PAYMENT_GATEWAYS = [
         'off' => '0',
         'toggle_binary' => true,
         'textbot_key' => 'textsnowpayment',
+        'help_key' => 'helpnowpayment',
         'fields' => [
             ['key' => 'cashbacknowpayment', 'label' => 'کش‌بک (درصد)', 'type' => 'number'],
             ['key' => 'minbalancenowpayment', 'label' => 'حداقل مبلغ (تومان)', 'type' => 'number'],
@@ -91,6 +96,7 @@ const PAYMENT_GATEWAYS = [
         'on' => 'onSwapinoBot',
         'off' => 'offSwapinoBot',
         'textbot_key' => 'textiranpay1',
+        'help_key' => 'helpiranpay1',
         'fields' => [
             ['key' => 'apiiranpay', 'label' => 'API / توکن', 'type' => 'text'],
             ['key' => 'minbalanceiranpay1', 'label' => 'حداقل مبلغ (تومان)', 'type' => 'number'],
@@ -104,6 +110,7 @@ const PAYMENT_GATEWAYS = [
         'on' => 'onternado',
         'off' => 'offternado',
         'textbot_key' => 'textiranpay2',
+        'help_key' => 'helpiranpay2',
         'fields' => [
             ['key' => 'apiternado', 'label' => 'API Tronado', 'type' => 'text'],
             ['key' => 'urlpaymenttron', 'label' => 'آدرس API', 'type' => 'text'],
@@ -118,6 +125,7 @@ const PAYMENT_GATEWAYS = [
         'on' => 'oniranpay3',
         'off' => 'offiranpay3',
         'textbot_key' => 'textiranpay3',
+        'help_key' => 'helpiranpay3',
         'fields' => [
             ['key' => 'marchent_floypay', 'label' => 'API Key', 'type' => 'text'],
             ['key' => 'minbalanceiranpay', 'label' => 'حداقل مبلغ (تومان)', 'type' => 'number'],
@@ -131,6 +139,7 @@ const PAYMENT_GATEWAYS = [
         'on' => 'ondigi',
         'off' => 'offdigi',
         'textbot_key' => 'textperfectmoney',
+        'help_key' => 'helpofflinearze',
         'fields' => [
             ['key' => 'marchent_tronseller', 'label' => 'API NowPayment / Tron', 'type' => 'text'],
             ['key' => 'walletaddress', 'label' => 'آدرس ولت', 'type' => 'text'],
@@ -145,6 +154,7 @@ const PAYMENT_GATEWAYS = [
         'off' => '0',
         'toggle_binary' => true,
         'textbot_key' => 'text_star_telegram',
+        'help_key' => 'helpstar',
         'fields' => [
             ['key' => 'chashbackstar', 'label' => 'کش‌بک (درصد)', 'type' => 'number'],
             ['key' => 'minbalancestar', 'label' => 'حداقل مبلغ (تومان)', 'type' => 'number'],
@@ -205,6 +215,61 @@ function pay_textbot_set(PDO $pdo, string $idText, string $text): void
     } else {
         db_query($pdo, "INSERT INTO textbot (id_text, text) VALUES (?, ?)", [$idText, $text]);
     }
+}
+
+/**
+ * Pre-payment help message (آموزش) for a gateway.
+ * @return array{enabled: bool, type: string, text: string, photoid: string, videoid: string}
+ */
+function pay_help_get(PDO $pdo, string $key): array
+{
+    $raw = pay_get($pdo, $key, '2');
+    $empty = [
+        'enabled' => false,
+        'type' => 'text',
+        'text' => '',
+        'photoid' => '',
+        'videoid' => '',
+    ];
+    if ($raw === '' || $raw === '2' || $raw === '0') {
+        return $empty;
+    }
+    $data = json_decode($raw, true);
+    if (!is_array($data) || empty($data['type'])) {
+        return $empty;
+    }
+    $type = in_array($data['type'], ['text', 'photo', 'video'], true) ? $data['type'] : 'text';
+    return [
+        'enabled' => true,
+        'type' => $type,
+        'text' => (string) ($data['text'] ?? ''),
+        'photoid' => (string) ($data['photoid'] ?? ''),
+        'videoid' => (string) ($data['videoid'] ?? ''),
+    ];
+}
+
+/**
+ * @param array{enabled?: bool, type?: string, text?: string, photoid?: string, videoid?: string} $payload
+ */
+function pay_help_set(PDO $pdo, string $key, array $payload): void
+{
+    if (empty($payload['enabled'])) {
+        pay_set($pdo, $key, '2');
+        return;
+    }
+    $type = in_array($payload['type'] ?? '', ['text', 'photo', 'video'], true)
+        ? $payload['type']
+        : 'text';
+    $data = [
+        'type' => $type,
+        'text' => trim((string) ($payload['text'] ?? '')),
+    ];
+    if ($type === 'photo') {
+        $data['photoid'] = trim((string) ($payload['photoid'] ?? ''));
+    } elseif ($type === 'video') {
+        $data['videoid'] = trim((string) ($payload['videoid'] ?? ''));
+    }
+    pay_set($pdo, $key, json_encode($data, JSON_UNESCAPED_UNICODE));
 }
 
 function pay_list_cards(PDO $pdo): array

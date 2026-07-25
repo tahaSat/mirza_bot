@@ -30,6 +30,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!empty($gw['textbot_key']) && isset($_POST['gateway_display_name'])) {
             pay_textbot_set($pdo, $gw['textbot_key'], trim($_POST['gateway_display_name']));
         }
+        if (!empty($gw['help_key'])) {
+            pay_help_set($pdo, $gw['help_key'], [
+                'enabled' => !empty($_POST['help_enabled']),
+                'type' => $_POST['help_type'] ?? 'text',
+                'text' => $_POST['help_text'] ?? '',
+                'photoid' => $_POST['help_photoid'] ?? '',
+                'videoid' => $_POST['help_videoid'] ?? '',
+            ]);
+        }
         flash('success', 'تنظیمات درگاه ذخیره شد.');
         header('Location: payment_gateway.php?g=' . urlencode($gid));
         exit;
@@ -53,6 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $enabled = pay_gateway_enabled($gw);
 $displayName = pay_textbot_get($pdo, $gw['textbot_key'] ?? '', $gw['label']);
 $cards = !empty($gw['has_cards']) ? pay_list_cards($pdo) : [];
+$help = !empty($gw['help_key']) ? pay_help_get($pdo, $gw['help_key']) : null;
 
 $pageTitle = 'تنظیمات ' . $gw['label'];
 $pageLede = ($enabled ? 'فعال' : 'غیرفعال') . ' — همان گزینه‌های تنظیمات این درگاه در ربات تلگرام.';
@@ -111,6 +121,42 @@ include __DIR__ . '/inc/layout_head.php';
             </div>
           <?php endif;
         endforeach; ?>
+
+        <?php if ($help !== null): ?>
+          <div style="margin-top:8px;padding-top:16px;border-top:1px solid var(--bd)">
+            <div style="font-weight:600;margin-bottom:4px">آموزش قبل از پرداخت</div>
+            <div style="font-size:.78rem;color:var(--mute);margin-bottom:14px">
+              این پیام قبل از جزئیات پرداخت، وقتی کاربر این درگاه را انتخاب می‌کند، ارسال می‌شود.
+            </div>
+            <div class="field" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+              <label style="margin:0">فعال بودن آموزش</label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" name="help_enabled" value="1" <?= $help['enabled'] ? 'checked' : '' ?> id="help_enabled">
+                <span class="tag <?= $help['enabled'] ? 'tag-ok' : 'tag-plain' ?>" id="help_enabled_tag"><?= $help['enabled'] ? 'فعال' : 'غیرفعال' ?></span>
+              </label>
+            </div>
+            <div class="field">
+              <label>نوع محتوا</label>
+              <select name="help_type" class="input" id="help_type">
+                <option value="text" <?= $help['type'] === 'text' ? 'selected' : '' ?>>متن</option>
+                <option value="photo" <?= $help['type'] === 'photo' ? 'selected' : '' ?>>تصویر</option>
+                <option value="video" <?= $help['type'] === 'video' ? 'selected' : '' ?>>ویدیو</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>متن / کپشن</label>
+              <textarea name="help_text" class="input" rows="4" placeholder="متن آموزش یا کپشن تصویر/ویدیو"><?= htmlspecialchars($help['text']) ?></textarea>
+            </div>
+            <div class="field" id="help_photoid_wrap" style="<?= $help['type'] === 'photo' ? '' : 'display:none' ?>">
+              <label>Telegram file_id تصویر</label>
+              <input type="text" name="help_photoid" class="input" value="<?= htmlspecialchars($help['photoid']) ?>" placeholder="AgACAgQAAxkB...">
+            </div>
+            <div class="field" id="help_videoid_wrap" style="<?= $help['type'] === 'video' ? '' : 'display:none' ?>">
+              <label>Telegram file_id ویدیو</label>
+              <input type="text" name="help_videoid" class="input" value="<?= htmlspecialchars($help['videoid']) ?>" placeholder="BAACAgQAAxkB...">
+            </div>
+          </div>
+        <?php endif; ?>
       </div>
       <button type="submit" class="btn btn-primary" style="margin-top:16px"><?= icon('check', 14) ?> ذخیره تنظیمات</button>
     </form>
@@ -158,5 +204,31 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
   <?php endif; ?>
 </div>
+
+<?php if ($help !== null): ?>
+<script>
+(function () {
+  var typeSel = document.getElementById('help_type');
+  var photoWrap = document.getElementById('help_photoid_wrap');
+  var videoWrap = document.getElementById('help_videoid_wrap');
+  var enabled = document.getElementById('help_enabled');
+  var tag = document.getElementById('help_enabled_tag');
+  function syncType() {
+    var t = typeSel ? typeSel.value : 'text';
+    if (photoWrap) photoWrap.style.display = t === 'photo' ? '' : 'none';
+    if (videoWrap) videoWrap.style.display = t === 'video' ? '' : 'none';
+  }
+  function syncEnabled() {
+    if (!enabled || !tag) return;
+    var on = enabled.checked;
+    tag.textContent = on ? 'فعال' : 'غیرفعال';
+    tag.className = 'tag ' + (on ? 'tag-ok' : 'tag-plain');
+  }
+  if (typeSel) typeSel.addEventListener('change', syncType);
+  if (enabled) enabled.addEventListener('change', syncEnabled);
+  syncType();
+})();
+</script>
+<?php endif; ?>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

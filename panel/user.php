@@ -40,6 +40,25 @@ try {
 } catch (Exception $e) {
 }
 
+$affiliatesBoughtCount = 0;
+try {
+    $affiliatesBoughtCount = (int) db_count($pdo, "SELECT COUNT(DISTINCT u.id) FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = ? AND i.name_product != 'سرویس تست' AND i.Status != 'Unpaid'", [$id]);
+} catch (Exception $e) {
+}
+
+$referralBuyers = [];
+if (!empty($referrals)) {
+    try {
+        $refIds = array_column($referrals, 'id');
+        $placeholders = implode(',', array_fill(0, count($refIds), '?'));
+        $buyerRows = db_fetchAll($pdo, "SELECT DISTINCT id_user FROM invoice WHERE id_user IN ($placeholders) AND name_product != 'سرویس تست' AND Status != 'Unpaid'", $refIds);
+        foreach ($buyerRows as $buyerRow) {
+            $referralBuyers[$buyerRow['id_user']] = true;
+        }
+    } catch (Exception $e) {
+    }
+}
+
 $balance = (int) ($user['Balance'] ?? 0);
 $totalSpent = array_sum(array_column($invoices, 'price_product'));
 $activeServices = count(array_filter($invoices, fn($inv) => ($inv['Status'] ?? '') === 'active'));
@@ -165,6 +184,10 @@ include __DIR__ . '/inc/layout_head.php';
                     <div class="kv">
                         <span class="kv-key">زیرمجموعه</span>
                         <span class="kv-val"><?= number_format((int) $user['affiliatescount']) ?> نفر</span>
+                    </div>
+                    <div class="kv">
+                        <span class="kv-key">خریدار سرویس</span>
+                        <span class="kv-val"><?= number_format($affiliatesBoughtCount) ?> نفر</span>
                     </div>
                 <?php endif; ?>
                 <?php if ((int) ($user['score'] ?? 0) > 0): ?>
@@ -327,7 +350,10 @@ include __DIR__ . '/inc/layout_head.php';
                     <?php if (count($referrals) > 0): ?>
                         <button class="btn btn-sm u-tab" id="tabRefs" onclick="switchTab('refs')">
                             زیرمجموعه
-                            <span class="u-tab-badge muted"><?= count($referrals) ?></span>
+                            <span class="u-tab-badge muted"><?= (int) ($user['affiliatescount'] ?? count($referrals)) ?></span>
+                            <?php if ($affiliatesBoughtCount > 0): ?>
+                                <span class="u-tab-badge"><?= $affiliatesBoughtCount ?> خریدار</span>
+                            <?php endif; ?>
                         </button>
                     <?php endif; ?>
                 </div>
@@ -544,7 +570,11 @@ include __DIR__ . '/inc/layout_head.php';
                                 <a href="user.php?id=<?= (int) $ref['id'] ?>" class="m-row-main">
                                     <div class="m-row-top">
                                         <div class="m-row-title"><?= htmlspecialchars($refDisplay) ?></div>
-                                        <span class="tag <?= user_role_tag($refAgent) ?>"><?= user_role_label($refAgent) ?></span>
+                                        <?php if (isset($referralBuyers[$ref['id']])): ?>
+                                            <span class="tag tag-ok">خریدار</span>
+                                        <?php else: ?>
+                                            <span class="tag <?= user_role_tag($refAgent) ?>"><?= user_role_label($refAgent) ?></span>
+                                        <?php endif; ?>
                                     </div>
                                     <div class="m-row-meta">
                                         <span class="cm"><?= htmlspecialchars($ref['id']) ?></span>
@@ -562,6 +592,7 @@ include __DIR__ . '/inc/layout_head.php';
                                     <th>آیدی</th>
                                     <th>نام</th>
                                     <th>موجودی</th>
+                                    <th>خرید</th>
                                     <th>گروه</th>
                                     <th>ثبت‌نام</th>
                                 </tr>
@@ -594,6 +625,13 @@ include __DIR__ . '/inc/layout_head.php';
                                         </td>
                                         <td class="cn" style="white-space:nowrap">
                                             <?= number_format((int) ($ref['Balance'] ?? 0)) ?> <span class="cf">ت</span>
+                                        </td>
+                                        <td>
+                                            <?php if (isset($referralBuyers[$ref['id']])): ?>
+                                                <span class="tag tag-ok">خریدار</span>
+                                            <?php else: ?>
+                                                <span class="cf">—</span>
+                                            <?php endif; ?>
                                         </td>
                                         <td>
                                             <span class="tag <?= user_role_tag($refAgent) ?>">

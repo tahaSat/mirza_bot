@@ -4104,6 +4104,7 @@ $caption";
     } else {
         $sumvolume = mysqli_fetch_assoc(mysqli_query($connect, "SELECT SUM(Volume) FROM invoice WHERE (status = 'active' OR status = 'end_of_time'  OR status = 'end_of_volume' OR status = 'sendedwarn' OR Status = 'send_on_hold') AND id_user = '$id_user' AND name_product != 'سرویس تست'"));
     }
+    $affiliatesBoughtCount = (int) (mysqli_fetch_assoc(mysqli_query($connect, "SELECT COUNT(DISTINCT u.id) AS cnt FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$id_user' AND i.name_product != 'سرویس تست' AND i.Status != 'Unpaid'"))['cnt'] ?? 0);
     $user = select("user", "*", "id", $id_user, "select");
     $roll_Status = [
         '1' => $textbotlang['Admin']['ManageUser']['Acceptedphone'],
@@ -4235,6 +4236,7 @@ $caption";
 ⭕️ شماره موبایل : <code>{$user['number']}</code>
 ⭕️ نوع کاربری : {$user['agent']}
 ⭕️ تعداد زیرمجموعه کاربر : {$user['affiliatescount']}
+⭕️ تعداد زیرمجموعه‌های خریدار سرویس : $affiliatesBoughtCount
 ⭕  معرف کاربر : {$user['affiliates']}
 ⭕  وضعیت احراز هویت: $userverify   
 ⭕  نمایش شماره کارت :‌$showcart
@@ -5332,8 +5334,8 @@ $text_expie_agent
     ];
     $keyboardlists['inline_keyboard'][] = [
         ['text' => "عملیات", 'callback_data' => "action"],
-        ['text' => "نام کاربری", 'callback_data' => "username"],
-        ['text' => "شناسه", 'callback_data' => "iduser"]
+        ['text' => "شناسه", 'callback_data' => "iduser"],
+        ['text' => "تعداد زیرمجموعه", 'callback_data' => "affiliatescount"]
     ];
     while ($row = mysqli_fetch_assoc($result)) {
         $keyboardlists['inline_keyboard'][] = [
@@ -5342,12 +5344,12 @@ $text_expie_agent
                 'callback_data' => "manageuser_" . $row['id']
             ],
             [
-                'text' => $row['username'],
-                'callback_data' => "username"
-            ],
-            [
                 'text' => $row['id'],
                 'callback_data' => $row['id']
+            ],
+            [
+                'text' => (string) $row['affiliatescount'],
+                'callback_data' => "affiliatescount_" . $row['id']
             ],
         ];
     }
@@ -5388,8 +5390,8 @@ $text_expie_agent
     ];
     $keyboardlists['inline_keyboard'][] = [
         ['text' => "عملیات", 'callback_data' => "action"],
-        ['text' => "نام کاربری", 'callback_data' => "username"],
-        ['text' => "شناسه", 'callback_data' => "iduser"]
+        ['text' => "شناسه", 'callback_data' => "iduser"],
+        ['text' => "تعداد زیرمجموعه", 'callback_data' => "affiliatescount"]
     ];
     while ($row = mysqli_fetch_assoc($result)) {
         $keyboardlists['inline_keyboard'][] = [
@@ -5398,12 +5400,12 @@ $text_expie_agent
                 'callback_data' => "manageuser_" . $row['id']
             ],
             [
-                'text' => $row['username'],
-                'callback_data' => "username"
-            ],
-            [
                 'text' => $row['id'],
                 'callback_data' => $row['id']
+            ],
+            [
+                'text' => (string) $row['affiliatescount'],
+                'callback_data' => "affiliatescount_" . $row['id']
             ],
         ];
     }
@@ -5436,8 +5438,8 @@ $text_expie_agent
     ];
     $keyboardlists['inline_keyboard'][] = [
         ['text' => "عملیات", 'callback_data' => "action"],
-        ['text' => "نام کاربری", 'callback_data' => "username"],
-        ['text' => "شناسه", 'callback_data' => "iduser"]
+        ['text' => "شناسه", 'callback_data' => "iduser"],
+        ['text' => "تعداد زیرمجموعه", 'callback_data' => "affiliatescount"]
     ];
     while ($row = mysqli_fetch_assoc($result)) {
         $keyboardlists['inline_keyboard'][] = [
@@ -5446,12 +5448,12 @@ $text_expie_agent
                 'callback_data' => "manageuser_" . $row['id']
             ],
             [
-                'text' => $row['username'],
-                'callback_data' => "username"
-            ],
-            [
                 'text' => $row['id'],
                 'callback_data' => $row['id']
+            ],
+            [
+                'text' => (string) $row['affiliatescount'],
+                'callback_data' => "affiliatescount_" . $row['id']
             ],
         ];
     }
@@ -5691,11 +5693,21 @@ $iduser  در ربات  رفع مسدود گردید
         sendmessage($from_id, "❌ کاربر دارای زیرمجموعه نمی باشد.", null, 'HTML');
         return;
     }
+    $affiliatesTotal = (int) $affiliatesUsers;
+    $affiliatesBoughtCount = (int) (mysqli_fetch_assoc(mysqli_query($connect, "SELECT COUNT(DISTINCT u.id) AS cnt FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$iduser' AND i.name_product != 'سرویس تست' AND i.Status != 'Unpaid'"))['cnt'] ?? 0);
     $affiliatesUsers = select("user", "*", "affiliates", $iduser, "fetchAll");
+    $boughtIds = [];
+    $boughtResult = mysqli_query($connect, "SELECT DISTINCT u.id FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$iduser' AND i.name_product != 'سرویس تست' AND i.Status != 'Unpaid'");
+    if ($boughtResult) {
+        while ($boughtRow = mysqli_fetch_assoc($boughtResult)) {
+            $boughtIds[$boughtRow['id']] = true;
+        }
+    }
     $count = 0;
     $text_affiliates = "";
     foreach ($affiliatesUsers as $affiliatesUser) {
-        $text_affiliates .= "<code>{$affiliatesUser['id']}</code>\n\r";
+        $buyerMark = isset($boughtIds[$affiliatesUser['id']]) ? " ✅ خریدار" : "";
+        $text_affiliates .= "<code>{$affiliatesUser['id']}</code>$buyerMark\n\r";
         $count++;
         if ($count == 10) {
             sendmessage($from_id, $text_affiliates, null, 'HTML');
@@ -5703,8 +5715,10 @@ $iduser  در ربات  رفع مسدود گردید
             $text_affiliates = "";
         }
     }
-    sendmessage($from_id, $text_affiliates, null, 'HTML');
-    sendmessage($from_id, "📌 شناسه مربوط به زیرمجموعه های کاربر ارسال گردید.", $keyboardadmin, 'HTML');
+    if ($text_affiliates !== "") {
+        sendmessage($from_id, $text_affiliates, null, 'HTML');
+    }
+    sendmessage($from_id, "📌 شناسه مربوط به زیرمجموعه های کاربر ارسال گردید.\n👥 تعداد کل زیرمجموعه : $affiliatesTotal\n🛒 تعداد خریدار سرویس : $affiliatesBoughtCount", $keyboardadmin, 'HTML');
 } elseif (preg_match('/removeaffiliate-(\w+)/', $datain, $dataget)) {
     $iduser = $dataget[1];
     $user2 = select("user", "*", "id", $iduser, "select");

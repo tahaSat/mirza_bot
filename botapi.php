@@ -359,7 +359,11 @@ $audio = $update["message"]["audio"] ?? 0;
 $audioid = $audio ? $audio["file_id"] : 0;
 $voice = $update["message"]["voice"] ?? 0;
 $voiceid = $voice ? $voice["file_id"] : 0;
-$forward_from_id = $update["message"]["reply_to_message"]["forward_from"]["id"] ?? 0;
+$forward_from_id = $update["message"]["forward_origin"]["sender_user"]["id"]
+    ?? $update["message"]["forward_from"]["id"]
+    ?? $update["message"]["reply_to_message"]["forward_origin"]["sender_user"]["id"]
+    ?? $update["message"]["reply_to_message"]["forward_from"]["id"]
+    ?? 0;
 $datain = $update["callback_query"]["data"] ?? '';
 $last_name = $update['message']['from']['last_name']  ?? $update["callback_query"]["from"]["last_name"] ?? $update["inline_query"]['from']['last_name'] ?? '';
 $first_name = $update['message']['from']['first_name']  ?? $update["callback_query"]["from"]["first_name"] ?? $update["inline_query"]['from']['first_name'] ?? '';

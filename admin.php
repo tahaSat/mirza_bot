@@ -4113,8 +4113,17 @@ $caption";
 } elseif ($datain == "searchuser") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['GetIdUserunblock'], $backadmin, 'HTML');
     step('show_info', $from_id);
-} elseif ($user['step'] == "show_info" || preg_match('/manageuser_(\w+)/', $datain, $dataget) || preg_match('/updateinfouser_(\w+)/', $datain, $dataget) || strpos($text, "/user ") !== false || strpos($text, "/id ") !== false) {
-    if ($user['step'] == "show_info") {
+} elseif ($datain == "manageuserbyforward") {
+    sendmessage($from_id, "یک پیام از حساب تلگرام کاربر موردنظر به ربات فوروارد کنید.", $backadmin, 'HTML');
+    step('show_info_forward', $from_id);
+} elseif ($user['step'] == "show_info" || $user['step'] == "show_info_forward" || preg_match('/manageuser_(\w+)/', $datain, $dataget) || preg_match('/updateinfouser_(\w+)/', $datain, $dataget) || strpos($text, "/user ") !== false || strpos($text, "/id ") !== false) {
+    if ($user['step'] == "show_info_forward") {
+        if (intval($forward_from_id) === 0) {
+            sendmessage($from_id, "شناسه این حساب در پیام فورواردشده مخفی است. از کاربر بخواهید حریم خصوصی فوروارد را غیرفعال کند و دوباره تلاش کنید.", $backadmin, 'HTML');
+            return;
+        }
+        $id_user = (string) $forward_from_id;
+    } elseif ($user['step'] == "show_info") {
         $id_user = $text;
     } elseif (explode(" ", $text)[0] == "/user") {
         $id_user = explode(" ", $text)[1];
@@ -4290,7 +4299,7 @@ $text_expie_agent
 🔰 مجموع فروش یک ماه گذشته : $suminvoicemonth تومان
 
 ";
-    if ($datain[0] == "u") {
+    if (isset($datain[0]) && $datain[0] == "u") {
         telegram('answerCallbackQuery', array(
             'callback_query_id' => $callback_query_id,
             'text' => "اطلاعات بروزرسانی گردید",
@@ -4876,6 +4885,9 @@ $text_expie_agent
             [
                 ['text' => "🔍 جستجو کاربر", 'callback_data' => "searchuser"],
                 ['text' => "📨 بخش ارسال پیام", 'callback_data' => "systemsms"],
+            ],
+            [
+                ['text' => "👤 مدیریت با پیام فورواردی", 'callback_data' => "manageuserbyforward"],
             ],
             [
                 ['text' => "🔋 حجم یا زمان همگانی", 'callback_data' => "voloume_or_day_all"],

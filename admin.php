@@ -5334,14 +5334,19 @@ $text_expie_agent
     ];
     $keyboardlists['inline_keyboard'][] = [
         ['text' => "عملیات", 'callback_data' => "action"],
+        ['text' => "نام کاربری", 'callback_data' => "username"],
         ['text' => "شناسه", 'callback_data' => "iduser"],
-        ['text' => "تعداد زیرمجموعه", 'callback_data' => "affiliatescount"]
+        ['text' => "تعداد", 'callback_data' => "affiliatescount"]
     ];
     while ($row = mysqli_fetch_assoc($result)) {
         $keyboardlists['inline_keyboard'][] = [
             [
-                'text' => $textbotlang['Admin']['ManageUser']['mangebtnuser'],
+                'text' => "⚙️",
                 'callback_data' => "manageuser_" . $row['id']
+            ],
+            [
+                'text' => $row['username'] ?: '—',
+                'callback_data' => "username"
             ],
             [
                 'text' => $row['id'],
@@ -5390,14 +5395,19 @@ $text_expie_agent
     ];
     $keyboardlists['inline_keyboard'][] = [
         ['text' => "عملیات", 'callback_data' => "action"],
+        ['text' => "نام کاربری", 'callback_data' => "username"],
         ['text' => "شناسه", 'callback_data' => "iduser"],
-        ['text' => "تعداد زیرمجموعه", 'callback_data' => "affiliatescount"]
+        ['text' => "تعداد", 'callback_data' => "affiliatescount"]
     ];
     while ($row = mysqli_fetch_assoc($result)) {
         $keyboardlists['inline_keyboard'][] = [
             [
-                'text' => $textbotlang['Admin']['ManageUser']['mangebtnuser'],
+                'text' => "⚙️",
                 'callback_data' => "manageuser_" . $row['id']
+            ],
+            [
+                'text' => $row['username'] ?: '—',
+                'callback_data' => "username"
             ],
             [
                 'text' => $row['id'],
@@ -5438,14 +5448,19 @@ $text_expie_agent
     ];
     $keyboardlists['inline_keyboard'][] = [
         ['text' => "عملیات", 'callback_data' => "action"],
+        ['text' => "نام کاربری", 'callback_data' => "username"],
         ['text' => "شناسه", 'callback_data' => "iduser"],
-        ['text' => "تعداد زیرمجموعه", 'callback_data' => "affiliatescount"]
+        ['text' => "تعداد", 'callback_data' => "affiliatescount"]
     ];
     while ($row = mysqli_fetch_assoc($result)) {
         $keyboardlists['inline_keyboard'][] = [
             [
-                'text' => $textbotlang['Admin']['ManageUser']['mangebtnuser'],
+                'text' => "⚙️",
                 'callback_data' => "manageuser_" . $row['id']
+            ],
+            [
+                'text' => $row['username'] ?: '—',
+                'callback_data' => "username"
             ],
             [
                 'text' => $row['id'],

@@ -5,16 +5,28 @@ require_once __DIR__ . '/inc/payments_lib.php';
 require_auth();
 $pdo = panel_ensure_pdo();
 
-$views = [
+$metricDefs = [
     'sales' => 'فروش روزانه',
     'users' => 'کاربران جدید',
     'status' => 'وضعیت سفارش',
     'payments' => 'روش پرداخت',
 ];
 
-$view = $_GET['view'] ?? 'sales';
-if (!isset($views[$view])) {
-    $view = 'sales';
+$rawViews = $_GET['views'] ?? ($_GET['view'] ?? 'sales');
+if (is_array($rawViews)) {
+    $selected = $rawViews;
+} else {
+    $selected = preg_split('/[,\s]+/', (string) $rawViews, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+}
+$selected = array_values(array_unique(array_filter(
+    $selected,
+    static fn($k) => isset($metricDefs[$k])
+)));
+if ($selected === []) {
+    $selected = ['sales'];
+}
+if (count($selected) > 2) {
+    $selected = array_slice($selected, 0, 2);
 }
 
 $monthParam = preg_replace('/[^0-9\-]/', '', (string) ($_GET['month'] ?? ''));
@@ -41,7 +53,6 @@ for ($d = 1; $d <= $daysInMonth; $d++) {
 }
 
 $paidStatuses = panel_invoice_active_statuses();
-$statusMap = panel_invoice_status_map();
 
 $summary = [
     'orders' => 0,
@@ -55,9 +66,11 @@ $chartPayload = [
     'labels' => $dayLabels,
     'datasets' => [],
     'type' => 'bar',
+    'stacked' => false,
 ];
 
 $tableRows = [];
+$hasStacked = false;
 
 try {
     $summary['orders'] = db_count(
@@ -120,7 +133,9 @@ $palette = [
     'rgba(148,163,184,0.85)',
 ];
 
-if ($view === 'sales') {
+$multi = count($selected) > 1;
+
+if (in_array('sales', $selected, true)) {
     $byDay = array_fill_keys($dayKeys, ['count' => 0, 'revenue' => 0]);
     try {
         $rows = db_fetchAll(
@@ -156,6 +171,7 @@ if ($view === 'sales') {
         $revenues[] = $byDay[$key]['revenue'];
         if ($byDay[$key]['count'] > 0 || $byDay[$key]['revenue'] > 0) {
             $tableRows[] = [
+                'group' => $metricDefs['sales'],
                 'label' => $key,
                 'count' => $byDay[$key]['count'],
                 'extra' => number_format($byDay[$key]['revenue']) . ' ت',
@@ -163,29 +179,29 @@ if ($view === 'sales') {
         }
     }
 
-    $chartPayload['type'] = 'bar';
-    $chartPayload['datasets'] = [
-        [
-            'label' => 'تعداد فروش',
-            'data' => $counts,
-            'backgroundColor' => 'rgba(6,182,212,0.75)',
-            'borderRadius' => 6,
-            'yAxisID' => 'y',
-            'order' => 2,
-        ],
-        [
-            'label' => 'مبلغ (تومان)',
-            'data' => $revenues,
-            'type' => 'line',
-            'borderColor' => 'rgba(34,197,94,0.95)',
-            'backgroundColor' => 'rgba(34,197,94,0.15)',
-            'tension' => 0.3,
-            'fill' => true,
-            'yAxisID' => 'y1',
-            'order' => 1,
-        ],
+    $chartPayload['datasets'][] = [
+        'label' => 'تعداد فروش',
+        'data' => $counts,
+        'backgroundColor' => 'rgba(6,182,212,0.75)',
+        'borderRadius' => 6,
+        'stack' => 'sales',
+        'yAxisID' => 'y',
+        'order' => 2,
     ];
-} elseif ($view === 'users') {
+    $chartPayload['datasets'][] = [
+        'label' => 'مبلغ (تومان)',
+        'data' => $revenues,
+        'type' => 'line',
+        'borderColor' => 'rgba(34,197,94,0.95)',
+        'backgroundColor' => 'rgba(34,197,94,0.15)',
+        'tension' => 0.3,
+        'fill' => true,
+        'yAxisID' => 'y1',
+        'order' => 1,
+    ];
+}
+
+if (in_array('users', $selected, true)) {
     $byDay = array_fill_keys($dayKeys, 0);
     try {
         $rows = db_fetchAll(
@@ -211,20 +227,27 @@ if ($view === 'sales') {
     foreach ($dayKeys as $key) {
         $counts[] = $byDay[$key];
         if ($byDay[$key] > 0) {
-            $tableRows[] = ['label' => $key, 'count' => $byDay[$key], 'extra' => 'کاربر'];
+            $tableRows[] = [
+                'group' => $metricDefs['users'],
+                'label' => $key,
+                'count' => $byDay[$key],
+                'extra' => 'کاربر',
+            ];
         }
     }
 
-    $chartPayload['type'] = 'bar';
-    $chartPayload['datasets'] = [
-        [
-            'label' => 'کاربران جدید',
-            'data' => $counts,
-            'backgroundColor' => 'rgba(167,139,250,0.8)',
-            'borderRadius' => 6,
-        ],
+    $chartPayload['datasets'][] = [
+        'label' => 'کاربران جدید',
+        'data' => $counts,
+        'backgroundColor' => 'rgba(167,139,250,0.8)',
+        'borderRadius' => 6,
+        'stack' => 'users',
+        'yAxisID' => 'y',
+        'order' => 2,
     ];
-} elseif ($view === 'status') {
+}
+
+if (in_array('status', $selected, true)) {
     $statusKeys = [];
     $byStatus = [];
     try {
@@ -258,12 +281,12 @@ if ($view === 'sales') {
     } catch (Exception $e) {
     }
 
-    $datasets = [];
     foreach ($statusKeys as $i => $st) {
         [$tag, $label] = panel_invoice_status_label($st === '—' ? '' : $st);
         if ($st === '—') {
             $label = 'نامشخص';
         }
+        $prefix = $multi ? 'وضعیت · ' : '';
         $data = [];
         $total = 0;
         foreach ($dayKeys as $key) {
@@ -271,22 +294,28 @@ if ($view === 'sales') {
             $data[] = $val;
             $total += $val;
         }
-        $datasets[] = [
-            'label' => $label,
+        $chartPayload['datasets'][] = [
+            'label' => $prefix . $label,
             'data' => $data,
             'backgroundColor' => $palette[$i % count($palette)],
             'stack' => 'status',
             'borderRadius' => 3,
+            'yAxisID' => 'y',
+            'order' => 3,
         ];
         if ($total > 0) {
-            $tableRows[] = ['label' => $label, 'count' => $total, 'extra' => 'در ماه'];
+            $tableRows[] = [
+                'group' => $metricDefs['status'],
+                'label' => $label,
+                'count' => $total,
+                'extra' => 'در ماه',
+            ];
         }
     }
+    $hasStacked = true;
+}
 
-    $chartPayload['type'] = 'bar';
-    $chartPayload['stacked'] = true;
-    $chartPayload['datasets'] = $datasets;
-} else { // payments
+if (in_array('payments', $selected, true)) {
     $methods = [];
     $byMethod = [];
     try {
@@ -341,33 +370,39 @@ if ($view === 'sales') {
     } catch (Exception $e) {
     }
 
-    $datasets = [];
+    $payRows = [];
     foreach ($methods as $i => $method) {
         $label = panel_payment_method_label($method === '—' ? '' : $method);
+        $prefix = $multi ? 'پرداخت · ' : '';
         $data = [];
         foreach ($dayKeys as $key) {
             $data[] = $byMethod[$method]['days'][$key] ?? 0;
         }
-        $datasets[] = [
-            'label' => $label,
+        $chartPayload['datasets'][] = [
+            'label' => $prefix . $label,
             'data' => $data,
-            'backgroundColor' => $palette[$i % count($palette)],
+            'backgroundColor' => $palette[($i + 3) % count($palette)],
             'stack' => 'pay',
             'borderRadius' => 3,
+            'yAxisID' => 'y',
+            'order' => 3,
         ];
-        $tableRows[] = [
+        $payRows[] = [
+            'group' => $metricDefs['payments'],
             'label' => $label,
             'count' => $byMethod[$method]['count'],
             'extra' => number_format($byMethod[$method]['sum']) . ' ت',
         ];
     }
 
-    usort($tableRows, static fn($a, $b) => $b['count'] <=> $a['count']);
-
-    $chartPayload['type'] = 'bar';
-    $chartPayload['stacked'] = true;
-    $chartPayload['datasets'] = $datasets;
+    usort($payRows, static fn($a, $b) => $b['count'] <=> $a['count']);
+    foreach ($payRows as $row) {
+        $tableRows[] = $row;
+    }
+    $hasStacked = true;
 }
+
+$chartPayload['stacked'] = $hasStacked;
 
 $monthOptions = [];
 for ($i = 0; $i < 18; $i++) {
@@ -376,10 +411,36 @@ for ($i = 0; $i < 18; $i++) {
     $monthOptions[$val] = date('Y/m', $ts);
 }
 
+$viewsQuery = implode(',', $selected);
+$chartTitle = implode(' + ', array_map(static fn($k) => $metricDefs[$k], $selected));
+$showGroupCol = $multi;
+$showAmountCol = in_array('sales', $selected, true) || in_array('payments', $selected, true);
+
 $pageTitle = 'آمار';
-$pageLede = 'نمودار فروش، کاربران، وضعیت سفارش و روش‌های پرداخت به تفکیک روز.';
+$pageLede = 'نمودار فروش، کاربران، وضعیت سفارش و روش‌های پرداخت به تفکیک روز. تا دو معیار را هم‌زمان انتخاب کنید.';
 $activeNav = 'stats';
 include __DIR__ . '/inc/layout_head.php';
+
+$toggleMetricUrl = static function (string $key) use ($selected, $monthParam, $metricDefs): string {
+    $next = $selected;
+    $idx = array_search($key, $next, true);
+    if ($idx !== false) {
+        if (count($next) <= 1) {
+            return 'stats.php?views=' . urlencode($key) . '&month=' . urlencode($monthParam);
+        }
+        array_splice($next, $idx, 1);
+    } else {
+        if (count($next) >= 2) {
+            array_shift($next);
+        }
+        $next[] = $key;
+    }
+    $next = array_values(array_filter($next, static fn($k) => isset($metricDefs[$k])));
+    if ($next === []) {
+        $next = ['sales'];
+    }
+    return 'stats.php?views=' . urlencode(implode(',', $next)) . '&month=' . urlencode($monthParam);
+};
 ?>
 
 <style>
@@ -387,6 +448,7 @@ include __DIR__ . '/inc/layout_head.php';
   .stats-filters{display:flex;gap:4px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:4px;flex-wrap:wrap}
   .stats-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
   .stats-empty{padding:48px 16px;text-align:center;color:var(--mute)}
+  .stats-hint{font-size:12px;color:var(--mute);margin-top:6px}
 </style>
 
 <div class="stats fade-up" style="margin-bottom:18px">
@@ -417,16 +479,21 @@ include __DIR__ . '/inc/layout_head.php';
 </div>
 
 <div class="stats-toolbar fade-up">
-  <div class="stats-filters">
-    <?php foreach ($views as $key => $label): ?>
-      <a href="stats.php?view=<?= urlencode($key) ?>&month=<?= urlencode($monthParam) ?>"
-         class="btn btn-sm <?= $view === $key ? 'btn-primary' : 'btn-ghost' ?>">
-        <?= htmlspecialchars($label) ?>
-      </a>
-    <?php endforeach; ?>
+  <div>
+    <div class="stats-filters">
+      <?php foreach ($metricDefs as $key => $label): ?>
+        <?php $active = in_array($key, $selected, true); ?>
+        <a href="<?= htmlspecialchars($toggleMetricUrl($key)) ?>"
+           class="btn btn-sm <?= $active ? 'btn-primary' : 'btn-ghost' ?>"
+           title="<?= $active ? 'حذف از نمودار' : (count($selected) >= 2 ? 'جایگزین معیار اول' : 'افزودن به نمودار') ?>">
+          <?= htmlspecialchars($label) ?>
+        </a>
+      <?php endforeach; ?>
+    </div>
+    <div class="stats-hint">یک یا دو معیار را انتخاب کنید تا روی یک نمودار مقایسه شوند.</div>
   </div>
   <form method="GET" class="toolbar-end" style="display:flex;gap:8px;align-items:center">
-    <input type="hidden" name="view" value="<?= htmlspecialchars($view) ?>">
+    <input type="hidden" name="views" value="<?= htmlspecialchars($viewsQuery) ?>">
     <select name="month" class="select" style="width:auto" onchange="this.form.submit()">
       <?php foreach ($monthOptions as $val => $lbl): ?>
         <option value="<?= htmlspecialchars($val) ?>" <?= $val === $monthParam ? 'selected' : '' ?>>
@@ -440,7 +507,7 @@ include __DIR__ . '/inc/layout_head.php';
 <div class="card fade-up">
   <div class="card-head">
     <div>
-      <div class="card-title"><?= htmlspecialchars($views[$view]) ?></div>
+      <div class="card-title"><?= htmlspecialchars($chartTitle) ?></div>
       <div class="card-subtitle">ماه <?= htmlspecialchars(date('Y/m', $monthStart)) ?> — به تفکیک روز</div>
     </div>
   </div>
@@ -462,14 +529,18 @@ include __DIR__ . '/inc/layout_head.php';
     <table class="tbl-md">
       <thead>
         <tr>
-          <th><?= $view === 'sales' || $view === 'users' ? 'روز' : 'عنوان' ?></th>
+          <?php if ($showGroupCol): ?><th>معیار</th><?php endif; ?>
+          <th>عنوان</th>
           <th>تعداد</th>
-          <th><?= $view === 'sales' || $view === 'payments' ? 'مبلغ' : 'توضیح' ?></th>
+          <th><?= $showAmountCol ? 'مبلغ / توضیح' : 'توضیح' ?></th>
         </tr>
       </thead>
       <tbody>
         <?php foreach ($tableRows as $row): ?>
           <tr>
+            <?php if ($showGroupCol): ?>
+              <td><?= htmlspecialchars($row['group']) ?></td>
+            <?php endif; ?>
             <td class="cm"><?= htmlspecialchars($row['label']) ?></td>
             <td><?= number_format((int) $row['count']) ?></td>
             <td><?= htmlspecialchars($row['extra']) ?></td>

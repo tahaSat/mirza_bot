@@ -3124,8 +3124,9 @@ $textconnect
         }
         if ($user['number'] == "none" && $setting['get_number'] == "onAuthenticationphone")
             return;
+        $user = ensureUsertestPeriodReset($from_id);
         if ($user['limit_usertest'] <= 0 && !in_array($from_id, $admin_ids)) {
-            sendmessage($from_id, $textbotlang['users']['usertest']['limitwarning'], $keyboard_buy, 'html');
+            sendmessage($from_id, getUsertestLimitWarningMessage($user), $keyboard_buy, 'html');
             return;
         }
         sendmessage($from_id, $datatextbot['textselectlocation'], $list_marzban_usertest, 'html');
@@ -3136,9 +3137,9 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
         sendmessage($from_id, "📌 سرویس تست در حال حاضر در دسترس نیست .", null, 'HTML');
         return;
     }
-    $userlimit = select("user", "*", "id", $from_id, "select");
+    $userlimit = ensureUsertestPeriodReset($from_id);
     if ($userlimit['limit_usertest'] <= 0 && !in_array($from_id, $admin_ids)) {
-        sendmessage($from_id, $textbotlang['users']['usertest']['limitwarning'], $keyboard_buy, 'html');
+        sendmessage($from_id, getUsertestLimitWarningMessage($userlimit), $keyboard_buy, 'html');
         return;
     }
     if ($setting['get_number'] == "onAuthenticationphone" && $user['step'] != "get_number" && $user['number'] == "none") {
@@ -3203,6 +3204,9 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
     }
     $limit_usertest = $userlimit['limit_usertest'] - 1;
     update("user", "limit_usertest", $limit_usertest, "id", $from_id);
+    if (intval($userlimit['time_usertest'] ?? 0) <= 0) {
+        update("user", "time_usertest", time(), "id", $from_id);
+    }
     $randomString = bin2hex(random_bytes(4));
     $text = strtolower($text);
     $marzban_list_get = select("marzban_panel", "*", "code_panel", $name_panel, "select");

@@ -24,6 +24,10 @@ foreach ($datatxtbot as $item) {
         $datatextbot[$item['id_text']] = $item['text'];
     }
 }
+
+// Remove test accounts older than 10 days and reset expired user quotas
+cronCleanupUsertestAccounts();
+
         $stmt = $pdo->prepare("SELECT * FROM invoice WHERE status != 'disabled' AND name_product = 'سرویس تست' ORDER BY RAND() LIMIT 15");
         $stmt->execute();
         while ($result = $stmt->fetch(PDO::FETCH_ASSOC)) {

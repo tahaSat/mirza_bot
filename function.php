@@ -1528,6 +1528,129 @@ function addFieldToTable($tableName, $fieldName, $defaultValue = null, $datatype
     echo "The $fieldName field was added ✅";
 }
 
+/** Test-account quota window length in seconds (10 days). */
+function usertestPeriodSeconds(): int
+{
+    return 10 * 86400;
+}
+
+/**
+ * Count non-disabled test invoices for a user.
+ */
+function countActiveUsertestAccounts($user_id): int
+{
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM invoice WHERE id_user = :id_user AND name_product = 'سرویس تست' AND Status NOT IN ('disabled', 'Unsuccessful')");
+    $stmt->bindParam(':id_user', $user_id);
+    $stmt->execute();
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * Remove a user's test accounts from panel + mark invoices disabled.
+ * If $olderThanSeconds is set, only accounts older than that are removed.
+ */
+function removeUserTestAccounts($user_id = null, $olderThanSeconds = null): void
+{
+    global $pdo, $ManagePanel;
+    if (!isset($ManagePanel) || !is_object($ManagePanel)) {
+        $ManagePanel = new ManagePanel();
+    }
+    $query = "SELECT * FROM invoice WHERE name_product = 'سرویس تست' AND Status NOT IN ('disabled', 'Unsuccessful')";
+    $params = [];
+    if ($user_id !== null) {
+        $query .= " AND id_user = :id_user";
+        $params[':id_user'] = $user_id;
+    }
+    if ($olderThanSeconds !== null) {
+        $cutoff = time() - (int) $olderThanSeconds;
+        $query .= " AND CAST(time_sell AS UNSIGNED) > 0 AND CAST(time_sell AS UNSIGNED) <= :cutoff";
+        $params[':cutoff'] = $cutoff;
+    }
+    $stmt = $pdo->prepare($query);
+    $stmt->execute($params);
+    while ($invoice = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $username = trim($invoice['username']);
+        if ($username === '') {
+            continue;
+        }
+        try {
+            $ManagePanel->RemoveUser($invoice['Service_location'], $username);
+        } catch (Throwable $e) {
+            error_log('removeUserTestAccounts: ' . $e->getMessage());
+        }
+        update("invoice", "Status", "disabled", "username", $username);
+    }
+}
+
+/**
+ * If the user's 10-day test period has ended: remove their test accounts,
+ * restore limit_usertest from settings, and clear the period start.
+ * Returns the (possibly refreshed) user row.
+ */
+function ensureUsertestPeriodReset($user_id)
+{
+    global $pdo, $setting;
+    ensureColumnExistsForUpdate('user', 'time_usertest', '0');
+    $user = select("user", "*", "id", $user_id, "select");
+    if ($user === false || !is_array($user)) {
+        return $user;
+    }
+    $periodStart = intval($user['time_usertest'] ?? 0);
+    // Backfill period start for users who already used their quota before this feature
+    if ($periodStart <= 0 && intval($user['limit_usertest']) <= 0) {
+        $stmt = $pdo->prepare("SELECT time_sell FROM invoice WHERE id_user = :id_user AND name_product = 'سرویس تست' AND Status != 'Unsuccessful' ORDER BY CAST(time_sell AS UNSIGNED) DESC LIMIT 1");
+        $stmt->bindParam(':id_user', $user_id);
+        $stmt->execute();
+        $lastSell = $stmt->fetchColumn();
+        $periodStart = intval($lastSell) > 0 ? intval($lastSell) : time();
+        update("user", "time_usertest", $periodStart, "id", $user_id);
+        $user['time_usertest'] = (string) $periodStart;
+    }
+    if ($periodStart > 0 && (time() - $periodStart) >= usertestPeriodSeconds()) {
+        removeUserTestAccounts($user_id);
+        $resetLimit = $setting['limit_usertest_all'] ?? '1';
+        update("user", "limit_usertest", $resetLimit, "id", $user_id);
+        update("user", "time_usertest", "0", "id", $user_id);
+        $user = select("user", "*", "id", $user_id, "select");
+    }
+    return $user;
+}
+
+/**
+ * Warning text when the user cannot create another test account.
+ */
+function getUsertestLimitWarningMessage($user): string
+{
+    global $textbotlang, $setting;
+    $limit = $setting['limit_usertest_all'] ?? ($user['limit_usertest'] ?? '1');
+    if (countActiveUsertestAccounts($user['id']) > 0) {
+        $msg = $textbotlang['users']['usertest']['limitwarningactive']
+            ?? "محدودیت اکانت تست هر {limit}‌ اکانت در ۱۰ روز است . شما یک اکانت تست فعال دارید. لطفا چند روز دیگر مجددا امتحان نمایید .";
+        return str_replace('{limit}', $limit, $msg);
+    }
+    return $textbotlang['users']['usertest']['limitwarning'];
+}
+
+/**
+ * Cron helper: remove test accounts older than 10 days and reset expired periods.
+ */
+function cronCleanupUsertestAccounts(): void
+{
+    global $pdo, $setting;
+    ensureColumnExistsForUpdate('user', 'time_usertest', '0');
+    removeUserTestAccounts(null, usertestPeriodSeconds());
+    $cutoff = time() - usertestPeriodSeconds();
+    $stmt = $pdo->prepare("SELECT id FROM user WHERE CAST(time_usertest AS UNSIGNED) > 0 AND CAST(time_usertest AS UNSIGNED) <= :cutoff");
+    $stmt->bindParam(':cutoff', $cutoff);
+    $stmt->execute();
+    $resetLimit = $setting['limit_usertest_all'] ?? '1';
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        update("user", "limit_usertest", $resetLimit, "id", $row['id']);
+        update("user", "time_usertest", "0", "id", $row['id']);
+    }
+}
+
 /**
  * Decode category/panel style agent JSON: {"f":"...","n":"...","n2":"..."}.
  */

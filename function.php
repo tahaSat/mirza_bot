@@ -3513,6 +3513,67 @@ function agent_is_reseller($agent): bool
 }
 
 /**
+ * Users whose active subscription has used at least $percent of volume.
+ * Returns list of ['id' => userId] suitable for sendmessage cron.
+ */
+function getUsersHighVolumeUsage($percent = 80, $agent = 'all', $panelName = 'all'): array
+{
+    global $pdo, $ManagePanel;
+    if (!isset($ManagePanel) || !($ManagePanel instanceof ManagePanel)) {
+        if (!class_exists('ManagePanel')) {
+            require_once __DIR__ . '/panels.php';
+        }
+        $ManagePanel = new ManagePanel();
+    }
+
+    $percent = max(1, min(100, (float) $percent));
+    $sql = "SELECT DISTINCT i.id_user, i.username, i.Service_location
+            FROM invoice i
+            INNER JOIN user u ON u.id = i.id_user
+            WHERE i.Status IN ('active', 'end_of_time', 'end_of_volume', 'sendedwarn', 'send_on_hold')
+              AND i.name_product != 'سرویس تست'
+              AND u.User_Status = 'Active'";
+    $params = [];
+    if ($agent !== 'all' && $agent !== null && $agent !== '') {
+        $sql .= " AND u.agent = :agent";
+        $params[':agent'] = $agent;
+    }
+    if ($panelName !== 'all' && $panelName !== null && $panelName !== '') {
+        $sql .= " AND i.Service_location = :panel";
+        $params[':panel'] = $panelName;
+    }
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $invoices = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $matched = [];
+    foreach ($invoices as $invoice) {
+        $userId = $invoice['id_user'];
+        if (isset($matched[$userId])) {
+            continue;
+        }
+        $userData = $ManagePanel->DataUser($invoice['Service_location'], $invoice['username']);
+        if (!is_array($userData) || ($userData['status'] ?? '') === 'Unsuccessful') {
+            continue;
+        }
+        $dataLimit = isset($userData['data_limit']) && is_numeric($userData['data_limit'])
+            ? (float) $userData['data_limit']
+            : 0;
+        if ($dataLimit <= 0) {
+            continue;
+        }
+        $usedTraffic = isset($userData['used_traffic']) && is_numeric($userData['used_traffic'])
+            ? (float) $userData['used_traffic']
+            : 0;
+        $usagePercent = ($usedTraffic / $dataLimit) * 100;
+        if ($usagePercent >= $percent) {
+            $matched[$userId] = ['id' => $userId];
+        }
+    }
+    return array_values($matched);
+}
+
+/**
  * Pre-check whether an agent can create the given GB volume.
  * Returns ['ok' => bool, 'msg' => string, 'cost' => int, 'user' => array|null]
  */

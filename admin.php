@@ -1063,6 +1063,9 @@ elseif ($datain == "systemsms") {
                 ['text' => "کاربرانی که خرید نداشتند", 'callback_data' => 'typeusermessage-nonecustomer'],
             ],
             [
+                ['text' => "کاربرانی که بیش از ۸۰٪ مصرف کرده‌اند", 'callback_data' => 'typeusermessage-highvolume'],
+            ],
+            [
                 ['text' => "بازگشت به منوی قبل", 'callback_data' => 'systemsms'],
             ],
         ]
@@ -1105,7 +1108,7 @@ elseif ($datain == "systemsms") {
         return;
     }
     savedata("save", "agent", $type);
-    if ($userdata['typeusermessage'] == "customer") {
+    if ($userdata['typeusermessage'] == "customer" || $userdata['typeusermessage'] == "highvolume") {
         $stmt = $pdo->prepare("SELECT * FROM marzban_panel WHERE agent = :agent OR agent = 'all'");
         $stmt->bindParam(':agent', $type);
         $stmt->execute();
@@ -1278,6 +1281,7 @@ elseif ($datain == "systemsms") {
         "all" => "ارسال به همه کاربران",
         "customer" => "مشتریان",
         "nonecustomer" => "کسانی که خرید نداشتند",
+        "highvolume" => "کاربرانی که بیش از ۸۰٪ مصرف کرده‌اند",
     ][$userdata['typeusermessage']];
     if ($userdata['typeservice'] == "xdaynotmessage") {
         $textday = "تعداد روزی که کاربر پیام نداده است : {$userdata['daynoyuse']}";
@@ -1318,6 +1322,21 @@ $textday
         ]
     ]);
 
+    $highvolume_panel = 'all';
+    if ($typeusermessage == "highvolume") {
+        if (!empty($userdata['selectpanel']) && $userdata['selectpanel'] != "all") {
+            $panel = select("marzban_panel", "*", "code_panel", $userdata['selectpanel'], "select");
+            $highvolume_panel = $panel['name_panel'] ?? 'all';
+        }
+        Editmessagetext($from_id, $message_id, "⏳ در حال بررسی مصرف حجم کاربران (بیش از ۸۰٪)... لطفا صبر کنید.", null);
+        @set_time_limit(300);
+        $highvolume_users = getUsersHighVolumeUsage(80, $agent, $highvolume_panel);
+        if (count($highvolume_users) == 0) {
+            sendmessage($from_id, "❌ کاربری با مصرف بیش از ۸۰٪ حجم سرویس یافت نشد.", $keyboardadmin, 'HTML');
+            return;
+        }
+    }
+
     if ($typeservice == "unpinmessage") {
         $userlist = json_encode(select("user", "id", null, null, "fetchAll"));
         $message_id = Editmessagetext($from_id, $message_id, "✅ عملیات آغاز گردید پس از پایان اطلاع رسانی خواهد شد.", $cancelmessage);
@@ -1329,7 +1348,9 @@ $textday
         file_put_contents("cronbot/users.json", $userlist);
         file_put_contents('cronbot/info', $dataunpin);
     } elseif ($typeservice == "sendmessage") {
-        if ($agent == "all") {
+        if ($typeusermessage == "highvolume") {
+            $userslist = json_encode($highvolume_users);
+        } elseif ($agent == "all") {
             if ($typeusermessage == "all") {
                 $userslist = json_encode(select("user", "id", "User_Status", "Active", "fetchAll"));
             } elseif ($typeusermessage == "customer") {
@@ -1378,7 +1399,9 @@ $textday
         file_put_contents("cronbot/users.json", $userslist);
         file_put_contents('cronbot/info', $data);
     } elseif ($typeservice == "forwardmessage") {
-        if ($agent == "all") {
+        if ($typeusermessage == "highvolume") {
+            $userslist = json_encode($highvolume_users);
+        } elseif ($agent == "all") {
             if ($typeusermessage == "all") {
                 $userslist = json_encode(select("user", "id", "User_Status", "Active", "fetchAll"));
             } elseif ($typeusermessage == "customer") {
@@ -1428,7 +1451,17 @@ $textday
     } elseif ($typeservice == "xdaynotmessage") {
         $timedaystamp = intval($userdata['daynoyuse']) * 86400;
         $timenouser = time() - $timedaystamp;
-        if ($agent == "all") {
+        if ($typeusermessage == "highvolume") {
+            $ids = array_column($highvolume_users, 'id');
+            if (count($ids) == 0) {
+                sendmessage($from_id, "❌ کاربری با مصرف بیش از ۸۰٪ حجم سرویس یافت نشد.", $keyboardadmin, 'HTML');
+                return;
+            }
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $pdo->prepare("SELECT id FROM user WHERE last_message_time < ? AND id IN ($placeholders)");
+            $stmt->execute(array_merge([$timenouser], $ids));
+            $userslist = json_encode($stmt->fetchAll());
+        } elseif ($agent == "all") {
             $stmt = $pdo->prepare("SELECT id FROM user  WHERE last_message_time < $timenouser");
             $stmt->execute();
             $userslist = json_encode($stmt->fetchAll());

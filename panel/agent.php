@@ -54,6 +54,33 @@ $username = ($user['username'] ?? '') === 'none' ? '' : ($user['username'] ?? ''
 $expire = $user['expire'] ?? null;
 $expireLabel = $expire ? date('Y/m/d H:i', (int) $expire) : 'بدون انقضا';
 
+$isN2 = ($agent === 'n2');
+$allProducts = [];
+$enabledProducts = [];
+$n2Purchases = [];
+if ($isN2) {
+    agent_ensure_n2_tables();
+    try {
+        $allProducts = db_fetchAll($pdo, 'SELECT code_product, name_product, Volume_constraint, Service_time, price_product, Location, agent FROM product ORDER BY name_product ASC');
+    } catch (Exception $e) {
+        $allProducts = [];
+    }
+    try {
+        $rows = db_fetchAll($pdo, 'SELECT code_product, enabled FROM agent_n2_product WHERE agent_id = ?', [(string) $id]);
+        foreach ($rows as $r) {
+            if ((int) ($r['enabled'] ?? 0) === 1) {
+                $enabledProducts[$r['code_product']] = true;
+            }
+        }
+    } catch (Exception $e) {
+    }
+    try {
+        $n2Purchases = db_fetchAll($pdo, 'SELECT * FROM agent_n2_purchase WHERE agent_id = ? ORDER BY created_at DESC LIMIT 100', [(string) $id]);
+    } catch (Exception $e) {
+        $n2Purchases = [];
+    }
+}
+
 $tokenMasked = '';
 if ($bot && !empty($bot['bot_token'])) {
     $tok = $bot['bot_token'];
@@ -72,6 +99,7 @@ include __DIR__ . '/inc/layout_head.php';
 </div>
 
 <div class="stats u-stats fade-up" style="margin-bottom:18px">
+    <?php if (!$isN2): ?>
     <div class="stat">
         <div class="stat-label">موجودی</div>
         <div class="stat-num"><?= number_format($balance) ?><small>ت</small></div>
@@ -84,6 +112,16 @@ include __DIR__ . '/inc/layout_head.php';
         <div class="stat-label">قیمت هر گیگ</div>
         <div class="stat-num"><?= number_format($pricePerGb) ?><small>ت</small></div>
     </div>
+    <?php else: ?>
+    <div class="stat">
+        <div class="stat-label">محصولات فعال</div>
+        <div class="stat-num"><?= number_format(count($enabledProducts)) ?></div>
+    </div>
+    <div class="stat">
+        <div class="stat-label">خریدهای ثبت‌شده</div>
+        <div class="stat-num"><?= number_format(count($n2Purchases)) ?></div>
+    </div>
+    <?php endif; ?>
     <div class="stat">
         <div class="stat-label">نقش</div>
         <div class="stat-num" style="font-size:1rem">
@@ -120,6 +158,7 @@ include __DIR__ . '/inc/layout_head.php';
         </div>
     </div>
 
+    <?php if (!$isN2): ?>
     <div class="card">
         <div class="card-head"><strong>سهمیه حجم و قیمت</strong></div>
         <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
@@ -179,6 +218,80 @@ include __DIR__ . '/inc/layout_head.php';
             <?php endif; ?>
         </div>
     </div>
+    <?php else: ?>
+    <div class="card" style="grid-column:1/-1">
+        <div class="card-head"><strong>محصولات مجاز نماینده پیشرفته</strong></div>
+        <div style="padding:16px">
+            <p class="cf" style="margin-bottom:12px">از بین کل محصولات، مواردی که این نماینده می‌تواند بدون اعتبار بخرد را فعال کنید.</p>
+            <form method="POST" action="agent_action.php">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="set_n2_products">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
+                <?php if (empty($allProducts)): ?>
+                    <p class="cf">محصولی ثبت نشده است.</p>
+                <?php else: ?>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;max-height:360px;overflow:auto;padding:4px">
+                        <?php foreach ($allProducts as $p):
+                            $code = (string) ($p['code_product'] ?? '');
+                            if ($code === '') continue;
+                            $checked = !empty($enabledProducts[$code]);
+                            $label = ($p['name_product'] ?? $code)
+                                . ' · ' . (int) ($p['Volume_constraint'] ?? 0) . 'GB'
+                                . ' · ' . (int) ($p['Service_time'] ?? 0) . 'روز'
+                                . ' · ' . ($p['agent'] ?? '')
+                                . ' · ' . ($p['Location'] ?? '');
+                            ?>
+                            <label class="tag <?= $checked ? 'tag-ok' : 'tag-plain' ?>" style="cursor:pointer;max-width:100%">
+                                <input type="checkbox" name="products[]" value="<?= htmlspecialchars($code) ?>" <?= $checked ? 'checked' : '' ?> style="margin-left:4px">
+                                <?= htmlspecialchars($label) ?>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm" style="margin-top:12px">ذخیره محصولات فعال</button>
+                <?php endif; ?>
+            </form>
+        </div>
+    </div>
+
+    <div class="card" style="grid-column:1/-1">
+        <div class="card-head"><strong>لیست خریدهای نماینده</strong></div>
+        <div style="padding:16px;overflow:auto">
+            <?php if (empty($n2Purchases)): ?>
+                <p class="cf">خریدی ثبت نشده است.</p>
+            <?php else: ?>
+                <table class="table" style="width:100%;border-collapse:collapse">
+                    <thead>
+                        <tr>
+                            <th style="text-align:right;padding:8px">تاریخ</th>
+                            <th style="text-align:right;padding:8px">محصول</th>
+                            <th style="text-align:right;padding:8px">حجم</th>
+                            <th style="text-align:right;padding:8px">زمان</th>
+                            <th style="text-align:right;padding:8px">پنل</th>
+                            <th style="text-align:right;padding:8px">یوزرنیم</th>
+                            <th style="text-align:right;padding:8px">فاکتور</th>
+                            <th style="text-align:right;padding:8px">قیمت کاتالوگ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($n2Purchases as $pur): ?>
+                            <tr>
+                                <td style="padding:8px"><?= htmlspecialchars(date('Y/m/d H:i', (int) ($pur['created_at'] ?? 0))) ?></td>
+                                <td style="padding:8px"><?= htmlspecialchars($pur['name_product'] ?? '') ?></td>
+                                <td style="padding:8px"><?= htmlspecialchars((string) ($pur['volume'] ?? '')) ?> GB</td>
+                                <td style="padding:8px"><?= htmlspecialchars((string) ($pur['service_time'] ?? '')) ?></td>
+                                <td style="padding:8px"><?= htmlspecialchars($pur['panel'] ?? '') ?></td>
+                                <td style="padding:8px" class="cm"><?= htmlspecialchars($pur['username_service'] ?? '') ?></td>
+                                <td style="padding:8px" class="cm"><?= htmlspecialchars($pur['id_invoice'] ?? '') ?></td>
+                                <td style="padding:8px"><?= number_format((int) ($pur['price_product'] ?? 0)) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <div class="card" style="grid-column:1/-1">
         <div class="card-head"><strong>ربات فروش نماینده</strong></div>

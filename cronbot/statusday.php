@@ -121,14 +121,48 @@ foreach ($panels as $panel) {
     $textpanel .= "\nنام پنل : {$panel['name_panel']}\n🛍 تعداد سفارشات امروز : $orders عدد\n🛍 جمع مبلغ سفارشات امروز : $total_price تومان\n🔋 جمع حجم های فروخته شده : $total_volume گیگابایت\n---------------\n";
 }
 
+// n2 advanced agent purchases (no credit billing)
+agent_ensure_n2_tables();
+$startTs = strtotime($datefirst);
+$endTs = strtotime($dateend);
+$sqlN2 = "SELECT agent_id,
+                 COUNT(*) AS buy_count,
+                 SUM(CAST(volume AS DECIMAL(12,2))) AS total_volume,
+                 GROUP_CONCAT(DISTINCT name_product SEPARATOR '، ') AS products
+          FROM agent_n2_purchase
+          WHERE created_at BETWEEN :startTs AND :endTs
+          GROUP BY agent_id
+          ORDER BY buy_count DESC";
+$stmt = executeQuery($pdo, $sqlN2, [':startTs' => $startTs, ':endTs' => $endTs]);
+$n2Rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$sqlN2Total = "SELECT COUNT(*) AS buy_count, SUM(CAST(volume AS DECIMAL(12,2))) AS total_volume
+               FROM agent_n2_purchase
+               WHERE created_at BETWEEN :startTs AND :endTs";
+$stmt = executeQuery($pdo, $sqlN2Total, [':startTs' => $startTs, ':endTs' => $endTs]);
+$n2Total = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+$n2BuyCount = (int) ($n2Total['buy_count'] ?? 0);
+$n2VolTotal = $n2Total['total_volume'] ?? 0;
+$textn2 = "🛒 گزارش خرید نمایندگان پیشرفته (n2) امروز:\n";
+$textn2 .= "تعداد کل خرید: {$n2BuyCount} | جمع حجم: {$n2VolTotal} گیگابایت\n";
+if (empty($n2Rows)) {
+    $textn2 .= "\nامروز خریدی ثبت نشده است.\n";
+} else {
+    foreach ($n2Rows as $row) {
+        $agentUser = select('user', '*', 'id', $row['agent_id'], 'select');
+        $agentUsername = $agentUser['username'] ?? '-';
+        $textn2 .= "\nآیدی: {$row['agent_id']}\nنام کاربری: @{$agentUsername}\nتعداد خرید: {$row['buy_count']}\nجمع حجم: {$row['total_volume']} GB\nمحصولات: {$row['products']}\n---------------\n";
+    }
+}
+
 // Daily report text
-$textreport = "📌 گزارش روزانه کارکرد ربات :\n\n🧲 تعداد تمدید امروز : $countextendday عدد\n💰 جمع تمدید امروز : $sumcountextend تومان\n🛍 تعداد سفارشات امروز : $dayListSell عدد\n🛍 جمع مبلغ سفارشات امروز : $suminvoiceday تومان\n🔑 اکانت های تست امروز : $dayListSelltest عدد\n🔋 جمع حجم های فروخته شده : $sumvolume گیگابایت\nتعداد کاربرانی که امروز به ربات پیوستند : $usernew نفر\n";
+$textreport = "📌 گزارش روزانه کارکرد ربات :\n\n🧲 تعداد تمدید امروز : $countextendday عدد\n💰 جمع تمدید امروز : $sumcountextend تومان\n🛍 تعداد سفارشات امروز : $dayListSell عدد\n🛍 جمع مبلغ سفارشات امروز : $suminvoiceday تومان\n🔑 اکانت های تست امروز : $dayListSelltest عدد\n🔋 جمع حجم های فروخته شده : $sumvolume گیگابایت\n🛒 خرید n2 امروز : $n2BuyCount عدد ({$n2VolTotal} GB)\nتعداد کاربرانی که امروز به ربات پیوستند : $usernew نفر\n";
 
 // Send reports to Telegram
 if (!empty($setting['Channel_Report'])) {
     $report_data = [
         ['text' => $textagent],
         ['text' => $textreport],
+        ['text' => $textn2],
         ['text' => $textpanel]
     ];
 

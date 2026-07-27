@@ -993,7 +993,15 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     }
     $botbalance = select("botsaz", "*", "bot_token", $ApiToken, "select");
     $userbotbalance = select("user", "*", "id", $botbalance['id_user'], "select");
-    $agentVolumeGb = (int) $datafactor['Volume_constraint'];
+    $agentVolumeGb = (int) $datafix['Volume_constraint'];
+    if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
+        $n2Code = $datafix['code_product'] ?? '';
+        if ($n2Code === 'customvolume' || !agent_n2_product_enabled($botbalance['id_user'], $n2Code)) {
+            sendmessage($from_id, "❌ این محصول برای نمایندگی فعال نیست.", $keyboard, 'HTML');
+            step("home", $from_id);
+            return;
+        }
+    }
     $agentQuotaCheck = agent_check_volume_quota($botbalance['id_user'], $agentVolumeGb);
     if (!$agentQuotaCheck['ok']) {
         sendmessage($from_id, "❌ خطایی در خرید رخ داده است برای رفع مشکل با پشتیبانی در ارتباط باشید", $keyboard, 'HTML');
@@ -1209,6 +1217,20 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         file_put_contents("data/$from_id/$from_id.json", json_encode($userbalance));
     }
     $agentConsume = agent_consume_volume($botbalance['id_user'], (int) $datafactor['Volume_constraint']);
+    if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
+        agent_n2_log_purchase([
+            'agent_id' => $botbalance['id_user'],
+            'code_product' => $datafix['code_product'] ?? '',
+            'name_product' => $datafix['name_product'] ?? '',
+            'volume' => $datafix['Volume_constraint'] ?? '',
+            'service_time' => $datafix['Service_time'] ?? '',
+            'panel' => $marzban_list_get['name_panel'] ?? '',
+            'username_service' => $username_ac ?? ($usernamePanelExtends ?? ''),
+            'id_invoice' => $randomString ?? ($id_invoice ?? ''),
+            'price_product' => $datafix['price_product'] ?? '0',
+            'created_at' => time(),
+        ]);
+    }
     $Balancebot = $agentConsume['balance'] ?? select("user", "Balance", "id", $botbalance['id_user'], "select")['Balance'];
     if ($marzban_list_get['MethodUsername'] == "متن دلخواه + عدد ترتیبی" || $marzban_list_get['MethodUsername'] == "نام کاربری + عدد به ترتیب" || $marzban_list_get['MethodUsername'] == "آیدی عددی+عدد ترتیبی" || $marzban_list_get['MethodUsername'] == "متن دلخواه نماینده + عدد ترتیبی") {
         $value = intval($user['number_username']) + 1;
@@ -1757,7 +1779,15 @@ $output
     $datafactor['name_product'] = empty($productlist_name[$datafactor['code_product']]) ? $datafactor['name_product'] : $productlist_name[$datafactor['code_product']];
     $botbalance = select("botsaz", "*", "bot_token", $ApiToken, "select");
     $userbotbalance = select("user", "*", "id", $botbalance['id_user'], "select");
-    $agentVolumeGb = (int) $datafactor['Volume_constraint'];
+    $agentVolumeGb = (int) $datafix['Volume_constraint'];
+    if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
+        $n2Code = $datafix['code_product'] ?? '';
+        if ($n2Code === 'customvolume' || !agent_n2_product_enabled($botbalance['id_user'], $n2Code)) {
+            sendmessage($from_id, "❌ این محصول برای نمایندگی فعال نیست.", $keyboard, 'HTML');
+            step("home", $from_id);
+            return;
+        }
+    }
     $agentQuotaCheck = agent_check_volume_quota($botbalance['id_user'], $agentVolumeGb);
     if (!$agentQuotaCheck['ok']) {
         sendmessage($from_id, "❌ خطایی در خرید رخ داده است برای رفع مشکل با پشتیبانی در ارتباط باشید", $keyboard, 'HTML');
@@ -1830,6 +1860,20 @@ $output
         file_put_contents("data/$from_id/$from_id.json", json_encode($userbalance));
     }
     $agentConsume = agent_consume_volume($botbalance['id_user'], (int) $datafactor['Volume_constraint']);
+    if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
+        agent_n2_log_purchase([
+            'agent_id' => $botbalance['id_user'],
+            'code_product' => $datafix['code_product'] ?? '',
+            'name_product' => $datafix['name_product'] ?? '',
+            'volume' => $datafix['Volume_constraint'] ?? '',
+            'service_time' => $datafix['Service_time'] ?? '',
+            'panel' => $marzban_list_get['name_panel'] ?? '',
+            'username_service' => $username_ac ?? ($usernamePanelExtends ?? ''),
+            'id_invoice' => $randomString ?? ($id_invoice ?? ''),
+            'price_product' => $datafix['price_product'] ?? '0',
+            'created_at' => time(),
+        ]);
+    }
     $Balancebot = $agentConsume['balance'] ?? select("user", "Balance", "id", $botbalance['id_user'], "select")['Balance'];
     $keyboardextendfnished = json_encode([
         'inline_keyboard' => [

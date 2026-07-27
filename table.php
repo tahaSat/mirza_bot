@@ -1473,6 +1473,50 @@ try {
 }
 
 try {
+    $result = $connect->query("SHOW TABLES LIKE 'agent_n2_product'");
+    $table_exists = ($result->num_rows > 0);
+    if (!$table_exists) {
+        $result = $connect->query("CREATE TABLE agent_n2_product (
+        agent_id VARCHAR(200) NOT NULL,
+        code_product VARCHAR(200) NOT NULL,
+        enabled TINYINT(1) NOT NULL DEFAULT 1,
+        PRIMARY KEY (agent_id, code_product)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        if (!$result) {
+            echo "table agent_n2_product" . mysqli_error($connect);
+        }
+    }
+} catch (Exception $e) {
+    file_put_contents('error_log agent_n2_product', $e->getMessage());
+}
+
+try {
+    $result = $connect->query("SHOW TABLES LIKE 'agent_n2_purchase'");
+    $table_exists = ($result->num_rows > 0);
+    if (!$table_exists) {
+        $result = $connect->query("CREATE TABLE agent_n2_purchase (
+        id INT(11) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        agent_id VARCHAR(200) NOT NULL,
+        code_product VARCHAR(200) NULL,
+        name_product VARCHAR(300) NULL,
+        volume VARCHAR(100) NULL,
+        service_time VARCHAR(100) NULL,
+        panel VARCHAR(300) NULL,
+        username_service VARCHAR(300) NULL,
+        id_invoice VARCHAR(200) NULL,
+        price_product VARCHAR(200) NULL,
+        created_at INT(11) NOT NULL,
+        INDEX idx_agent_created (agent_id, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        if (!$result) {
+            echo "table agent_n2_purchase" . mysqli_error($connect);
+        }
+    }
+} catch (Exception $e) {
+    file_put_contents('error_log agent_n2_purchase', $e->getMessage());
+}
+
+try {
     $result = $connect->query("SHOW TABLES LIKE 'app'");
     $table_exists = ($result->num_rows > 0);
     if (!$table_exists) {

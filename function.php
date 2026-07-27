@@ -3507,9 +3507,147 @@ function agent_ensure_volume_columns(): void
     $ensured = true;
 }
 
+function agent_ensure_n2_tables(): void
+{
+    global $pdo;
+    static $ensured = false;
+    if ($ensured) {
+        return;
+    }
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS agent_n2_product (
+            agent_id VARCHAR(200) NOT NULL,
+            code_product VARCHAR(200) NOT NULL,
+            enabled TINYINT(1) NOT NULL DEFAULT 1,
+            PRIMARY KEY (agent_id, code_product)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS agent_n2_purchase (
+            id INT(11) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            agent_id VARCHAR(200) NOT NULL,
+            code_product VARCHAR(200) NULL,
+            name_product VARCHAR(300) NULL,
+            volume VARCHAR(100) NULL,
+            service_time VARCHAR(100) NULL,
+            panel VARCHAR(300) NULL,
+            username_service VARCHAR(300) NULL,
+            id_invoice VARCHAR(200) NULL,
+            price_product VARCHAR(200) NULL,
+            created_at INT(11) NOT NULL,
+            INDEX idx_agent_created (agent_id, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+    } catch (Throwable $e) {
+        error_log('agent_ensure_n2_tables: ' . $e->getMessage());
+    }
+    $ensured = true;
+}
+
 function agent_is_reseller($agent): bool
 {
     return in_array((string) $agent, ['n', 'n2'], true);
+}
+
+function agent_is_n2($agent): bool
+{
+    return (string) $agent === 'n2';
+}
+
+/**
+ * SQL fragment restricting products by role.
+ * n2: whitelist in agent_n2_product (any catalog product).
+ * others: product.agent = role.
+ */
+function agent_product_access_sql($agent, $agentUserId): string
+{
+    agent_ensure_n2_tables();
+    if (agent_is_n2($agent)) {
+        $aid = preg_replace('/\D/', '', (string) $agentUserId);
+        if ($aid === '') {
+            return '0=1';
+        }
+        return "EXISTS (SELECT 1 FROM agent_n2_product ap WHERE ap.agent_id = '{$aid}' AND ap.code_product = product.code_product AND ap.enabled = 1)";
+    }
+    return "agent = '" . addslashes((string) $agent) . "'";
+}
+
+function agent_n2_product_enabled($agentUserId, $codeProduct): bool
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    if ($codeProduct === '' || $codeProduct === null || $codeProduct === 'customvolume') {
+        return false;
+    }
+    $stmt = $pdo->prepare('SELECT enabled FROM agent_n2_product WHERE agent_id = ? AND code_product = ? LIMIT 1');
+    $stmt->execute([(string) $agentUserId, (string) $codeProduct]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row && (int) $row['enabled'] === 1;
+}
+
+/**
+ * Fetch products enabled for an n2 agent (from entire catalog).
+ */
+function agent_n2_list_products($agentUserId, $location = null): array
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $sql = "SELECT p.* FROM product p
+            INNER JOIN agent_n2_product ap ON ap.code_product = p.code_product AND ap.agent_id = :agent_id AND ap.enabled = 1";
+    $params = [':agent_id' => (string) $agentUserId];
+    if ($location !== null && $location !== '') {
+        $sql .= " WHERE (p.Location = :location OR p.Location = '/all')";
+        $params[':location'] = $location;
+    }
+    $sql .= ' ORDER BY p.sort_order ASC, p.name_product ASC';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function agent_n2_log_purchase(array $data): void
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $stmt = $pdo->prepare('INSERT INTO agent_n2_purchase
+        (agent_id, code_product, name_product, volume, service_time, panel, username_service, id_invoice, price_product, created_at)
+        VALUES (:agent_id, :code_product, :name_product, :volume, :service_time, :panel, :username_service, :id_invoice, :price_product, :created_at)');
+    $stmt->execute([
+        ':agent_id' => (string) ($data['agent_id'] ?? ''),
+        ':code_product' => (string) ($data['code_product'] ?? ''),
+        ':name_product' => (string) ($data['name_product'] ?? ''),
+        ':volume' => (string) ($data['volume'] ?? ''),
+        ':service_time' => (string) ($data['service_time'] ?? ''),
+        ':panel' => (string) ($data['panel'] ?? ''),
+        ':username_service' => (string) ($data['username_service'] ?? ''),
+        ':id_invoice' => (string) ($data['id_invoice'] ?? ''),
+        ':price_product' => (string) ($data['price_product'] ?? '0'),
+        ':created_at' => (int) ($data['created_at'] ?? time()),
+    ]);
+}
+
+/**
+ * After a successful catalog service create by n2: verify access + log purchase.
+ * Returns ['ok'=>bool, 'msg'=>string].
+ */
+function agent_n2_assert_and_log_purchase($agentUserId, $codeProduct, array $meta = []): array
+{
+    if ($codeProduct === 'customvolume') {
+        return ['ok' => false, 'msg' => '❌ نماینده پیشرفته فقط می‌تواند محصولات فعال‌شده را خریداری کند.'];
+    }
+    if (!agent_n2_product_enabled($agentUserId, $codeProduct)) {
+        return ['ok' => false, 'msg' => '❌ این محصول برای نمایندگی شما فعال نیست.'];
+    }
+    agent_n2_log_purchase([
+        'agent_id' => $agentUserId,
+        'code_product' => $codeProduct,
+        'name_product' => $meta['name_product'] ?? '',
+        'volume' => $meta['volume'] ?? '',
+        'service_time' => $meta['service_time'] ?? '',
+        'panel' => $meta['panel'] ?? '',
+        'username_service' => $meta['username_service'] ?? '',
+        'id_invoice' => $meta['id_invoice'] ?? '',
+        'price_product' => $meta['price_product'] ?? '0',
+        'created_at' => $meta['created_at'] ?? time(),
+    ]);
+    return ['ok' => true, 'msg' => ''];
 }
 
 /**
@@ -3585,6 +3723,17 @@ function agent_check_volume_quota($agentUserId, $volumeGb): array
     if (!$user || !agent_is_reseller($user['agent'] ?? 'f')) {
         return ['ok' => true, 'msg' => '', 'cost' => 0, 'user' => $user ?: null, 'skipped' => true];
     }
+    // n2: no volume/balance billing — product whitelist is enforced separately
+    if (agent_is_n2($user['agent'] ?? 'f')) {
+        return [
+            'ok' => true,
+            'msg' => '',
+            'cost' => 0,
+            'user' => $user,
+            'skipped' => false,
+            'skipped_billing' => true,
+        ];
+    }
     if ($volumeGb <= 0) {
         return [
             'ok' => false,
@@ -3607,19 +3756,7 @@ function agent_check_volume_quota($agentUserId, $volumeGb): array
     $pricePerGb = (int) ($user['agent_price_per_gb'] ?? 0);
     $cost = $volumeGb * $pricePerGb;
     $balance = (int) ($user['Balance'] ?? 0);
-    $balanceAfter = $balance - $cost;
-    if (($user['agent'] ?? '') === 'n2') {
-        $maxBuy = (int) ($user['maxbuyagent'] ?? 0);
-        if ($maxBuy != 0 && $balanceAfter < intval('-' . $maxBuy)) {
-            return [
-                'ok' => false,
-                'msg' => '❌ سقف خرید نماینده برای این مقدار حجم کافی نیست.',
-                'cost' => $cost,
-                'user' => $user,
-                'skipped' => false,
-            ];
-        }
-    } elseif ($cost > $balance) {
+    if ($cost > $balance) {
         return [
             'ok' => false,
             'msg' => '❌ موجودی نمایندگی برای ساخت این حجم کافی نیست. هزینه: ' . number_format($cost) . ' تومان',
@@ -3634,11 +3771,12 @@ function agent_check_volume_quota($agentUserId, $volumeGb): array
 /**
  * Deduct GB quota and wholesale cost from agent after a successful create.
  * Call agent_check_volume_quota first; this re-checks and updates.
+ * n2 agents skip billing (skipped_billing).
  */
 function agent_consume_volume($agentUserId, $volumeGb): array
 {
     $check = agent_check_volume_quota($agentUserId, $volumeGb);
-    if (!empty($check['skipped'])) {
+    if (!empty($check['skipped']) || !empty($check['skipped_billing'])) {
         return $check;
     }
     if (!$check['ok']) {

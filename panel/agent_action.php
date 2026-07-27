@@ -4,6 +4,7 @@ require_once __DIR__ . '/inc/users_lib.php';
 require_auth();
 $pdo = panel_ensure_pdo();
 agent_ensure_volume_columns();
+agent_ensure_n2_tables();
 
 $isPost = $_SERVER['REQUEST_METHOD'] === 'POST';
 if ($isPost) {
@@ -235,6 +236,27 @@ switch ($action) {
         }
         db_query($pdo, 'UPDATE botsaz SET hide_panel = ? WHERE id_user = ?', [json_encode($panels, JSON_UNESCAPED_UNICODE), (string) $id]);
         flash('success', 'پنل‌های مخفی ذخیره شدند.');
+        break;
+
+    case 'set_n2_products':
+        if (($user['agent'] ?? '') !== 'n2') {
+            flash('error', 'این عملیات فقط برای نماینده پیشرفته است.');
+            break;
+        }
+        agent_ensure_n2_tables();
+        $selected = $_POST['products'] ?? [];
+        if (!is_array($selected)) {
+            $selected = [];
+        }
+        $selected = array_values(array_unique(array_filter(array_map('strval', $selected))));
+        db_query($pdo, 'DELETE FROM agent_n2_product WHERE agent_id = ?', [(string) $id]);
+        if (!empty($selected)) {
+            $ins = $pdo->prepare('INSERT INTO agent_n2_product (agent_id, code_product, enabled) VALUES (?, ?, 1)');
+            foreach ($selected as $code) {
+                $ins->execute([(string) $id, $code]);
+            }
+        }
+        flash('success', 'محصولات مجاز نماینده ذخیره شد (' . count($selected) . ' مورد).');
         break;
 
     default:

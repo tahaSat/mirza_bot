@@ -1440,15 +1440,15 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
 }
 function KeyboardCategory($location, $agent, $backuser = "backuser")
 {
-    global $pdo, $textbotlang;
+    global $pdo, $textbotlang, $from_id;
+    $accessSql = agent_product_access_sql($agent, $from_id);
     $stmt = $pdo->prepare("SELECT * FROM category");
     $stmt->execute();
     $list_category = ['inline_keyboard' => [],];
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $stmts = $pdo->prepare("SELECT * FROM product WHERE (Location = :location OR Location = '/all') AND category = :category AND agent = :agent");
+        $stmts = $pdo->prepare("SELECT * FROM product WHERE (Location = :location OR Location = '/all') AND category = :category AND {$accessSql}");
         $stmts->bindParam(':location', $location, PDO::PARAM_STR);
         $stmts->bindParam(':category', $row['remark'], PDO::PARAM_STR);
-        $stmts->bindParam(':agent', $agent);
         $stmts->execute();
         if ($stmts->rowCount() == 0)
             continue;
@@ -1462,10 +1462,10 @@ function KeyboardCategory($location, $agent, $backuser = "backuser")
 
 function keyboardTimeCategory($name_panel, $agent, $callback_data = "producttime_", $callback_data_back = "backuser", $statuscustomvolume = false, $statusbtnextend = false)
 {
-    global $pdo, $textbotlang;
-    $stmt = $pdo->prepare("SELECT (Service_time) FROM product WHERE (Location = :name_panel OR Location = '/all') AND  agent = :agent");
+    global $pdo, $textbotlang, $from_id;
+    $accessSql = agent_product_access_sql($agent, $from_id);
+    $stmt = $pdo->prepare("SELECT (Service_time) FROM product WHERE (Location = :name_panel OR Location = '/all') AND {$accessSql}");
     $stmt->bindValue(':name_panel', $name_panel, PDO::PARAM_STR);
-    $stmt->bindValue(':agent', $agent, PDO::PARAM_STR);
     $stmt->execute();
     $montheproduct = array_flip(array_flip($stmt->fetchAll(PDO::FETCH_COLUMN)));
     $monthkeyboard = ['inline_keyboard' => []];

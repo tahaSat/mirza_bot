@@ -1438,10 +1438,11 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
     ];
     return json_encode($product);
 }
-function KeyboardCategory($location, $agent, $backuser = "backuser")
+function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserId = null)
 {
     global $pdo, $textbotlang, $from_id;
-    $accessSql = agent_product_access_sql($agent, $from_id);
+    $uid = $agentUserId !== null ? $agentUserId : $from_id;
+    $accessSql = agent_product_access_sql($agent, $uid);
     $stmt = $pdo->prepare("SELECT * FROM category");
     $stmt->execute();
     $list_category = ['inline_keyboard' => [],];

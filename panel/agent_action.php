@@ -226,10 +226,35 @@ switch ($action) {
             flash('error', 'ربات فروش یافت نشد.');
             break;
         }
-        $setting = json_decode($row['setting'] ?? '{}', true) ?: [];
+        $setting = botsaz_normalize_setting(json_decode($row['setting'] ?? '{}', true) ?: []);
         $setting['minpricetime'] = $amount;
-        db_query($pdo, 'UPDATE botsaz SET setting = ? WHERE id_user = ?', [json_encode($setting), (string) $id]);
+        db_query($pdo, 'UPDATE botsaz SET setting = ? WHERE id_user = ?', [json_encode($setting, JSON_UNESCAPED_UNICODE), (string) $id]);
         flash('success', 'حداقل قیمت زمان ذخیره شد.');
+        break;
+
+    case 'set_bot_card_payment':
+        $row = db_fetch($pdo, 'SELECT setting FROM botsaz WHERE id_user = ?', [(string) $id]);
+        if (!$row) {
+            flash('error', 'ربات فروش یافت نشد.');
+            break;
+        }
+        $setting = botsaz_normalize_setting(json_decode($row['setting'] ?? '{}', true) ?: []);
+        $cardNumber = preg_replace('/\s+/', '', (string) ($_POST['card_number'] ?? ''));
+        $cardHolder = trim((string) ($_POST['card_holder'] ?? ''));
+        $cartInfo = trim((string) ($_POST['cart_info'] ?? ''));
+        if ($cardNumber !== '' && !preg_match('/^\d{16}$/', $cardNumber)) {
+            flash('error', 'شماره کارت باید ۱۶ رقم باشد (یا خالی بگذارید).');
+            break;
+        }
+        if ($cardHolder !== '' && (mb_strlen($cardHolder) < 2 || mb_strlen($cardHolder) > 80)) {
+            flash('error', 'نام صاحب کارت نامعتبر است.');
+            break;
+        }
+        $setting['card_number'] = $cardNumber;
+        $setting['card_holder'] = $cardHolder;
+        $setting['cart_info'] = $cartInfo !== '' ? $cartInfo : 'پس از واریز، تصویر رسید را در همین چت ارسال کنید.';
+        db_query($pdo, 'UPDATE botsaz SET setting = ? WHERE id_user = ?', [json_encode($setting, JSON_UNESCAPED_UNICODE), (string) $id]);
+        flash('success', 'تنظیمات کارت به کارت ربات نماینده ذخیره شد.');
         break;
 
     case 'set_hide_panels':
@@ -247,7 +272,29 @@ switch ($action) {
         flash('success', 'پنل‌های مخفی ذخیره شدند.');
         break;
 
+    case 'set_n2_categories':
+        if (($user['agent'] ?? '') !== 'n2') {
+            flash('error', 'این عملیات فقط برای نماینده پیشرفته است.');
+            break;
+        }
+        agent_ensure_n2_tables();
+        $selected = $_POST['categories'] ?? [];
+        if (!is_array($selected)) {
+            $selected = [];
+        }
+        $selected = array_values(array_unique(array_filter(array_map('strval', $selected))));
+        db_query($pdo, 'DELETE FROM agent_n2_category WHERE agent_id = ?', [(string) $id]);
+        if (!empty($selected)) {
+            $ins = $pdo->prepare('INSERT INTO agent_n2_category (agent_id, category, enabled) VALUES (?, ?, 1)');
+            foreach ($selected as $cat) {
+                $ins->execute([(string) $id, $cat]);
+            }
+        }
+        flash('success', 'دسته‌بندی‌های مجاز نماینده ذخیره شد (' . count($selected) . ' مورد).');
+        break;
+
     case 'set_n2_products':
+        // legacy action kept for old forms — convert to categories of selected products
         if (($user['agent'] ?? '') !== 'n2') {
             flash('error', 'این عملیات فقط برای نماینده پیشرفته است.');
             break;
@@ -258,14 +305,21 @@ switch ($action) {
             $selected = [];
         }
         $selected = array_values(array_unique(array_filter(array_map('strval', $selected))));
-        db_query($pdo, 'DELETE FROM agent_n2_product WHERE agent_id = ?', [(string) $id]);
+        $cats = [];
         if (!empty($selected)) {
-            $ins = $pdo->prepare('INSERT INTO agent_n2_product (agent_id, code_product, enabled) VALUES (?, ?, 1)');
-            foreach ($selected as $code) {
-                $ins->execute([(string) $id, $code]);
+            $placeholders = implode(',', array_fill(0, count($selected), '?'));
+            $stmt = $pdo->prepare("SELECT DISTINCT category FROM product WHERE code_product IN ($placeholders) AND category IS NOT NULL AND category != ''");
+            $stmt->execute($selected);
+            $cats = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        }
+        db_query($pdo, 'DELETE FROM agent_n2_category WHERE agent_id = ?', [(string) $id]);
+        if (!empty($cats)) {
+            $ins = $pdo->prepare('INSERT INTO agent_n2_category (agent_id, category, enabled) VALUES (?, ?, 1)');
+            foreach ($cats as $cat) {
+                $ins->execute([(string) $id, (string) $cat]);
             }
         }
-        flash('success', 'محصولات مجاز نماینده ذخیره شد (' . count($selected) . ' مورد).');
+        flash('success', 'دسته‌بندی‌های مشتق‌شده از محصولات ذخیره شد (' . count($cats) . ' دسته).');
         break;
 
     default:

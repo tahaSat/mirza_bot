@@ -56,21 +56,21 @@ $expireLabel = $expire ? date('Y/m/d H:i', (int) $expire) : 'بدون انقضا
 
 $isN2 = ($agent === 'n2');
 $volumeConsumed = agent_is_reseller($agent) ? agent_sum_volume_consumed($id, $agent) : 0.0;
-$allProducts = [];
-$enabledProducts = [];
+$allCategories = [];
+$enabledCategories = [];
 $n2Purchases = [];
 if ($isN2) {
     agent_ensure_n2_tables();
     try {
-        $allProducts = db_fetchAll($pdo, 'SELECT code_product, name_product, Volume_constraint, Service_time, price_product, Location, agent FROM product ORDER BY name_product ASC');
+        $allCategories = db_fetchAll($pdo, 'SELECT id, remark FROM category ORDER BY remark ASC');
     } catch (Exception $e) {
-        $allProducts = [];
+        $allCategories = [];
     }
     try {
-        $rows = db_fetchAll($pdo, 'SELECT code_product, enabled FROM agent_n2_product WHERE agent_id = ?', [(string) $id]);
+        $rows = db_fetchAll($pdo, 'SELECT category, enabled FROM agent_n2_category WHERE agent_id = ?', [(string) $id]);
         foreach ($rows as $r) {
             if ((int) ($r['enabled'] ?? 0) === 1) {
-                $enabledProducts[$r['code_product']] = true;
+                $enabledCategories[$r['category']] = true;
             }
         }
     } catch (Exception $e) {
@@ -115,8 +115,8 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
     <?php else: ?>
     <div class="stat">
-        <div class="stat-label">محصولات فعال</div>
-        <div class="stat-num"><?= number_format(count($enabledProducts)) ?></div>
+        <div class="stat-label">دسته‌های فعال</div>
+        <div class="stat-num"><?= number_format(count($enabledCategories)) ?></div>
     </div>
     <div class="stat">
         <div class="stat-label">خریدهای ثبت‌شده</div>
@@ -225,35 +225,30 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
     <?php else: ?>
     <div class="card" style="grid-column:1/-1">
-        <div class="card-head"><strong>محصولات مجاز نماینده پیشرفته</strong></div>
+        <div class="card-head"><strong>دسته‌بندی‌های مجاز نماینده پیشرفته</strong></div>
         <div style="padding:16px">
-            <p class="cf" style="margin-bottom:12px">از بین کل محصولات، مواردی که این نماینده می‌تواند بدون اعتبار بخرد را فعال کنید.</p>
+            <p class="cf" style="margin-bottom:12px">دسته‌هایی که این نماینده می‌تواند ببیند و از محصولات داخلشان (بدون اعتبار) بخرد را فعال کنید. در ربات، اول دسته و بعد محصولات همان دسته نمایش داده می‌شود.</p>
             <form method="POST" action="agent_action.php">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-                <input type="hidden" name="action" value="set_n2_products">
+                <input type="hidden" name="action" value="set_n2_categories">
                 <input type="hidden" name="id" value="<?= $id ?>">
                 <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
-                <?php if (empty($allProducts)): ?>
-                    <p class="cf">محصولی ثبت نشده است.</p>
+                <?php if (empty($allCategories)): ?>
+                    <p class="cf">دسته‌بندی‌ای ثبت نشده است.</p>
                 <?php else: ?>
                     <div style="display:flex;flex-wrap:wrap;gap:8px;max-height:360px;overflow:auto;padding:4px">
-                        <?php foreach ($allProducts as $p):
-                            $code = (string) ($p['code_product'] ?? '');
-                            if ($code === '') continue;
-                            $checked = !empty($enabledProducts[$code]);
-                            $label = ($p['name_product'] ?? $code)
-                                . ' · ' . (int) ($p['Volume_constraint'] ?? 0) . 'GB'
-                                . ' · ' . (int) ($p['Service_time'] ?? 0) . 'روز'
-                                . ' · ' . ($p['agent'] ?? '')
-                                . ' · ' . ($p['Location'] ?? '');
+                        <?php foreach ($allCategories as $c):
+                            $remark = (string) ($c['remark'] ?? '');
+                            if ($remark === '') continue;
+                            $checked = !empty($enabledCategories[$remark]);
                             ?>
                             <label class="tag <?= $checked ? 'tag-ok' : 'tag-plain' ?>" style="cursor:pointer;max-width:100%">
-                                <input type="checkbox" name="products[]" value="<?= htmlspecialchars($code) ?>" <?= $checked ? 'checked' : '' ?> style="margin-left:4px">
-                                <?= htmlspecialchars($label) ?>
+                                <input type="checkbox" name="categories[]" value="<?= htmlspecialchars($remark) ?>" <?= $checked ? 'checked' : '' ?> style="margin-left:4px">
+                                <?= htmlspecialchars($remark) ?>
                             </label>
                         <?php endforeach; ?>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm" style="margin-top:12px">ذخیره محصولات فعال</button>
+                    <button type="submit" class="btn btn-primary btn-sm" style="margin-top:12px">ذخیره دسته‌های فعال</button>
                 <?php endif; ?>
             </form>
         </div>
@@ -368,6 +363,35 @@ include __DIR__ . '/inc/layout_head.php';
                         <button type="submit" class="btn btn-ghost btn-sm">ذخیره</button>
                     </form>
                 </div>
+
+                <?php
+                $botSetting = botsaz_normalize_setting($botSetting);
+                $cardNumber = (string) ($botSetting['card_number'] ?? '');
+                $cardHolder = (string) ($botSetting['card_holder'] ?? '');
+                $cartInfo = (string) ($botSetting['cart_info'] ?? '');
+                ?>
+                <form method="POST" action="agent_action.php" style="margin-bottom:16px;padding:12px;border:1px solid var(--border, #333);border-radius:8px">
+                    <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                    <input type="hidden" name="action" value="set_bot_card_payment">
+                    <input type="hidden" name="id" value="<?= $id ?>">
+                    <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
+                    <div class="cf" style="margin-bottom:10px;font-weight:600">💳 پرداخت کارت به کارت (ربات نماینده)</div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+                        <div class="field" style="margin:0">
+                            <label>شماره کارت</label>
+                            <input type="text" name="card_number" class="input" inputmode="numeric" maxlength="19" value="<?= htmlspecialchars($cardNumber) ?>" placeholder="6037...">
+                        </div>
+                        <div class="field" style="margin:0">
+                            <label>نام صاحب کارت</label>
+                            <input type="text" name="card_holder" class="input" maxlength="80" value="<?= htmlspecialchars($cardHolder) ?>" placeholder="نام و نام خانوادگی">
+                        </div>
+                    </div>
+                    <div class="field" style="margin-top:12px">
+                        <label>متن راهنمای پرداخت</label>
+                        <textarea name="cart_info" class="input" rows="3" placeholder="پس از واریز رسید را ارسال کنید..."><?= htmlspecialchars($cartInfo) ?></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm" style="margin-top:8px">ذخیره تنظیمات کارت</button>
+                </form>
 
                 <?php if (!empty($allPanels)): ?>
                     <form method="POST" action="agent_action.php" style="margin-bottom:16px">

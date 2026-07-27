@@ -34,7 +34,7 @@ if (!$dataBase || empty($dataBase['admin_ids'])) {
     die("Bot not configured");
 }
 $admin_ids = json_decode($dataBase['admin_ids']);
-$setting = json_decode($dataBase['setting'], true);
+$setting = botsaz_normalize_setting(json_decode($dataBase['setting'], true) ?: []);
 if (!empty($setting['channel'])) {
     $channel = channel_check("@" . $setting['channel']);
     if (count($channel) != 0) {
@@ -612,7 +612,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     if (mysqli_num_rows($locationproduct) == 1) {
         $location = mysqli_fetch_assoc($locationproduct)['name_panel'];
         $locationproduct = select("marzban_panel", "*", "name_panel", $location, "select");
-        $query = "SELECT * FROM product WHERE (Location = '{$locationproduct['name_panel']}' OR Location = '/all')AND agent= '{$userbot['agent']}'";
+        $query = "SELECT * FROM product WHERE (Location = '{$locationproduct['name_panel']}' OR Location = '/all')AND " . agent_product_access_sql($userbot['agent'], $dataBase['id_user']) . "";
         $stmt = $pdo->prepare($query);
         $stmt->execute();
         $productnotexits = $stmt->rowCount();
@@ -652,14 +652,14 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
                 sendmessage($from_id, "🛍️ لطفاً سرویسی که می‌خواهید خریداری کنید را انتخاب کنید!", $prodcut, 'HTML');
                 return;
             } else {
-                $nullproduct = select("product", "*", "agent", $userbot['agent'], "count");
+                $nullproduct = (agent_is_n2($userbot['agent'] ?? 'f') ? count(agent_n2_list_products($dataBase['id_user'])) : select("product", "*", "agent", $userbot['agent'], "count"));
                 if ($nullproduct == 0) {
                     sendmessage($from_id, $textbotlang['Admin']['Product']['nullpProduct'], null, 'HTML');
                     return;
                 }
                 sendmessage($from_id, (!empty($marzban_list_get['description']) && is_string($marzban_list_get['description']))
                     ? htmlspecialchars(trim($marzban_list_get['description']), ENT_QUOTES, 'UTF-8')
-                    : "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($marzban_list_get['name_panel'], $userbot['agent'], "backuser"), 'HTML');
+                    : "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($marzban_list_get['name_panel'], $userbot['agent'], "backuser", $dataBase['id_user']), 'HTML');
                 return;
             }
         } else {
@@ -715,7 +715,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
             return;
         }
     }
-    $query = "SELECT * FROM product WHERE (Location = '{$locationproduct['name_panel']}' OR Location = '/all')AND agent= '{$userbot['agent']}'";
+    $query = "SELECT * FROM product WHERE (Location = '{$locationproduct['name_panel']}' OR Location = '/all')AND " . agent_product_access_sql($userbot['agent'], $dataBase['id_user']) . "";
     $stmt = $pdo->prepare($query);
     $stmt->execute();
     $productnotexits = $stmt->rowCount();
@@ -730,14 +730,14 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
             $prodcut = KeyboardProduct($locationproduct['name_panel'], $query, 0, $keyboarddata, $statuscustom, "backuser", null, $customvolume = "customvolumebuy");
             Editmessagetext($from_id, $message_id, "🛍️ لطفاً سرویسی که می‌خواهید خریداری کنید را انتخاب کنید!", $prodcut, 'HTML');
         } else {
-            $nullproduct = select("product", "*", "agent", $userbot['agent'], "count");
+            $nullproduct = (agent_is_n2($userbot['agent'] ?? 'f') ? count(agent_n2_list_products($dataBase['id_user'])) : select("product", "*", "agent", $userbot['agent'], "count"));
             if ($nullproduct == 0) {
                 sendmessage($from_id, $textbotlang['Admin']['Product']['nullpProduct'], null, 'HTML');
                 return;
             }
             Editmessagetext($from_id, $message_id, (!empty($locationproduct['description']) && is_string($locationproduct['description']))
                 ? htmlspecialchars(trim($locationproduct['description']), ENT_QUOTES, 'UTF-8')
-                : "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($locationproduct['name_panel'], $userbot['agent'], "backuser"));
+                : "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($locationproduct['name_panel'], $userbot['agent'], "backuser", $dataBase['id_user']));
         }
     } else {
         deletemessage($from_id, $message_id);
@@ -766,7 +766,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         : "🛍️ لطفاً سرویسی که می‌خواهید خریداری کنید را انتخاب کنید!";
     $userdate = json_decode($user['Processing_value'], true);
     $locationproduct = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "seelct");
-    $query = "SELECT * FROM product WHERE (Location = '{$locationproduct['name_panel']}' OR Location = '/all') AND category = '$categorynames' AND agent= '{$userbot['agent']}' ";
+    $query = "SELECT * FROM product WHERE (Location = '{$locationproduct['name_panel']}' OR Location = '/all') AND category = '$categorynames' AND " . agent_product_access_sql($userbot['agent'], $dataBase['id_user']) . " ";
     $statuscustom = category_custom_enabled($category, $userbot['agent'], $locationproduct['type'] ?? null);
     if ($locationproduct['MethodUsername'] == $textbotlang['users']['customusername'] || $locationproduct['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
         $keyboarddata = "selectproductbuyy_";
@@ -1004,8 +1004,15 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $agentVolumeGb = (int) $datafix['Volume_constraint'];
     if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
         $n2Code = $datafix['code_product'] ?? '';
-        if ($n2Code === 'customvolume' || !agent_n2_product_enabled($botbalance['id_user'], $n2Code)) {
-            sendmessage($from_id, "❌ این محصول برای نمایندگی فعال نیست.", $keyboard, 'HTML');
+        if ($n2Code === 'customvolume') {
+            $n2Cat = category_from_processing($userdate ?? []);
+            if (!$n2Cat || !agent_n2_category_enabled($botbalance['id_user'], $n2Cat['remark'] ?? '')) {
+                sendmessage($from_id, "❌ این دسته‌بندی برای نمایندگی فعال نیست.", $keyboard, 'HTML');
+                step("home", $from_id);
+                return;
+            }
+        } elseif (!agent_n2_product_enabled($botbalance['id_user'], $n2Code)) {
+            sendmessage($from_id, "❌ این محصول / دسته‌بندی برای نمایندگی فعال نیست.", $keyboard, 'HTML');
             step("home", $from_id);
             return;
         }
@@ -1314,7 +1321,7 @@ $textonebuy
     $invoice = "0 | 0";
     $stmt->bind_param("ssssssss", $from_id, $randomString, $dateacc, $text, $payment_Status, $Payment_Method, $invoice, $ApiToken);
     $stmt->execute();
-    sendmessage($from_id, $setting['cart_info'], $backuser, 'HTML');
+    sendmessage($from_id, botsaz_cart_payment_text($setting, $text, $randomString), $backuser, 'HTML');
     step("getresidcart", $from_id);
     savedata("clear", "id_order", $randomString);
 } elseif ($user['step'] == "getresidcart") {
@@ -1606,7 +1613,7 @@ $output
     savedata("save", "name_panel", $nameloc['Service_location']);
     deletemessage($from_id, $message_id);
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
-    $query = "SELECT * FROM product WHERE (Location = '{$nameloc['Service_location']}' OR Location = '/all')AND agent= '{$userbot['agent']}'";
+    $query = "SELECT * FROM product WHERE (Location = '{$nameloc['Service_location']}' OR Location = '/all')AND " . agent_product_access_sql($userbot['agent'], $dataBase['id_user']) . "";
     $stmt = $pdo->prepare($query);
     $stmt->execute();
     $productnotexits = $stmt->rowCount();
@@ -1617,7 +1624,7 @@ $output
         } else {
             $statuscustom = false;
         }
-        $query = "SELECT * FROM product WHERE (Location = '{$marzban_list_get['name_panel']}' OR Location = '/all')AND agent= '{$userbot['agent']}'";
+        $query = "SELECT * FROM product WHERE (Location = '{$marzban_list_get['name_panel']}' OR Location = '/all')AND " . agent_product_access_sql($userbot['agent'], $dataBase['id_user']) . "";
         $prodcut = KeyboardProduct($marzban_list_get['name_panel'], $query, 0, "selectproductextends_", $statuscustom, "backuser", null, $customvolume = "customvolumeextend");
         sendmessage($from_id, "🛍️ لطفاً سرویسی که می‌خواهید تمدید کنید را انتخاب کنید!", $prodcut, 'HTML');
     } else {
@@ -1790,8 +1797,15 @@ $output
     $agentVolumeGb = (int) $datafix['Volume_constraint'];
     if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
         $n2Code = $datafix['code_product'] ?? '';
-        if ($n2Code === 'customvolume' || !agent_n2_product_enabled($botbalance['id_user'], $n2Code)) {
-            sendmessage($from_id, "❌ این محصول برای نمایندگی فعال نیست.", $keyboard, 'HTML');
+        if ($n2Code === 'customvolume') {
+            $n2Cat = category_from_processing($userdate ?? []);
+            if (!$n2Cat || !agent_n2_category_enabled($botbalance['id_user'], $n2Cat['remark'] ?? '')) {
+                sendmessage($from_id, "❌ این دسته‌بندی برای نمایندگی فعال نیست.", $keyboard, 'HTML');
+                step("home", $from_id);
+                return;
+            }
+        } elseif (!agent_n2_product_enabled($botbalance['id_user'], $n2Code)) {
+            sendmessage($from_id, "❌ این محصول / دسته‌بندی برای نمایندگی فعال نیست.", $keyboard, 'HTML');
             step("home", $from_id);
             return;
         }

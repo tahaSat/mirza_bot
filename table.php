@@ -1491,6 +1491,24 @@ try {
 }
 
 try {
+    $result = $connect->query("SHOW TABLES LIKE 'agent_n2_category'");
+    $table_exists = ($result->num_rows > 0);
+    if (!$table_exists) {
+        $result = $connect->query("CREATE TABLE agent_n2_category (
+        agent_id VARCHAR(200) NOT NULL,
+        category VARCHAR(300) NOT NULL,
+        enabled TINYINT(1) NOT NULL DEFAULT 1,
+        PRIMARY KEY (agent_id, category)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        if (!$result) {
+            echo "table agent_n2_category" . mysqli_error($connect);
+        }
+    }
+} catch (Exception $e) {
+    file_put_contents('error_log agent_n2_category', $e->getMessage());
+}
+
+try {
     $result = $connect->query("SHOW TABLES LIKE 'agent_n2_purchase'");
     $table_exists = ($result->num_rows > 0);
     if (!$table_exists) {

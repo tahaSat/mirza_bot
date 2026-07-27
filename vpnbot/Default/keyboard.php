@@ -87,7 +87,8 @@ $keyboardadmin = json_encode([
             ['text' => "👨‍🔧  مدیریت ادمین ها"]
         ],
         [
-            ['text' => "📝 تنظیم متون"]
+            ['text' => "📝 تنظیم متون"],
+            ['text' => "💳 تنظیمات پرداخت"],
         ],
         [
             ['text' => "📞 تنظیم نام کاربری پشتیبانی"],
@@ -123,7 +124,7 @@ $keyboardprice = json_encode([
 $keyboard_change_price = json_encode([
     'keyboard' => [
         [
-            ['text' => "💎 متن کارت"],
+            ['text' => "💎 متن راهنمای کارت"],
             ['text' => "🛍 دکمه خرید"]
         ],
         [
@@ -142,6 +143,23 @@ $keyboard_change_price = json_encode([
         ]
     ],
     'resize_keyboard' =>  true
+]);
+
+$keyboard_payment = json_encode([
+    'keyboard' => [
+        [
+            ['text' => "💳 شماره کارت"],
+            ['text' => "👤 نام صاحب کارت"],
+        ],
+        [
+            ['text' => "📝 متن راهنمای پرداخت"],
+            ['text' => "👁 مشاهده تنظیمات پرداخت"],
+        ],
+        [
+            ['text' => "بازگشت به منوی ادمین"]
+        ]
+    ],
+    'resize_keyboard' => true
 ]);
 
 $backadmin = json_encode([
@@ -213,17 +231,24 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
     ];
     return json_encode($product);
 }
-function KeyboardCategory($location, $agent, $backuser = "backuser")
+function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserId = null)
 {
-    global $pdo, $textbotlang;
+    global $pdo, $textbotlang, $from_id, $botinfo;
+    $uid = $agentUserId;
+    if ($uid === null && agent_is_n2($agent) && !empty($botinfo['id_user'])) {
+        $uid = $botinfo['id_user'];
+    }
+    if ($uid === null) {
+        $uid = $from_id;
+    }
+    $accessSql = agent_product_access_sql($agent, $uid);
     $stmt = $pdo->prepare("SELECT * FROM category");
     $stmt->execute();
     $list_category = ['inline_keyboard' => [],];
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $stmts = $pdo->prepare("SELECT * FROM product WHERE (Location = :location OR Location = '/all') AND category = :category AND agent = :agent");
+        $stmts = $pdo->prepare("SELECT * FROM product WHERE (Location = :location OR Location = '/all') AND category = :category AND {$accessSql}");
         $stmts->bindParam(':location', $location, PDO::PARAM_STR);
         $stmts->bindParam(':category', $row['remark'], PDO::PARAM_STR);
-        $stmts->bindParam(':agent', $agent);
         $stmts->execute();
         if ($stmts->rowCount() == 0) continue;
         $list_category['inline_keyboard'][] = [['text' => $row['remark'], 'callback_data' => "categorynames_" . $row['id']]];

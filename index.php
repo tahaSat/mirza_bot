@@ -3974,9 +3974,7 @@ $textinvite
         $datakeyboard = "prodcutservice_";
     }
     $statuscustom = category_custom_enabled($category, $user['agent'], $marzban_list_get['type'] ?? null);
-    if (agent_is_n2($user['agent'] ?? 'f')) {
-        $statuscustom = false;
-    }
+    // n2: custom volume only if category is in whitelist (category_custom_enabled still applies)
     Editmessagetext($from_id, $message_id, $categoryMessage, KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom));
 } elseif (preg_match('/^productmonth_(\w+)/', $datain, $dataget)) {
     $monthenumber = $dataget[1];
@@ -4209,8 +4207,14 @@ $textinvite
         return;
     if (agent_is_n2($user['agent'] ?? 'f')) {
         $n2Code = $info_product['code_product'] ?? '';
-        if ($n2Code === 'customvolume' || !agent_n2_product_enabled($from_id, $n2Code)) {
-            sendmessage($from_id, '❌ این محصول برای نمایندگی شما فعال نیست.', $keyboard, 'HTML');
+        if ($n2Code === 'customvolume') {
+            $n2Cat = category_from_processing($userdate ?? (json_decode($user['Processing_value'], true) ?: []));
+            if (!$n2Cat || !agent_n2_category_enabled($from_id, $n2Cat['remark'] ?? '')) {
+                sendmessage($from_id, '❌ این دسته‌بندی برای نمایندگی شما فعال نیست.', $keyboard, 'HTML');
+                return;
+            }
+        } elseif (!agent_n2_product_enabled($from_id, $n2Code)) {
+            sendmessage($from_id, '❌ این محصول / دسته‌بندی برای نمایندگی شما فعال نیست.', $keyboard, 'HTML');
             return;
         }
     }
@@ -4884,8 +4888,14 @@ $textonebuy
         return;
     if (agent_is_n2($user['agent'] ?? 'f')) {
         $n2Code = $info_product['code_product'] ?? '';
-        if ($n2Code === 'customvolume' || !agent_n2_product_enabled($from_id, $n2Code)) {
-            sendmessage($from_id, '❌ این محصول برای نمایندگی شما فعال نیست.', $keyboard, 'HTML');
+        if ($n2Code === 'customvolume') {
+            $n2Cat = category_from_processing($userdate ?? (json_decode($user['Processing_value'], true) ?: []));
+            if (!$n2Cat || !agent_n2_category_enabled($from_id, $n2Cat['remark'] ?? '')) {
+                sendmessage($from_id, '❌ این دسته‌بندی برای نمایندگی شما فعال نیست.', $keyboard, 'HTML');
+                return;
+            }
+        } elseif (!agent_n2_product_enabled($from_id, $n2Code)) {
+            sendmessage($from_id, '❌ این محصول / دسته‌بندی برای نمایندگی شما فعال نیست.', $keyboard, 'HTML');
             return;
         }
     }

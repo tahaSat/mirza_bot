@@ -555,17 +555,53 @@ if ($text == "📞 تنظیم نام کاربری پشتیبانی") {
         ]
     ]);
     Editmessagetext($from_id, $message_id, "در این بخش می توانید قابلیت های زیر را خاموش یا روشن کنید", $Bot_Status);
-} elseif ($text == "📝 تنظیم متون") {
-    sendmessage($from_id, "📌 برای تغییر متن یکی از گزینه های زیر را انتخاب نمایید", $keyboard_change_price, 'HTML');
-} elseif ($text == "💎 متن کارت") {
-    sendmessage($from_id, "📌 جهت تنظیم متن شماره کارت متن جدید را ارسال نمایید. توضیحات فعلی :", $backadmin, 'HTML');
+} elseif ($text == "💳 تنظیمات پرداخت") {
+    $setting = botsaz_normalize_setting($setting);
+    $preview = botsaz_cart_payment_text($setting);
+    sendmessage($from_id, "💳 تنظیمات پرداخت کارت به کارت\n\n" . $preview, $keyboard_payment, 'HTML');
+} elseif ($text == "👁 مشاهده تنظیمات پرداخت") {
+    $setting = botsaz_normalize_setting($setting);
+    sendmessage($from_id, botsaz_cart_payment_text($setting), $keyboard_payment, 'HTML');
+} elseif ($text == "💳 شماره کارت") {
+    $current = trim((string) ($setting['card_number'] ?? ''));
+    sendmessage($from_id, "📌 شماره کارت را ارسال کنید." . ($current !== '' ? "\n\nشماره فعلی:\n<code>{$current}</code>" : ''), $backadmin, 'HTML');
+    step("get_card_number", $from_id);
+} elseif ($user['step'] == "get_card_number") {
+    $card = preg_replace('/\s+/', '', convertPersianNumbersToEnglish($text));
+    if (!preg_match('/^\d{16}$/', $card)) {
+        sendmessage($from_id, "❌ شماره کارت باید ۱۶ رقم باشد.", $backadmin, 'HTML');
+        return;
+    }
+    $setting['card_number'] = $card;
+    update("botsaz", "setting", json_encode($setting, JSON_UNESCAPED_UNICODE), "bot_token", $ApiToken);
+    sendmessage($from_id, "✅ شماره کارت ذخیره شد.", $keyboard_payment, 'HTML');
+    step("home", $from_id);
+} elseif ($text == "👤 نام صاحب کارت") {
+    $current = trim((string) ($setting['card_holder'] ?? ''));
+    sendmessage($from_id, "📌 نام صاحب کارت را ارسال کنید." . ($current !== '' ? "\n\nنام فعلی: <b>{$current}</b>" : ''), $backadmin, 'HTML');
+    step("get_card_holder", $from_id);
+} elseif ($user['step'] == "get_card_holder") {
+    $name = trim($text);
+    if (mb_strlen($name) < 2 || mb_strlen($name) > 80) {
+        sendmessage($from_id, "❌ نام صاحب کارت نامعتبر است.", $backadmin, 'HTML');
+        return;
+    }
+    $setting['card_holder'] = $name;
+    update("botsaz", "setting", json_encode($setting, JSON_UNESCAPED_UNICODE), "bot_token", $ApiToken);
+    sendmessage($from_id, "✅ نام صاحب کارت ذخیره شد.", $keyboard_payment, 'HTML');
+    step("home", $from_id);
+} elseif ($text == "📝 متن راهنمای پرداخت" || $text == "💎 متن راهنمای کارت" || $text == "💎 متن کارت") {
+    $setting = botsaz_normalize_setting($setting);
+    sendmessage($from_id, "📌 متن راهنمای پرداخت را ارسال کنید (بعد از شماره کارت نمایش داده می‌شود).\n\nمتن فعلی:", $backadmin, 'HTML');
     sendmessage($from_id, $setting['cart_info'], $backadmin, 'HTML');
     step("getcartinfo", $from_id);
 } elseif ($user['step'] == "getcartinfo") {
-    sendmessage($from_id, "✅ توضیحات با موفقیت ذخیره گردید.", $keyboard_change_price, 'HTML');
+    sendmessage($from_id, "✅ توضیحات با موفقیت ذخیره گردید.", $keyboard_payment, 'HTML');
     $setting['cart_info'] = $text;
-    update("botsaz", "setting", json_encode($setting), "bot_token", $ApiToken);
+    update("botsaz", "setting", json_encode($setting, JSON_UNESCAPED_UNICODE), "bot_token", $ApiToken);
     step("home", $from_id);
+} elseif ($text == "📝 تنظیم متون") {
+    sendmessage($from_id, "📌 برای تغییر متن یکی از گزینه های زیر را انتخاب نمایید", $keyboard_change_price, 'HTML');
 } elseif ($text == "🛍 دکمه خرید") {
     sendmessage($from_id, "📌 جهت تنظیم متن جدید را ارسال نمایید. توضیحات فعلی :", $backadmin, 'HTML');
     sendmessage($from_id, $text_bot_var['btn_keyboard']['buy'], $backadmin, 'HTML');

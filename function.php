@@ -3524,6 +3524,12 @@ function agent_ensure_n2_tables(): void
             enabled TINYINT(1) NOT NULL DEFAULT 1,
             PRIMARY KEY (agent_id, code_product)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS agent_n2_category (
+            agent_id VARCHAR(200) NOT NULL,
+            category VARCHAR(300) NOT NULL,
+            enabled TINYINT(1) NOT NULL DEFAULT 1,
+            PRIMARY KEY (agent_id, category)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
         $pdo->exec("CREATE TABLE IF NOT EXISTS agent_n2_purchase (
             id INT(11) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             agent_id VARCHAR(200) NOT NULL,
@@ -3538,10 +3544,49 @@ function agent_ensure_n2_tables(): void
             created_at INT(11) NOT NULL,
             INDEX idx_agent_created (agent_id, created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        // One-time migrate: product whitelist → category whitelist
+        agent_n2_migrate_products_to_categories();
     } catch (Throwable $e) {
         error_log('agent_ensure_n2_tables: ' . $e->getMessage());
     }
     $ensured = true;
+}
+
+/**
+ * If agent has product whitelist but no categories yet, derive categories from those products.
+ */
+function agent_n2_migrate_products_to_categories(): void
+{
+    global $pdo;
+    static $migrated = false;
+    if ($migrated) {
+        return;
+    }
+    $migrated = true;
+    try {
+        $agents = $pdo->query("SELECT DISTINCT agent_id FROM agent_n2_product WHERE enabled = 1")->fetchAll(PDO::FETCH_COLUMN);
+        if (!$agents) {
+            return;
+        }
+        $ins = $pdo->prepare('INSERT IGNORE INTO agent_n2_category (agent_id, category, enabled) VALUES (?, ?, 1)');
+        foreach ($agents as $agentId) {
+            $hasCat = $pdo->prepare('SELECT COUNT(*) FROM agent_n2_category WHERE agent_id = ? AND enabled = 1');
+            $hasCat->execute([(string) $agentId]);
+            if ((int) $hasCat->fetchColumn() > 0) {
+                continue;
+            }
+            $stmt = $pdo->prepare("SELECT DISTINCT p.category
+                FROM agent_n2_product ap
+                INNER JOIN product p ON p.code_product = ap.code_product
+                WHERE ap.agent_id = ? AND ap.enabled = 1 AND p.category IS NOT NULL AND p.category != ''");
+            $stmt->execute([(string) $agentId]);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $cat) {
+                $ins->execute([(string) $agentId, (string) $cat]);
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('agent_n2_migrate_products_to_categories: ' . $e->getMessage());
+    }
 }
 
 function agent_is_reseller($agent): bool
@@ -3575,8 +3620,7 @@ function agent_sum_volume_created($agentUserId): float
 }
 
 /**
- * For n2: total GB from purchase log (creates/extends recorded without credit).
- * Falls back to invoice sum when table empty/unavailable.
+ * For n2: total GB from purchase log. Falls back to invoice sum.
  */
 function agent_sum_volume_consumed($agentUserId, $agent = null): float
 {
@@ -3601,7 +3645,7 @@ function agent_sum_volume_consumed($agentUserId, $agent = null): float
 
 /**
  * SQL fragment restricting products by role.
- * n2: whitelist in agent_n2_product (any catalog product).
+ * n2: products whose category is enabled for the agent (any catalog product.agent).
  * others: product.agent = role.
  */
 function agent_product_access_sql($agent, $agentUserId): string
@@ -3612,9 +3656,23 @@ function agent_product_access_sql($agent, $agentUserId): string
         if ($aid === '') {
             return '0=1';
         }
-        return "EXISTS (SELECT 1 FROM agent_n2_product ap WHERE ap.agent_id = '{$aid}' AND ap.code_product = product.code_product AND ap.enabled = 1)";
+        return "EXISTS (SELECT 1 FROM agent_n2_category ac WHERE ac.agent_id = '{$aid}' AND ac.enabled = 1 AND ac.category = product.category)";
     }
     return "agent = '" . addslashes((string) $agent) . "'";
+}
+
+function agent_n2_category_enabled($agentUserId, $categoryRemark): bool
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $categoryRemark = trim((string) $categoryRemark);
+    if ($categoryRemark === '') {
+        return false;
+    }
+    $stmt = $pdo->prepare('SELECT enabled FROM agent_n2_category WHERE agent_id = ? AND category = ? LIMIT 1');
+    $stmt->execute([(string) $agentUserId, $categoryRemark]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row && (int) $row['enabled'] === 1;
 }
 
 function agent_n2_product_enabled($agentUserId, $codeProduct): bool
@@ -3624,21 +3682,24 @@ function agent_n2_product_enabled($agentUserId, $codeProduct): bool
     if ($codeProduct === '' || $codeProduct === null || $codeProduct === 'customvolume') {
         return false;
     }
-    $stmt = $pdo->prepare('SELECT enabled FROM agent_n2_product WHERE agent_id = ? AND code_product = ? LIMIT 1');
-    $stmt->execute([(string) $agentUserId, (string) $codeProduct]);
+    $stmt = $pdo->prepare('SELECT category FROM product WHERE code_product = ? LIMIT 1');
+    $stmt->execute([(string) $codeProduct]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    return $row && (int) $row['enabled'] === 1;
+    if (!$row) {
+        return false;
+    }
+    return agent_n2_category_enabled($agentUserId, $row['category'] ?? '');
 }
 
 /**
- * Fetch products enabled for an n2 agent (from entire catalog).
+ * Fetch products in enabled categories for an n2 agent (from entire catalog).
  */
 function agent_n2_list_products($agentUserId, $location = null): array
 {
     global $pdo;
     agent_ensure_n2_tables();
     $sql = "SELECT p.* FROM product p
-            INNER JOIN agent_n2_product ap ON ap.code_product = p.code_product AND ap.agent_id = :agent_id AND ap.enabled = 1";
+            INNER JOIN agent_n2_category ac ON ac.category = p.category AND ac.agent_id = :agent_id AND ac.enabled = 1";
     $params = [':agent_id' => (string) $agentUserId];
     if ($location !== null && $location !== '') {
         $sql .= " WHERE (p.Location = :location OR p.Location = '/all')";
@@ -3681,7 +3742,7 @@ function agent_n2_assert_and_log_purchase($agentUserId, $codeProduct, array $met
         return ['ok' => false, 'msg' => '❌ نماینده پیشرفته فقط می‌تواند محصولات فعال‌شده را خریداری کند.'];
     }
     if (!agent_n2_product_enabled($agentUserId, $codeProduct)) {
-        return ['ok' => false, 'msg' => '❌ این محصول برای نمایندگی شما فعال نیست.'];
+        return ['ok' => false, 'msg' => '❌ این محصول / دسته‌بندی برای نمایندگی شما فعال نیست.'];
     }
     agent_n2_log_purchase([
         'agent_id' => $agentUserId,
@@ -4008,7 +4069,9 @@ function agent_create_sell_bot($agentUserId, $token, $rootPath = null): array
         'pricevolume' => 4000,
         'support_username' => '@support',
         'Channel_Report' => 0,
-        'cart_info' => 'جهت پرداخت مبلغ را به شماره کارت زیر واریز نمایید',
+        'card_number' => '',
+        'card_holder' => '',
+        'cart_info' => 'پس از واریز، تصویر رسید را در همین چت ارسال کنید.',
         'show_product' => true,
     ]);
     $hide = '{}';
@@ -4106,6 +4169,58 @@ function agent_remove_sell_bot($agentUserId, $rootPath = null): array
     $stmt = $pdo->prepare('DELETE FROM botsaz WHERE id_user = :id_user');
     $stmt->execute([':id_user' => $agentUserId]);
     return ['ok' => true, 'msg' => 'ربات فروش حذف شد.'];
+}
+
+/**
+ * Normalize botsaz.setting payment fields for agent sell bots.
+ */
+function botsaz_normalize_setting($setting): array
+{
+    if (!is_array($setting)) {
+        $setting = [];
+    }
+    if (!isset($setting['card_number'])) {
+        $setting['card_number'] = '';
+    }
+    if (!isset($setting['card_holder'])) {
+        $setting['card_holder'] = '';
+    }
+    if (!isset($setting['cart_info']) || $setting['cart_info'] === '') {
+        $setting['cart_info'] = 'پس از واریز، تصویر رسید را در همین چت ارسال کنید.';
+    }
+    return $setting;
+}
+
+/**
+ * Build card-to-cart payment instructions for sell-bot users.
+ */
+function botsaz_cart_payment_text(array $setting, $amount = null, $orderId = null): string
+{
+    $setting = botsaz_normalize_setting($setting);
+    $cardNumber = trim((string) ($setting['card_number'] ?? ''));
+    $cardHolder = trim((string) ($setting['card_holder'] ?? ''));
+    $help = trim((string) ($setting['cart_info'] ?? ''));
+
+    $lines = ["💳 پرداخت کارت به کارت\n"];
+    if ($cardNumber !== '') {
+        $lines[] = "💳 شماره کارت:\n<code>{$cardNumber}</code>";
+    } else {
+        $lines[] = "⚠️ شماره کارت هنوز توسط نماینده تنظیم نشده است.";
+    }
+    if ($cardHolder !== '') {
+        $lines[] = "👤 به نام: <b>{$cardHolder}</b>";
+    }
+    if ($amount !== null && $amount !== '') {
+        $lines[] = "💰 مبلغ: <b>" . number_format((int) $amount) . "</b> تومان";
+    }
+    if ($orderId !== null && $orderId !== '') {
+        $lines[] = "🛒 کد پیگیری: <code>{$orderId}</code>";
+    }
+    if ($help !== '') {
+        $lines[] = "\n📌 " . $help;
+    }
+    $lines[] = "\nلطفاً پس از واریز، تصویر یا متن رسید را ارسال کنید.";
+    return implode("\n", $lines);
 }
 
 #-----------DiscountSell scope (multi product/panel/category)------------#

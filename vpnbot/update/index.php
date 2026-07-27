@@ -1001,9 +1001,9 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     }
     $botbalance = select("botsaz", "*", "bot_token", $ApiToken, "select");
     $userbotbalance = select("user", "*", "id", $botbalance['id_user'], "select");
-    $agentVolumeGb = (int) $datafix['Volume_constraint'];
+    $agentVolumeGb = (int) $datafactor['Volume_constraint'];
     if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
-        $n2Code = $datafix['code_product'] ?? '';
+        $n2Code = $datafactor['code_product'] ?? '';
         $n2Cat = category_from_processing($userdate ?? []);
         $n2CatRemark = is_array($n2Cat) ? ($n2Cat['remark'] ?? '') : '';
         $n2Allowed = false;
@@ -1073,12 +1073,25 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
                 'product' => (string) ($datafactor['name_product'] ?? ''),
             ]
         );
+        if (!($pay['ok'] ?? false)) {
+            if (($pay['error'] ?? '') === 'card_not_configured') {
+                sendmessage($from_id, "❌ شماره کارت نماینده هنوز تنظیم نشده است. لطفاً با پشتیبانی در ارتباط باشید.", $keyboard, 'HTML');
+            } else {
+                sendmessage($from_id, "❌ ثبت پرداخت با خطا مواجه شد. لطفاً دوباره تلاش کنید یا با پشتیبانی در ارتباط باشید.", $keyboard, 'HTML');
+            }
+            step('home', $from_id);
+            return;
+        }
         if (!$pay['card_ok']) {
             sendmessage($from_id, "❌ شماره کارت نماینده هنوز تنظیم نشده است. لطفاً با پشتیبانی در ارتباط باشید.", $keyboard, 'HTML');
             step('home', $from_id);
             return;
         }
-        Editmessagetext($from_id, $message_id, $pay['text'], $backuser, 'HTML');
+        $payMessageResult = sendmessage($from_id, $pay['text'], $backuser, 'HTML');
+        if (!is_array($payMessageResult) || !($payMessageResult['ok'] ?? false)) {
+            error_log('vpnbot direct payment message failed: ' . json_encode($payMessageResult, JSON_UNESCAPED_UNICODE));
+            sendmessage($from_id, strip_tags($pay['text']), $backuser, '');
+        }
         step('getresidcart', $from_id);
         savedata('clear', 'id_order', $pay['id_order']);
         return;
@@ -1239,14 +1252,14 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
         agent_n2_log_purchase([
             'agent_id' => $botbalance['id_user'],
-            'code_product' => $datafix['code_product'] ?? '',
-            'name_product' => $datafix['name_product'] ?? '',
-            'volume' => $datafix['Volume_constraint'] ?? '',
-            'service_time' => $datafix['Service_time'] ?? '',
+            'code_product' => $datafactor['code_product'] ?? '',
+            'name_product' => $datafactor['name_product'] ?? '',
+            'volume' => $datafactor['Volume_constraint'] ?? '',
+            'service_time' => $datafactor['Service_time'] ?? '',
             'panel' => $marzban_list_get['name_panel'] ?? '',
             'username_service' => $username_ac ?? ($usernamePanelExtends ?? ''),
             'id_invoice' => $randomString ?? ($id_invoice ?? ''),
-            'price_product' => $datafix['price_product'] ?? '0',
+            'price_product' => $datafactor['price_product'] ?? '0',
             'created_at' => time(),
         ]);
     }
@@ -1799,9 +1812,9 @@ $output
     $datafactor['name_product'] = empty($productlist_name[$datafactor['code_product']]) ? $datafactor['name_product'] : $productlist_name[$datafactor['code_product']];
     $botbalance = select("botsaz", "*", "bot_token", $ApiToken, "select");
     $userbotbalance = select("user", "*", "id", $botbalance['id_user'], "select");
-    $agentVolumeGb = (int) $datafix['Volume_constraint'];
+    $agentVolumeGb = (int) $datafactor['Volume_constraint'];
     if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
-        $n2Code = $datafix['code_product'] ?? '';
+        $n2Code = $datafactor['code_product'] ?? '';
         $n2Cat = category_from_processing($userdate ?? []);
         $n2CatRemark = is_array($n2Cat) ? ($n2Cat['remark'] ?? '') : '';
         $n2Allowed = false;
@@ -1838,12 +1851,25 @@ $output
                 'product' => (string) ($datafactor['name_product'] ?? ''),
             ]
         );
+        if (!($pay['ok'] ?? false)) {
+            if (($pay['error'] ?? '') === 'card_not_configured') {
+                sendmessage($from_id, "❌ شماره کارت نماینده هنوز تنظیم نشده است. لطفاً با پشتیبانی در ارتباط باشید.", $keyboard, 'HTML');
+            } else {
+                sendmessage($from_id, "❌ ثبت پرداخت با خطا مواجه شد. لطفاً دوباره تلاش کنید یا با پشتیبانی در ارتباط باشید.", $keyboard, 'HTML');
+            }
+            step('home', $from_id);
+            return;
+        }
         if (!$pay['card_ok']) {
             sendmessage($from_id, "❌ شماره کارت نماینده هنوز تنظیم نشده است. لطفاً با پشتیبانی در ارتباط باشید.", $keyboard, 'HTML');
             step('home', $from_id);
             return;
         }
-        Editmessagetext($from_id, $message_id, $pay['text'], $backuser, 'HTML');
+        $payMessageResult = sendmessage($from_id, $pay['text'], $backuser, 'HTML');
+        if (!is_array($payMessageResult) || !($payMessageResult['ok'] ?? false)) {
+            error_log('vpnbot direct payment message failed: ' . json_encode($payMessageResult, JSON_UNESCAPED_UNICODE));
+            sendmessage($from_id, strip_tags($pay['text']), $backuser, '');
+        }
         step('getresidcart', $from_id);
         savedata('clear', 'id_order', $pay['id_order']);
         return;
@@ -1894,14 +1920,14 @@ $output
     if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
         agent_n2_log_purchase([
             'agent_id' => $botbalance['id_user'],
-            'code_product' => $datafix['code_product'] ?? '',
-            'name_product' => $datafix['name_product'] ?? '',
-            'volume' => $datafix['Volume_constraint'] ?? '',
-            'service_time' => $datafix['Service_time'] ?? '',
+            'code_product' => $datafactor['code_product'] ?? '',
+            'name_product' => $datafactor['name_product'] ?? '',
+            'volume' => $datafactor['Volume_constraint'] ?? '',
+            'service_time' => $datafactor['Service_time'] ?? '',
             'panel' => $marzban_list_get['name_panel'] ?? '',
             'username_service' => $username_ac ?? ($usernamePanelExtends ?? ''),
             'id_invoice' => $randomString ?? ($id_invoice ?? ''),
-            'price_product' => $datafix['price_product'] ?? '0',
+            'price_product' => $datafactor['price_product'] ?? '0',
             'created_at' => time(),
         ]);
     }

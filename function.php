@@ -4237,20 +4237,23 @@ function botsaz_cart_payment_text(array $setting, $amount = null, $orderId = nul
     $cardNumber = trim((string) ($setting['card_number'] ?? ''));
     $cardHolder = trim((string) ($setting['card_holder'] ?? ''));
     $help = trim((string) ($setting['cart_info'] ?? ''));
-    $title = trim((string) ($opts['title'] ?? '💳 پرداخت کارت به کارت'));
-    $productName = trim((string) ($opts['product'] ?? ''));
+    $title = htmlspecialchars(trim((string) ($opts['title'] ?? '💳 پرداخت کارت به کارت')), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $productName = htmlspecialchars(trim((string) ($opts['product'] ?? '')), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $safeCardNumber = htmlspecialchars($cardNumber, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $safeCardHolder = htmlspecialchars($cardHolder, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $safeHelp = htmlspecialchars($help, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
     $lines = [$title . "\n"];
     if ($productName !== '') {
         $lines[] = "🛍 محصول: <b>{$productName}</b>";
     }
     if ($cardNumber !== '') {
-        $lines[] = "💳 شماره کارت:\n<code>{$cardNumber}</code>";
+        $lines[] = "💳 شماره کارت:\n<code>{$safeCardNumber}</code>";
     } else {
         $lines[] = "⚠️ شماره کارت هنوز توسط نماینده تنظیم نشده است.";
     }
     if ($cardHolder !== '') {
-        $lines[] = "👤 به نام: <b>{$cardHolder}</b>";
+        $lines[] = "👤 به نام: <b>{$safeCardHolder}</b>";
     }
     if ($amount !== null && $amount !== '') {
         $lines[] = "💰 مبلغ: <b>" . number_format((int) $amount) . "</b> تومان";
@@ -4259,7 +4262,7 @@ function botsaz_cart_payment_text(array $setting, $amount = null, $orderId = nul
         $lines[] = "🛒 کد پیگیری: <code>{$orderId}</code>";
     }
     if ($help !== '') {
-        $lines[] = "\n📌 " . $help;
+        $lines[] = "\n📌 " . $safeHelp;
     }
     $lines[] = "\nلطفاً پس از واریز، تصویر یا متن رسید را ارسال کنید.";
     return implode("\n", $lines);
@@ -4271,6 +4274,17 @@ function botsaz_cart_payment_text(array $setting, $amount = null, $orderId = nul
 function botsaz_create_cart_payment($fromId, $amount, $botToken, array $setting, $invoiceRef = '0 | 0', array $opts = []): array
 {
     global $connect;
+    $normalizedSetting = botsaz_normalize_setting($setting);
+    if (trim((string) ($normalizedSetting['card_number'] ?? '')) === '') {
+        return [
+            'ok' => false,
+            'error' => 'card_not_configured',
+            'id_order' => '',
+            'price' => (int) $amount,
+            'text' => '',
+            'card_ok' => false,
+        ];
+    }
     $amount = (int) $amount;
     if ($amount < 0) {
         $amount = 0;
@@ -4283,15 +4297,33 @@ function botsaz_create_cart_payment($fromId, $amount, $botToken, array $setting,
     $randomString = bin2hex(random_bytes(5));
     $payment_Status = 'Unpaid';
     $Payment_Method = 'cart to cart';
-    $stmt = $connect->prepare('INSERT INTO Payment_report (id_user,id_order,time,price,payment_Status,Payment_Method,id_invoice,bottype) VALUES (?,?,?,?,?,?,?,?)');
-    $stmt->bind_param('ssssssss', $fromId, $randomString, $dateacc, $amountStr, $payment_Status, $Payment_Method, $invoiceRef, $botToken);
-    $stmt->execute();
-    $stmt->close();
+    try {
+        $stmt = $connect->prepare('INSERT INTO Payment_report (id_user,id_order,time,price,payment_Status,Payment_Method,id_invoice,bottype) VALUES (?,?,?,?,?,?,?,?)');
+        if (!$stmt) {
+            throw new RuntimeException($connect->error ?: 'Payment query prepare failed');
+        }
+        $stmt->bind_param('ssssssss', $fromId, $randomString, $dateacc, $amountStr, $payment_Status, $Payment_Method, $invoiceRef, $botToken);
+        if (!$stmt->execute()) {
+            throw new RuntimeException($stmt->error ?: 'Payment query execute failed');
+        }
+        $stmt->close();
+    } catch (Throwable $e) {
+        error_log('botsaz direct cart payment failed: ' . $e->getMessage());
+        return [
+            'ok' => false,
+            'error' => 'payment_create_failed',
+            'id_order' => '',
+            'price' => $amount,
+            'text' => '',
+            'card_ok' => true,
+        ];
+    }
     return [
+        'ok' => true,
         'id_order' => $randomString,
         'price' => $amount,
-        'text' => botsaz_cart_payment_text($setting, $amount, $randomString, $opts),
-        'card_ok' => trim((string) (botsaz_normalize_setting($setting)['card_number'] ?? '')) !== '',
+        'text' => botsaz_cart_payment_text($normalizedSetting, $amount, $randomString, $opts),
+        'card_ok' => true,
     ];
 }
 

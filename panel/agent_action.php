@@ -278,16 +278,18 @@ switch ($action) {
             break;
         }
         agent_ensure_n2_tables();
+        $agentIdKey = function_exists('agent_n2_agent_id') ? agent_n2_agent_id($id) : (string) $id;
         $selected = $_POST['categories'] ?? [];
         if (!is_array($selected)) {
             $selected = [];
         }
         $selected = array_values(array_unique(array_filter(array_map('strval', $selected))));
-        db_query($pdo, 'DELETE FROM agent_n2_category WHERE agent_id = ?', [(string) $id]);
+        // remove both normalized and legacy agent_id rows
+        db_query($pdo, 'DELETE FROM agent_n2_category WHERE agent_id = ? OR agent_id = ?', [$agentIdKey, (string) $id]);
         if (!empty($selected)) {
             $ins = $pdo->prepare('INSERT INTO agent_n2_category (agent_id, category, enabled) VALUES (?, ?, 1)');
             foreach ($selected as $cat) {
-                $ins->execute([(string) $id, $cat]);
+                $ins->execute([$agentIdKey, $cat]);
             }
         }
         flash('success', 'دسته‌بندی‌های مجاز نماینده ذخیره شد (' . count($selected) . ' مورد).');
@@ -300,6 +302,7 @@ switch ($action) {
             break;
         }
         agent_ensure_n2_tables();
+        $agentIdKey = function_exists('agent_n2_agent_id') ? agent_n2_agent_id($id) : (string) $id;
         $selected = $_POST['products'] ?? [];
         if (!is_array($selected)) {
             $selected = [];
@@ -312,11 +315,11 @@ switch ($action) {
             $stmt->execute($selected);
             $cats = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
         }
-        db_query($pdo, 'DELETE FROM agent_n2_category WHERE agent_id = ?', [(string) $id]);
+        db_query($pdo, 'DELETE FROM agent_n2_category WHERE agent_id = ? OR agent_id = ?', [$agentIdKey, (string) $id]);
         if (!empty($cats)) {
             $ins = $pdo->prepare('INSERT INTO agent_n2_category (agent_id, category, enabled) VALUES (?, ?, 1)');
             foreach ($cats as $cat) {
-                $ins->execute([(string) $id, (string) $cat]);
+                $ins->execute([$agentIdKey, (string) $cat]);
             }
         }
         flash('success', 'دسته‌بندی‌های مشتق‌شده از محصولات ذخیره شد (' . count($cats) . ' دسته).');

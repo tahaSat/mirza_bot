@@ -1004,14 +1004,15 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $agentVolumeGb = (int) $datafix['Volume_constraint'];
     if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
         $n2Code = $datafix['code_product'] ?? '';
-        if ($n2Code === 'customvolume') {
-            $n2Cat = category_from_processing($userdate ?? []);
-            if (!$n2Cat || !agent_n2_category_enabled($botbalance['id_user'], $n2Cat['remark'] ?? '')) {
-                sendmessage($from_id, "❌ این دسته‌بندی برای نمایندگی فعال نیست.", $keyboard, 'HTML');
-                step("home", $from_id);
-                return;
-            }
-        } elseif (!agent_n2_product_enabled($botbalance['id_user'], $n2Code)) {
+        $n2Cat = category_from_processing($userdate ?? []);
+        $n2CatRemark = is_array($n2Cat) ? ($n2Cat['remark'] ?? '') : '';
+        $n2Allowed = false;
+        if ($n2CatRemark !== '' && agent_n2_category_enabled($botbalance['id_user'], $n2CatRemark)) {
+            $n2Allowed = true;
+        } elseif ($n2Code !== 'customvolume' && agent_n2_product_enabled($botbalance['id_user'], $n2Code, $n2CatRemark)) {
+            $n2Allowed = true;
+        }
+        if (!$n2Allowed) {
             sendmessage($from_id, "❌ این محصول / دسته‌بندی برای نمایندگی فعال نیست.", $keyboard, 'HTML');
             step("home", $from_id);
             return;
@@ -1797,14 +1798,15 @@ $output
     $agentVolumeGb = (int) $datafix['Volume_constraint'];
     if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
         $n2Code = $datafix['code_product'] ?? '';
-        if ($n2Code === 'customvolume') {
-            $n2Cat = category_from_processing($userdate ?? []);
-            if (!$n2Cat || !agent_n2_category_enabled($botbalance['id_user'], $n2Cat['remark'] ?? '')) {
-                sendmessage($from_id, "❌ این دسته‌بندی برای نمایندگی فعال نیست.", $keyboard, 'HTML');
-                step("home", $from_id);
-                return;
-            }
-        } elseif (!agent_n2_product_enabled($botbalance['id_user'], $n2Code)) {
+        $n2Cat = category_from_processing($userdate ?? []);
+        $n2CatRemark = is_array($n2Cat) ? ($n2Cat['remark'] ?? '') : '';
+        $n2Allowed = false;
+        if ($n2CatRemark !== '' && agent_n2_category_enabled($botbalance['id_user'], $n2CatRemark)) {
+            $n2Allowed = true;
+        } elseif ($n2Code !== 'customvolume' && agent_n2_product_enabled($botbalance['id_user'], $n2Code, $n2CatRemark)) {
+            $n2Allowed = true;
+        }
+        if (!$n2Allowed) {
             sendmessage($from_id, "❌ این محصول / دسته‌بندی برای نمایندگی فعال نیست.", $keyboard, 'HTML');
             step("home", $from_id);
             return;

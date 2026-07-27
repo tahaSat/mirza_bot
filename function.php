@@ -3656,9 +3656,16 @@ function agent_product_access_sql($agent, $agentUserId): string
         if ($aid === '') {
             return '0=1';
         }
-        return "EXISTS (SELECT 1 FROM agent_n2_category ac WHERE ac.agent_id = '{$aid}' AND ac.enabled = 1 AND ac.category = product.category)";
+        return "EXISTS (SELECT 1 FROM agent_n2_category ac WHERE (ac.agent_id = '{$aid}' OR ac.agent_id = '" . addslashes((string) $agentUserId) . "') AND ac.enabled = 1 AND ac.category = product.category)";
     }
     return "agent = '" . addslashes((string) $agent) . "'";
+}
+
+function agent_n2_agent_id($agentUserId): string
+{
+    $raw = trim((string) $agentUserId);
+    $digits = preg_replace('/\D/', '', $raw);
+    return $digits !== '' ? $digits : $raw;
 }
 
 function agent_n2_category_enabled($agentUserId, $categoryRemark): bool
@@ -3669,26 +3676,52 @@ function agent_n2_category_enabled($agentUserId, $categoryRemark): bool
     if ($categoryRemark === '') {
         return false;
     }
-    $stmt = $pdo->prepare('SELECT enabled FROM agent_n2_category WHERE agent_id = ? AND category = ? LIMIT 1');
-    $stmt->execute([(string) $agentUserId, $categoryRemark]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    return $row && (int) $row['enabled'] === 1;
+    $aid = agent_n2_agent_id($agentUserId);
+    $stmt = $pdo->prepare('SELECT enabled FROM agent_n2_category WHERE agent_id = ? AND category = ? AND enabled = 1 LIMIT 1');
+    $stmt->execute([$aid, $categoryRemark]);
+    if ($stmt->fetch(PDO::FETCH_ASSOC)) {
+        return true;
+    }
+    // legacy rows that may store non-normalized agent_id
+    if ($aid !== (string) $agentUserId) {
+        $stmt->execute([(string) $agentUserId, $categoryRemark]);
+        if ($stmt->fetch(PDO::FETCH_ASSOC)) {
+            return true;
+        }
+    }
+    return false;
 }
 
-function agent_n2_product_enabled($agentUserId, $codeProduct): bool
+/**
+ * True if this product code belongs to an enabled category for the n2 agent.
+ * Uses JOIN (not LIMIT 1 on product alone) so duplicate code_product rows don't break access.
+ */
+function agent_n2_product_enabled($agentUserId, $codeProduct, $categoryHint = null): bool
 {
     global $pdo;
     agent_ensure_n2_tables();
     if ($codeProduct === '' || $codeProduct === null || $codeProduct === 'customvolume') {
         return false;
     }
-    $stmt = $pdo->prepare('SELECT category FROM product WHERE code_product = ? LIMIT 1');
-    $stmt->execute([(string) $codeProduct]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row) {
-        return false;
+    $hint = trim((string) ($categoryHint ?? ''));
+    if ($hint !== '' && agent_n2_category_enabled($agentUserId, $hint)) {
+        return true;
     }
-    return agent_n2_category_enabled($agentUserId, $row['category'] ?? '');
+    $aid = agent_n2_agent_id($agentUserId);
+    $stmt = $pdo->prepare("SELECT 1
+        FROM product p
+        INNER JOIN agent_n2_category ac
+            ON ac.enabled = 1
+           AND ac.category = p.category
+           AND (ac.agent_id = :aid OR ac.agent_id = :aid_raw)
+        WHERE p.code_product = :code
+        LIMIT 1");
+    $stmt->execute([
+        ':aid' => $aid,
+        ':aid_raw' => (string) $agentUserId,
+        ':code' => (string) $codeProduct,
+    ]);
+    return (bool) $stmt->fetchColumn();
 }
 
 /**
@@ -3698,9 +3731,13 @@ function agent_n2_list_products($agentUserId, $location = null): array
 {
     global $pdo;
     agent_ensure_n2_tables();
+    $aid = agent_n2_agent_id($agentUserId);
     $sql = "SELECT p.* FROM product p
-            INNER JOIN agent_n2_category ac ON ac.category = p.category AND ac.agent_id = :agent_id AND ac.enabled = 1";
-    $params = [':agent_id' => (string) $agentUserId];
+            INNER JOIN agent_n2_category ac
+                ON ac.category = p.category
+               AND ac.enabled = 1
+               AND (ac.agent_id = :agent_id OR ac.agent_id = :agent_id_raw)";
+    $params = [':agent_id' => $aid, ':agent_id_raw' => (string) $agentUserId];
     if ($location !== null && $location !== '') {
         $sql .= " WHERE (p.Location = :location OR p.Location = '/all')";
         $params[':location'] = $location;
@@ -3741,7 +3778,7 @@ function agent_n2_assert_and_log_purchase($agentUserId, $codeProduct, array $met
     if ($codeProduct === 'customvolume') {
         return ['ok' => false, 'msg' => '❌ نماینده پیشرفته فقط می‌تواند محصولات فعال‌شده را خریداری کند.'];
     }
-    if (!agent_n2_product_enabled($agentUserId, $codeProduct)) {
+    if (!agent_n2_product_enabled($agentUserId, $codeProduct, $meta['category'] ?? null)) {
         return ['ok' => false, 'msg' => '❌ این محصول / دسته‌بندی برای نمایندگی شما فعال نیست.'];
     }
     agent_n2_log_purchase([

@@ -67,7 +67,8 @@ if ($isN2) {
         $allCategories = [];
     }
     try {
-        $rows = db_fetchAll($pdo, 'SELECT category, enabled FROM agent_n2_category WHERE agent_id = ?', [(string) $id]);
+        $agentIdKey = function_exists('agent_n2_agent_id') ? agent_n2_agent_id($id) : (string) $id;
+        $rows = db_fetchAll($pdo, 'SELECT category, enabled FROM agent_n2_category WHERE agent_id = ? OR agent_id = ?', [$agentIdKey, (string) $id]);
         foreach ($rows as $r) {
             if ((int) ($r['enabled'] ?? 0) === 1) {
                 $enabledCategories[$r['category']] = true;
@@ -76,7 +77,8 @@ if ($isN2) {
     } catch (Exception $e) {
     }
     try {
-        $n2Purchases = db_fetchAll($pdo, 'SELECT * FROM agent_n2_purchase WHERE agent_id = ? ORDER BY created_at DESC LIMIT 100', [(string) $id]);
+        $agentIdKey = function_exists('agent_n2_agent_id') ? agent_n2_agent_id($id) : (string) $id;
+        $n2Purchases = db_fetchAll($pdo, 'SELECT * FROM agent_n2_purchase WHERE agent_id = ? OR agent_id = ? ORDER BY created_at DESC LIMIT 100', [$agentIdKey, (string) $id]);
     } catch (Exception $e) {
         $n2Purchases = [];
     }

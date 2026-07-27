@@ -55,6 +55,7 @@ $expire = $user['expire'] ?? null;
 $expireLabel = $expire ? date('Y/m/d H:i', (int) $expire) : 'بدون انقضا';
 
 $isN2 = ($agent === 'n2');
+$volumeConsumed = agent_is_reseller($agent) ? agent_sum_volume_consumed($id, $agent) : 0.0;
 $allProducts = [];
 $enabledProducts = [];
 $n2Purchases = [];
@@ -122,6 +123,10 @@ include __DIR__ . '/inc/layout_head.php';
         <div class="stat-num"><?= number_format(count($n2Purchases)) ?></div>
     </div>
     <?php endif; ?>
+    <div class="stat">
+        <div class="stat-label">حجم مصرفی ساخت سرویس</div>
+        <div class="stat-num"><?= number_format($volumeConsumed) ?><small>GB</small></div>
+    </div>
     <div class="stat">
         <div class="stat-label">نقش</div>
         <div class="stat-num" style="font-size:1rem">

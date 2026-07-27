@@ -3552,6 +3552,51 @@ function agent_is_n2($agent): bool
 }
 
 /**
+ * Total GB volume used when creating volumetric services (from invoices).
+ */
+function agent_sum_volume_created($agentUserId): float
+{
+    global $pdo;
+    try {
+        $stmt = $pdo->prepare("SELECT COALESCE(SUM(CAST(Volume AS DECIMAL(12,2))), 0)
+            FROM invoice
+            WHERE id_user = :id
+              AND name_product != 'سرویس تست'
+              AND Status IN ('active', 'end_of_time', 'end_of_volume', 'sendedwarn', 'send_on_hold')");
+        $stmt->execute([':id' => (string) $agentUserId]);
+        return (float) $stmt->fetchColumn();
+    } catch (Throwable $e) {
+        error_log('agent_sum_volume_created: ' . $e->getMessage());
+        return 0.0;
+    }
+}
+
+/**
+ * For n2: total GB from purchase log (creates/extends recorded without credit).
+ * Falls back to invoice sum when table empty/unavailable.
+ */
+function agent_sum_volume_consumed($agentUserId, $agent = null): float
+{
+    global $pdo;
+    if ($agent === null) {
+        $user = select('user', '*', 'id', $agentUserId, 'select');
+        $agent = $user['agent'] ?? 'f';
+    }
+    if (agent_is_n2($agent)) {
+        agent_ensure_n2_tables();
+        try {
+            $stmt = $pdo->prepare("SELECT COALESCE(SUM(CAST(volume AS DECIMAL(12,2))), 0)
+                FROM agent_n2_purchase WHERE agent_id = :id");
+            $stmt->execute([':id' => (string) $agentUserId]);
+            return (float) $stmt->fetchColumn();
+        } catch (Throwable $e) {
+            error_log('agent_sum_volume_consumed n2: ' . $e->getMessage());
+        }
+    }
+    return agent_sum_volume_created($agentUserId);
+}
+
+/**
  * SQL fragment restricting products by role.
  * n2: whitelist in agent_n2_product (any catalog product).
  * others: product.agent = role.

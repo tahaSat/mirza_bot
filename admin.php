@@ -4263,6 +4263,17 @@ $caption";
     } else {
         $text_expie_agent = "";
     }
+    $text_agent_volume = "";
+    if (agent_is_reseller($user['agent'] ?? 'f')) {
+        $volConsumedAgent = agent_sum_volume_consumed($id_user, $user['agent']);
+        $volConsumedFmt = number_format($volConsumedAgent);
+        $text_agent_volume = "🔋 مجموع حجم مصرفی برای ساخت سرویس‌های حجمی : {$volConsumedFmt} GB\n";
+        if (($user['agent'] ?? '') === 'n') {
+            $volRem = number_format((int) ($user['agent_volume_remaining'] ?? 0));
+            $ppg = number_format((int) ($user['agent_price_per_gb'] ?? 0));
+            $text_agent_volume .= "🔋 حجم باقیمانده نمایندگی : {$volRem} GB\n🔋 قیمت هر گیگ نمایندگی : {$ppg} تومان\n";
+        }
+    }
     $textinfouser = "👀 اطلاعات کاربر:
 
 🔗 اطلاعات کاربری کاربر
@@ -4284,7 +4295,7 @@ $caption";
 ⭕  نمایش شماره کارت :‌$showcart
 ⭕ امتیاز کاربر : {$user['score']}
 ⭕️  مجموع حجم خریداری شده فعال ( برای آمار دقیق حجم باید کرون روشن باشد): {$sumvolume['SUM(Volume)']}
-$text_expie_agent
+$text_agent_volume$text_expie_agent
 
 💎 گزارشات مالی
 

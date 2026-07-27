@@ -4231,14 +4231,19 @@ function botsaz_normalize_setting($setting): array
 /**
  * Build card-to-cart payment instructions for sell-bot users.
  */
-function botsaz_cart_payment_text(array $setting, $amount = null, $orderId = null): string
+function botsaz_cart_payment_text(array $setting, $amount = null, $orderId = null, array $opts = []): string
 {
     $setting = botsaz_normalize_setting($setting);
     $cardNumber = trim((string) ($setting['card_number'] ?? ''));
     $cardHolder = trim((string) ($setting['card_holder'] ?? ''));
     $help = trim((string) ($setting['cart_info'] ?? ''));
+    $title = trim((string) ($opts['title'] ?? '💳 پرداخت کارت به کارت'));
+    $productName = trim((string) ($opts['product'] ?? ''));
 
-    $lines = ["💳 پرداخت کارت به کارت\n"];
+    $lines = [$title . "\n"];
+    if ($productName !== '') {
+        $lines[] = "🛍 محصول: <b>{$productName}</b>";
+    }
     if ($cardNumber !== '') {
         $lines[] = "💳 شماره کارت:\n<code>{$cardNumber}</code>";
     } else {
@@ -4258,6 +4263,36 @@ function botsaz_cart_payment_text(array $setting, $amount = null, $orderId = nul
     }
     $lines[] = "\nلطفاً پس از واریز، تصویر یا متن رسید را ارسال کنید.";
     return implode("\n", $lines);
+}
+
+/**
+ * Create an unpaid cart payment and return order id + payment text for sell-bot.
+ */
+function botsaz_create_cart_payment($fromId, $amount, $botToken, array $setting, $invoiceRef = '0 | 0', array $opts = []): array
+{
+    global $connect;
+    $amount = (int) $amount;
+    if ($amount < 0) {
+        $amount = 0;
+    }
+    $amountStr = (string) $amount;
+    $fromId = (string) $fromId;
+    $botToken = (string) $botToken;
+    $invoiceRef = (string) $invoiceRef;
+    $dateacc = date('Y/m/d H:i:s');
+    $randomString = bin2hex(random_bytes(5));
+    $payment_Status = 'Unpaid';
+    $Payment_Method = 'cart to cart';
+    $stmt = $connect->prepare('INSERT INTO Payment_report (id_user,id_order,time,price,payment_Status,Payment_Method,id_invoice,bottype) VALUES (?,?,?,?,?,?,?,?)');
+    $stmt->bind_param('ssssssss', $fromId, $randomString, $dateacc, $amountStr, $payment_Status, $Payment_Method, $invoiceRef, $botToken);
+    $stmt->execute();
+    $stmt->close();
+    return [
+        'id_order' => $randomString,
+        'price' => $amount,
+        'text' => botsaz_cart_payment_text($setting, $amount, $randomString, $opts),
+        'card_ok' => trim((string) (botsaz_normalize_setting($setting)['card_number'] ?? '')) !== '',
+    ];
 }
 
 #-----------DiscountSell scope (multi product/panel/category)------------#

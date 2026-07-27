@@ -1061,23 +1061,26 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $stmt->execute();
     $stmt->close();
     if ($datafactor['price_product'] > $user['Balance'] && intval($datafactor['price_product']) != 0) {
-        $marzbandirectpay = select("shopSetting", "*", "Namevalue", "statusdirectpabuy", "select")['value'];
-        $Balance_prim = $datafactor['price_product'] - $user['Balance'];
-        if ($Balance_prim <= 1)
-            $Balance_prim = 0;
-        $minbalance = number_format(json_decode(select("PaySetting", "*", "NamePay", "minbalance", "select")['ValuePay'], true)[$userbot['agent']]);
-        $maxbalance = number_format(json_decode(select("PaySetting", "*", "NamePay", "maxbalance", "select")['ValuePay'], true)[$userbot['agent']]);
-        $bakinfos = json_encode([
-            'inline_keyboard' => [
-                [
-                    ['text' => $textbotlang['users']['stateus']['backinfo'], 'callback_data' => "account"],
-                ]
+        $payAmount = (int) $datafactor['price_product'];
+        $pay = botsaz_create_cart_payment(
+            $from_id,
+            $payAmount,
+            $ApiToken,
+            $setting,
+            "getconfigafterpay|" . $username_ac,
+            [
+                'title' => '💳 پرداخت کارت به کارت خرید سرویس',
+                'product' => (string) ($datafactor['name_product'] ?? ''),
             ]
-        ]);
-        Editmessagetext($from_id, $message_id, "❌ موجودی شما برای خرید سرویس کافی نمی باشد.
-💸  برای افزایش موجودی مبلغ را  به تومان وارد کنید:
-✅  حداقل مبلغ $minbalance حداکثر مبلغ $maxbalance تومان می باشد", $bakinfos, 'HTML');
-        step('get_price', $from_id);
+        );
+        if (!$pay['card_ok']) {
+            sendmessage($from_id, "❌ شماره کارت نماینده هنوز تنظیم نشده است. لطفاً با پشتیبانی در ارتباط باشید.", $keyboard, 'HTML');
+            step('home', $from_id);
+            return;
+        }
+        Editmessagetext($from_id, $message_id, $pay['text'], $backuser, 'HTML');
+        step('getresidcart', $from_id);
+        savedata('clear', 'id_order', $pay['id_order']);
         return;
     }
     Editmessagetext($from_id, $message_id, "♻️ در حال ساختن سرویس شما...", null);
@@ -1337,9 +1340,10 @@ $textonebuy
         ]
     ]);
     $format_price_cart = number_format($PaymentReport['price']);
+    $payTypeLabel = (strpos((string) ($PaymentReport['id_invoice'] ?? ''), 'getconfigafterpay') === 0) ? '🛍 خرید سرویس' : 'افزایش موجودی';
     $textsendrasid = "
 ⭕️ یک پرداخت جدید انجام شده است .
-افزایش موجودی            
+$payTypeLabel
 👤 شناسه کاربر:  <a href = \"tg://user?id=$from_id\">$from_id</a>
 🛒 کد پیگیری پرداخت: {$PaymentReport['id_order']}
 ⚜️ نام کاربری: @$username
@@ -1822,23 +1826,26 @@ $output
         return;
     }
     if ($datafactor['price_product'] > $user['Balance'] && intval($datafactor['price_product']) != 0) {
-        $marzbandirectpay = select("shopSetting", "*", "Namevalue", "statusdirectpabuy", "select")['value'];
-        $Balance_prim = $datafactor['price_product'] - $user['Balance'];
-        if ($Balance_prim <= 1)
-            $Balance_prim = 0;
-        $minbalance = number_format(json_decode(select("PaySetting", "*", "NamePay", "minbalance", "select")['ValuePay'], true)[$userbot['agent']]);
-        $maxbalance = number_format(json_decode(select("PaySetting", "*", "NamePay", "maxbalance", "select")['ValuePay'], true)[$userbot['agent']]);
-        $bakinfos = json_encode([
-            'inline_keyboard' => [
-                [
-                    ['text' => $textbotlang['users']['stateus']['backinfo'], 'callback_data' => "account"],
-                ]
+        $payAmount = (int) $datafactor['price_product'];
+        $pay = botsaz_create_cart_payment(
+            $from_id,
+            $payAmount,
+            $ApiToken,
+            $setting,
+            "0 | 0",
+            [
+                'title' => '💳 پرداخت کارت به کارت تمدید سرویس',
+                'product' => (string) ($datafactor['name_product'] ?? ''),
             ]
-        ]);
-        Editmessagetext($from_id, $message_id, "❌ موجودی شما برای خرید سرویس کافی نمی باشد.
-💸  برای افزایش موجودی مبلغ را  به تومان وارد کنید:
-✅  حداقل مبلغ $minbalance حداکثر مبلغ $maxbalance تومان می باشد", $bakinfos, 'HTML');
-        step('get_price', $from_id);
+        );
+        if (!$pay['card_ok']) {
+            sendmessage($from_id, "❌ شماره کارت نماینده هنوز تنظیم نشده است. لطفاً با پشتیبانی در ارتباط باشید.", $keyboard, 'HTML');
+            step('home', $from_id);
+            return;
+        }
+        Editmessagetext($from_id, $message_id, $pay['text'], $backuser, 'HTML');
+        step('getresidcart', $from_id);
+        savedata('clear', 'id_order', $pay['id_order']);
         return;
     }
     $DataUserOut = $ManagePanel->DataUser($nameloc['Service_location'], $nameloc['username']);

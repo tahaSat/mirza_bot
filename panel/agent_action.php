@@ -189,6 +189,15 @@ switch ($action) {
         flash($result['ok'] ? 'success' : 'error', $result['msg']);
         break;
 
+    case 'repair_bot':
+        if (!agent_is_reseller($user['agent'] ?? 'f')) {
+            flash('error', 'ابتدا نقش نمایندگی را تنظیم کنید.');
+            break;
+        }
+        $result = agent_repair_sell_bot($id, $projectRoot);
+        flash($result['ok'] ? 'success' : 'error', $result['msg']);
+        break;
+
     case 'set_bot_min_volume':
         $amount = (int) ($_POST['amount'] ?? -1);
         if ($amount < 0) {

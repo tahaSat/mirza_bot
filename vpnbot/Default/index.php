@@ -4,10 +4,14 @@ date_default_timezone_set('Asia/Tehran');
 ini_set('default_charset', 'UTF-8');
 ini_set('error_log', 'error_log');
 ini_set('max_execution_time', '600');
-$rootPath = filter_input(INPUT_SERVER, 'DOCUMENT_ROOT');
-$PHP_SELF = filter_input(INPUT_SERVER, 'PHP_SELF');
-$Pathfile = dirname(dirname($PHP_SELF, 2));
-$Pathfiles = rtrim($rootPath . $Pathfile, '/\\') . '/';
+// Prefer filesystem path: vpnbot/{id}{bot}/ -> project root
+$Pathfiles = rtrim(dirname(__DIR__, 2), '/\\') . '/';
+if (!is_file($Pathfiles . 'function.php') || !is_file($Pathfiles . 'config.php')) {
+    $rootPath = filter_input(INPUT_SERVER, 'DOCUMENT_ROOT') ?: ($_SERVER['DOCUMENT_ROOT'] ?? '');
+    $PHP_SELF = filter_input(INPUT_SERVER, 'PHP_SELF') ?: ($_SERVER['PHP_SELF'] ?? '');
+    $Pathfile = dirname((string) $PHP_SELF, 3);
+    $Pathfiles = rtrim($rootPath . $Pathfile, '/\\') . '/';
+}
 require_once 'config.php';
 require_once $Pathfiles . 'function.php';
 require_once $Pathfiles . 'config.php';
@@ -25,6 +29,10 @@ if (!checktelegramip())
 
 $textbotlang = json_decode(file_get_contents($Pathfiles . 'text.json'), true)['fa'];
 $dataBase = select("botsaz", "*", "bot_token", $ApiToken, "select");
+if (!$dataBase || empty($dataBase['admin_ids'])) {
+    error_log('vpnbot: botsaz row not found for token (check local config.php $ApiToken matches botsaz.bot_token)');
+    die("Bot not configured");
+}
 $admin_ids = json_decode($dataBase['admin_ids']);
 $setting = json_decode($dataBase['setting'], true);
 if (!empty($setting['channel'])) {

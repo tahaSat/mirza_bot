@@ -303,7 +303,7 @@ include __DIR__ . '/inc/layout_head.php';
         <div style="padding:16px">
             <?php if (!$bot): ?>
                 <p class="cf" style="margin-bottom:12px">ربات فروش فعال نیست. توکن ربات را از BotFather بگیرید و فعال کنید.</p>
-                <form method="POST" action="agent_action.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;max-width:560px">
+                    <form method="POST" action="agent_action.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;max-width:560px" id="createBotForm">
                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                     <input type="hidden" name="action" value="create_bot">
                     <input type="hidden" name="id" value="<?= $id ?>">
@@ -312,8 +312,20 @@ include __DIR__ . '/inc/layout_head.php';
                         <label>توکن ربات</label>
                         <input type="text" name="token" class="input" required placeholder="123456:ABC-DEF...">
                     </div>
-                    <button type="submit" class="btn btn-primary">فعالسازی ربات</button>
+                    <button type="submit" class="btn btn-primary" id="createBotBtn">فعالسازی ربات</button>
                 </form>
+                <p class="cf" style="margin-top:8px;font-size:.8rem">پس از ارسال، حداکثر حدود ۱۵ ثانیه صبر کنید تا ارتباط با تلگرام انجام شود.</p>
+                <script>
+                (function () {
+                    var f = document.getElementById('createBotForm');
+                    var b = document.getElementById('createBotBtn');
+                    if (!f || !b) return;
+                    f.addEventListener('submit', function () {
+                        b.disabled = true;
+                        b.textContent = 'در حال ساخت…';
+                    });
+                })();
+                </script>
             <?php else: ?>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px">
                     <div>
@@ -382,8 +394,12 @@ include __DIR__ . '/inc/layout_head.php';
                     </form>
                 <?php endif; ?>
 
-                <a href="agent_action.php?action=remove_bot&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=agent.php?id=<?= $id ?>"
-                    class="btn btn-no btn-sm" data-confirm="ربات فروش این نماینده حذف شود؟">حذف ربات فروش</a>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                    <a href="agent_action.php?action=repair_bot&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=agent.php?id=<?= $id ?>"
+                        class="btn btn-primary btn-sm" data-confirm="فایل‌های ربات از قالب دوباره ساخته و وبهوک تنظیم شود؟">تعمیر / بازسازی ربات</a>
+                    <a href="agent_action.php?action=remove_bot&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=agent.php?id=<?= $id ?>"
+                        class="btn btn-no btn-sm" data-confirm="ربات فروش این نماینده حذف شود؟">حذف ربات فروش</a>
+                </div>
             <?php endif; ?>
         </div>
     </div>

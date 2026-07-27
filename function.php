@@ -1785,6 +1785,9 @@ function resolveTelegramClientIp()
 {
     $candidates = [];
 
+    if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+        $candidates[] = $_SERVER['HTTP_CF_CONNECTING_IP'];
+    }
     if (!empty($_SERVER['HTTP_X_REAL_IP'])) {
         $candidates[] = $_SERVER['HTTP_X_REAL_IP'];
     }
@@ -3840,6 +3843,80 @@ function agent_consume_volume($agentUserId, $volumeGb): array
 }
 
 /**
+ * HTTP GET to Telegram Bot API with a hard timeout (avoids panel freeze).
+ * Returns decoded JSON array, or null on network/parse failure.
+ */
+function agent_telegram_api_get(string $url, int $timeout = 12): ?array
+{
+    $timeout = max(3, min(30, $timeout));
+    $body = false;
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => min(5, $timeout),
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_USERAGENT => 'mirzabot-agent/1.0',
+        ]);
+        if (function_exists('apply_telegram_proxy')) {
+            apply_telegram_proxy($ch, $url);
+        }
+        $body = curl_exec($ch);
+        $errno = curl_errno($ch);
+        curl_close($ch);
+        if ($errno !== 0 || $body === false) {
+            return null;
+        }
+    } else {
+        $ctx = stream_context_create([
+            'http' => [
+                'timeout' => $timeout,
+                'ignore_errors' => true,
+            ],
+            'ssl' => [
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+            ],
+        ]);
+        $body = @file_get_contents($url, false, $ctx);
+        if ($body === false) {
+            return null;
+        }
+    }
+    $decoded = json_decode((string) $body, true);
+    return is_array($decoded) ? $decoded : null;
+}
+
+/**
+ * Resolve project root that contains vpnbot/.
+ */
+function agent_resolve_project_root($rootPath = null): string
+{
+    if ($rootPath !== null && $rootPath !== '') {
+        $rootPath = rtrim((string) $rootPath, '/\\');
+        if (is_dir($rootPath . '/vpnbot')) {
+            return $rootPath;
+        }
+    }
+    // function.php lives in project root
+    $candidates = [
+        __DIR__,
+        getcwd(),
+        dirname(getcwd()),
+    ];
+    foreach ($candidates as $cand) {
+        $cand = rtrim((string) $cand, '/\\');
+        if ($cand !== '' && is_dir($cand . '/vpnbot')) {
+            return $cand;
+        }
+    }
+    return rtrim((string) (__DIR__), '/\\');
+}
+
+/**
  * Create an agent sell bot. $rootPath is project root (contains vpnbot/).
  * Returns ['ok' => bool, 'msg' => string, 'username' => string|null]
  */
@@ -3852,6 +3929,9 @@ function agent_create_sell_bot($agentUserId, $token, $rootPath = null): array
     if ($token === '') {
         return ['ok' => false, 'msg' => 'توکن خالی است.', 'username' => null];
     }
+    if (!preg_match('/^\d+:[A-Za-z0-9_-]+$/', $token)) {
+        return ['ok' => false, 'msg' => 'فرمت توکن نامعتبر است.', 'username' => null];
+    }
 
     $existing = select('botsaz', '*', 'id_user', $agentUserId, 'count');
     $totalBots = select('botsaz', '*', null, null, 'count');
@@ -3862,9 +3942,13 @@ function agent_create_sell_bot($agentUserId, $token, $rootPath = null): array
         return ['ok' => false, 'msg' => 'این نماینده از قبل ربات فروش دارد.', 'username' => null];
     }
 
-    $getInfoToken = json_decode(@file_get_contents("https://api.telegram.org/bot{$token}/getme"), true);
-    if ($getInfoToken == false || empty($getInfoToken['ok'])) {
-        return ['ok' => false, 'msg' => 'توکن نامعتبر است.', 'username' => null];
+    $getInfoToken = agent_telegram_api_get("https://api.telegram.org/bot{$token}/getMe", 12);
+    if ($getInfoToken === null) {
+        return ['ok' => false, 'msg' => 'ارتباط با تلگرام برقرار نشد (تایم‌اوت/شبکه). دوباره تلاش کنید.', 'username' => null];
+    }
+    if (empty($getInfoToken['ok'])) {
+        $desc = $getInfoToken['description'] ?? '';
+        return ['ok' => false, 'msg' => 'توکن نامعتبر است.' . ($desc !== '' ? " ($desc)" : ''), 'username' => null];
     }
     $botUsername = $getInfoToken['result']['username'] ?? '';
     if ($botUsername === '') {
@@ -3874,28 +3958,47 @@ function agent_create_sell_bot($agentUserId, $token, $rootPath = null): array
         return ['ok' => false, 'msg' => 'این توکن از قبل ثبت شده است.', 'username' => null];
     }
 
-    if ($rootPath === null) {
-        $rootPath = defined('__DIR__') ? dirname(__DIR__) : getcwd();
-        // When called from project root (admin.php), getcwd is correct; from panel use parent.
-        if (!is_dir($rootPath . '/vpnbot') && is_dir(getcwd() . '/vpnbot')) {
-            $rootPath = getcwd();
-        }
-        if (!is_dir($rootPath . '/vpnbot') && is_dir(dirname(getcwd()) . '/vpnbot')) {
-            $rootPath = dirname(getcwd());
-        }
+    $rootPath = agent_resolve_project_root($rootPath);
+    $defaultDir = $rootPath . '/vpnbot/Default';
+    if (!is_dir($defaultDir)) {
+        return ['ok' => false, 'msg' => 'پوشه قالب ربات (vpnbot/Default) یافت نشد.', 'username' => null];
     }
-    $rootPath = rtrim($rootPath, '/\\');
     $dirsource = $rootPath . '/vpnbot/' . $agentUserId . $botUsername;
     if (is_dir($dirsource) && !deleteDirectory($dirsource)) {
         error_log('Failed to remove existing bot directory: ' . $dirsource);
+        return ['ok' => false, 'msg' => 'حذف پوشه قبلی ربات ناموفق بود.', 'username' => null];
     }
-    if (!copyDirectoryContents($rootPath . '/vpnbot/Default', $dirsource)) {
+    if (!copyDirectoryContents($defaultDir, $dirsource)) {
         return ['ok' => false, 'msg' => 'کپی فایل‌های ربات ناموفق بود.', 'username' => null];
     }
-    $contentconfig = file_get_contents($dirsource . '/config.php');
-    file_put_contents($dirsource . '/config.php', str_replace('BotTokenNew', $token, $contentconfig));
-    @file_get_contents("https://api.telegram.org/bot{$token}/setwebhook?url=https://{$domainhosts}/vpnbot/{$agentUserId}{$botUsername}/index.php");
-    @file_get_contents("https://api.telegram.org/bot{$token}/sendmessage?chat_id={$agentUserId}&text=" . urlencode('✅ کاربر عزیز ربات شما با موفقیت نصب گردید.'));
+    $configPath = $dirsource . '/config.php';
+    if (!is_file($configPath)) {
+        deleteDirectory($dirsource);
+        return ['ok' => false, 'msg' => 'فایل config.php ربات یافت نشد.', 'username' => null];
+    }
+    $contentconfig = file_get_contents($configPath);
+    if ($contentconfig === false || strpos($contentconfig, 'BotTokenNew') === false) {
+        deleteDirectory($dirsource);
+        return ['ok' => false, 'msg' => 'جایگذاری توکن در config ناموفق بود.', 'username' => null];
+    }
+    file_put_contents($configPath, str_replace('BotTokenNew', $token, $contentconfig));
+
+    $webhookUrl = 'https://' . $domainhosts . '/vpnbot/' . $agentUserId . $botUsername . '/index.php';
+    $webhook = agent_telegram_api_get(
+        'https://api.telegram.org/bot' . $token . '/setWebhook?' . http_build_query(['url' => $webhookUrl]),
+        12
+    );
+    if ($webhook === null || empty($webhook['ok'])) {
+        // Bot files exist; still register in DB but warn about webhook
+        error_log('agent_create_sell_bot webhook failed for ' . $agentUserId . ': ' . json_encode($webhook));
+    }
+    agent_telegram_api_get(
+        'https://api.telegram.org/bot' . $token . '/sendMessage?' . http_build_query([
+            'chat_id' => $agentUserId,
+            'text' => '✅ کاربر عزیز ربات شما با موفقیت نصب گردید.',
+        ]),
+        8
+    );
 
     $admin_ids = json_encode([$agentUserId]);
     $datasetting = json_encode([
@@ -3910,18 +4013,73 @@ function agent_create_sell_bot($agentUserId, $token, $rootPath = null): array
     ]);
     $hide = '{}';
     $time = date('Y/m/d H:i:s');
-    $stmt = $pdo->prepare('INSERT INTO botsaz (id_user,bot_token,admin_ids,username,time,setting,hide_panel) VALUES (:id_user,:bot_token,:admin_ids,:username,:time,:setting,:hide_panel)');
-    $stmt->execute([
-        ':id_user' => $agentUserId,
-        ':bot_token' => $token,
-        ':admin_ids' => $admin_ids,
-        ':username' => $botUsername,
-        ':time' => $time,
-        ':setting' => $datasetting,
-        ':hide_panel' => $hide,
-    ]);
+    try {
+        $stmt = $pdo->prepare('INSERT INTO botsaz (id_user,bot_token,admin_ids,username,time,setting,hide_panel) VALUES (:id_user,:bot_token,:admin_ids,:username,:time,:setting,:hide_panel)');
+        $stmt->execute([
+            ':id_user' => $agentUserId,
+            ':bot_token' => $token,
+            ':admin_ids' => $admin_ids,
+            ':username' => $botUsername,
+            ':time' => $time,
+            ':setting' => $datasetting,
+            ':hide_panel' => $hide,
+        ]);
+    } catch (Throwable $e) {
+        error_log('agent_create_sell_bot insert failed: ' . $e->getMessage());
+        deleteDirectory($dirsource);
+        return ['ok' => false, 'msg' => 'ثبت ربات در دیتابیس ناموفق بود.', 'username' => null];
+    }
 
-    return ['ok' => true, 'msg' => 'ربات با موفقیت ساخته شد.', 'username' => $botUsername, 'token' => $token];
+    $msg = 'ربات با موفقیت ساخته شد.';
+    if ($webhook === null || empty($webhook['ok'])) {
+        $msg .= ' (هشدار: تنظیم وبهوک تلگرام کامل نشد؛ اتصال شبکه به api.telegram.org را بررسی کنید.)';
+    }
+    return ['ok' => true, 'msg' => $msg, 'username' => $botUsername, 'token' => $token];
+}
+
+/**
+ * Re-copy sell-bot files from template and reset webhook using existing botsaz row.
+ */
+function agent_repair_sell_bot($agentUserId, $rootPath = null): array
+{
+    global $pdo, $domainhosts;
+
+    $agentUserId = (string) $agentUserId;
+    $contentbot = select('botsaz', '*', 'id_user', $agentUserId, 'select');
+    if (!$contentbot || empty($contentbot['bot_token']) || empty($contentbot['username'])) {
+        return ['ok' => false, 'msg' => 'ربات فروشی برای این نماینده یافت نشد.'];
+    }
+    $token = $contentbot['bot_token'];
+    $botUsername = $contentbot['username'];
+    $rootPath = agent_resolve_project_root($rootPath);
+    $defaultDir = $rootPath . '/vpnbot/Default';
+    if (!is_dir($defaultDir)) {
+        return ['ok' => false, 'msg' => 'پوشه قالب ربات یافت نشد.'];
+    }
+    $dirsource = $rootPath . '/vpnbot/' . $agentUserId . $botUsername;
+    if (is_dir($dirsource) && !deleteDirectory($dirsource)) {
+        return ['ok' => false, 'msg' => 'حذف پوشه قبلی ناموفق بود.'];
+    }
+    if (!copyDirectoryContents($defaultDir, $dirsource)) {
+        return ['ok' => false, 'msg' => 'کپی فایل‌های ربات ناموفق بود.'];
+    }
+    $configPath = $dirsource . '/config.php';
+    $contentconfig = @file_get_contents($configPath);
+    if ($contentconfig === false || strpos($contentconfig, 'BotTokenNew') === false) {
+        return ['ok' => false, 'msg' => 'جایگذاری توکن ناموفق بود.'];
+    }
+    file_put_contents($configPath, str_replace('BotTokenNew', $token, $contentconfig));
+
+    $webhookUrl = 'https://' . $domainhosts . '/vpnbot/' . $agentUserId . $botUsername . '/index.php';
+    $webhook = agent_telegram_api_get(
+        'https://api.telegram.org/bot' . $token . '/setWebhook?' . http_build_query(['url' => $webhookUrl]),
+        12
+    );
+    $msg = 'فایل‌های ربات بازسازی و وبهوک تنظیم شد.';
+    if ($webhook === null || empty($webhook['ok'])) {
+        $msg .= ' (هشدار: وبهوک تلگرام کامل نشد.)';
+    }
+    return ['ok' => true, 'msg' => $msg, 'username' => $botUsername];
 }
 
 /**
@@ -3937,19 +4095,13 @@ function agent_remove_sell_bot($agentUserId, $rootPath = null): array
         return ['ok' => false, 'msg' => 'ربات فروشی برای این نماینده یافت نشد.'];
     }
 
-    if ($rootPath === null) {
-        $rootPath = getcwd();
-        if (!is_dir($rootPath . '/vpnbot') && is_dir(dirname($rootPath) . '/vpnbot')) {
-            $rootPath = dirname($rootPath);
-        }
-    }
-    $rootPath = rtrim($rootPath, '/\\');
+    $rootPath = agent_resolve_project_root($rootPath);
     $dirsource = $rootPath . '/vpnbot/' . $agentUserId . $contentbot['username'];
     if (is_dir($dirsource) && !deleteDirectory($dirsource)) {
         error_log('Failed to remove bot directory: ' . $dirsource);
     }
     if (!empty($contentbot['bot_token'])) {
-        @file_get_contents('https://api.telegram.org/bot' . $contentbot['bot_token'] . '/deletewebhook');
+        agent_telegram_api_get('https://api.telegram.org/bot' . $contentbot['bot_token'] . '/deleteWebhook', 8);
     }
     $stmt = $pdo->prepare('DELETE FROM botsaz WHERE id_user = :id_user');
     $stmt->execute([':id_user' => $agentUserId]);

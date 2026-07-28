@@ -9,10 +9,8 @@ $search = trim($_GET['q'] ?? '');
 
 $status = $_GET['status'] ?? '';
 $serviceType = $_GET['service_type'] ?? '';
-$fromDate = trim($_GET['from_date'] ?? '');
-$fromTime = trim($_GET['from_time'] ?? '');
-$toDate = trim($_GET['to_date'] ?? '');
-$toTime = trim($_GET['to_time'] ?? '');
+$fromDateTime = trim($_GET['from'] ?? '');
+$toDateTime = trim($_GET['to'] ?? '');
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 30;
 $offset = ($page - 1) * $perPage;
@@ -62,19 +60,29 @@ function invoice_jalali_tehran_timestamp(string $date, string $time, bool $endOf
   return $dateTime instanceof DateTimeImmutable ? $dateTime->getTimestamp() : null;
 }
 
+function invoice_parse_jalali_filter(string $value, bool $endOfDay = false): ?int
+{
+  $value = trim((string) tr_num($value, 'en'));
+  if (!preg_match('/^(\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?$/', $value, $parts)) {
+    return null;
+  }
+
+  return invoice_jalali_tehran_timestamp($parts[1], $parts[2] ?? '', $endOfDay);
+}
+
 $fromTimestamp = null;
 $toTimestamp = null;
 $dateFilterError = '';
-if ($fromDate !== '' || $fromTime !== '') {
-  $fromTimestamp = invoice_jalali_tehran_timestamp($fromDate, $fromTime);
+if ($fromDateTime !== '') {
+  $fromTimestamp = invoice_parse_jalali_filter($fromDateTime);
   if ($fromTimestamp === null) {
-    $dateFilterError = 'تاریخ یا ساعت شروع معتبر نیست. نمونه تاریخ: ۱۴۰۵/۰۵/۰۶';
+    $dateFilterError = 'تاریخ و ساعت شروع معتبر نیست.';
   }
 }
-if ($toDate !== '' || $toTime !== '') {
-  $toTimestamp = invoice_jalali_tehran_timestamp($toDate, $toTime, true);
+if ($toDateTime !== '') {
+  $toTimestamp = invoice_parse_jalali_filter($toDateTime, true);
   if ($toTimestamp === null) {
-    $dateFilterError = 'تاریخ یا ساعت پایان معتبر نیست. نمونه تاریخ: ۱۴۰۵/۰۵/۰۶';
+    $dateFilterError = 'تاریخ و ساعت پایان معتبر نیست.';
   }
 }
 if ($dateFilterError === '' && $fromTimestamp !== null && $toTimestamp !== null && $fromTimestamp > $toTimestamp) {
@@ -171,6 +179,8 @@ $activeNav = 'invoice';
 include __DIR__ . '/inc/layout_head.php';
 ?>
 
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.min.css">
+
 <div class="card fade-up">
   <div class="toolbar">
     <div class="toolbar-title">سفارشات <small>(<?= number_format($total) ?>)</small></div>
@@ -191,15 +201,19 @@ include __DIR__ . '/inc/layout_head.php';
       </select>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <label style="font-size:.76rem;color:var(--text2)">از</label>
-        <input class="select" style="width:112px" type="text" name="from_date" inputmode="numeric"
-          placeholder="۱۴۰۵/۰۵/۰۶" value="<?= htmlspecialchars($fromDate) ?>" aria-label="تاریخ شروع شمسی">
-        <input class="select" style="width:92px" type="time" name="from_time"
-          value="<?= htmlspecialchars($fromTime) ?>" aria-label="ساعت شروع به وقت تهران">
+        <div style="position:relative">
+          <input class="select jalali-datetime-picker" style="width:180px;padding-left:30px" type="text" name="from"
+            placeholder="انتخاب تاریخ و ساعت" value="<?= htmlspecialchars($fromDateTime) ?>"
+            aria-label="تاریخ و ساعت شروع شمسی به وقت تهران" autocomplete="off" readonly>
+          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);pointer-events:none">🗓</span>
+        </div>
         <label style="font-size:.76rem;color:var(--text2)">تا</label>
-        <input class="select" style="width:112px" type="text" name="to_date" inputmode="numeric"
-          placeholder="۱۴۰۵/۰۵/۰۶" value="<?= htmlspecialchars($toDate) ?>" aria-label="تاریخ پایان شمسی">
-        <input class="select" style="width:92px" type="time" name="to_time"
-          value="<?= htmlspecialchars($toTime) ?>" aria-label="ساعت پایان به وقت تهران">
+        <div style="position:relative">
+          <input class="select jalali-datetime-picker" style="width:180px;padding-left:30px" type="text" name="to"
+            placeholder="انتخاب تاریخ و ساعت" value="<?= htmlspecialchars($toDateTime) ?>"
+            aria-label="تاریخ و ساعت پایان شمسی به وقت تهران" autocomplete="off" readonly>
+          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);pointer-events:none">🗓</span>
+        </div>
       </div>
       <div class="search-box" style="min-width:240px">
         <?= icon('search', 14) ?>
@@ -208,7 +222,7 @@ include __DIR__ . '/inc/layout_head.php';
         <button type="button" class="search-clear">✕</button>
         <button type="submit" class="search-btn">جستجو</button>
       </div>
-      <?php if ($search || $status || $serviceType || $fromDate || $fromTime || $toDate || $toTime): ?>
+      <?php if ($search || $status || $serviceType || $fromDateTime || $toDateTime): ?>
         <a href="invoice.php" class="btn-link" style="font-size:.78rem">پاک کردن</a>
       <?php endif; ?>
     </form>
@@ -276,10 +290,8 @@ include __DIR__ . '/inc/layout_head.php';
         'q' => $search,
         'status' => $status,
         'service_type' => $serviceType,
-        'from_date' => $fromDate,
-        'from_time' => $fromTime,
-        'to_date' => $toDate,
-        'to_time' => $toTime,
+        'from' => $fromDateTime,
+        'to' => $toDateTime,
         'page' => $p,
       ]);
       ?>
@@ -291,5 +303,33 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
   </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.min.js"></script>
+<script>
+  $(function () {
+    $('.jalali-datetime-picker').persianDatepicker({
+      calendarType: 'persian',
+      format: 'YYYY/MM/DD HH:mm',
+      initialValue: false,
+      initialValueType: 'persian',
+      autoClose: false,
+      responsive: true,
+      observer: false,
+      navigator: { scroll: { enabled: false } },
+      toolbox: {
+        calendarSwitch: { enabled: false },
+        todayButton: { enabled: true },
+        submitButton: { enabled: true }
+      },
+      timePicker: {
+        enabled: true,
+        second: { enabled: false },
+        meridian: { enabled: false }
+      }
+    });
+  });
+</script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

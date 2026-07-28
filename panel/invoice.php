@@ -1,12 +1,14 @@
 <?php
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
+require_once __DIR__ . '/inc/payments_lib.php';
 require_once dirname(__DIR__) . '/jdf.php';
 require_auth();
 $pdo = panel_ensure_pdo();
 
 $search = trim($_GET['q'] ?? '');
 
+$tab = ($_GET['tab'] ?? 'orders') === 'payments' ? 'payments' : 'orders';
 $status = $_GET['status'] ?? '';
 $serviceType = $_GET['service_type'] ?? '';
 $fromDateTime = trim($_GET['from'] ?? '');
@@ -103,31 +105,87 @@ $serviceTypeMap = [
   'transfertouser' => 'انتقال سفارش به کاربر دیگر',
 ];
 
-$recordsSQL = "
-  SELECT id_user, username, name_product AS product_name, price_product AS price,
-         time_sell AS transaction_time, CAST(time_sell AS UNSIGNED) AS transaction_epoch,
-         Status AS transaction_status, 'order' AS service_type
-  FROM invoice
-  UNION ALL
-  SELECT id_user, username, value AS product_name, price,
-         time AS transaction_time,
-         CASE
-           WHEN time REGEXP '^[0-9]{9,}$' THEN CAST(time AS UNSIGNED)
-           ELSE COALESCE(
-             UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s')),
-             UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
-           )
-         END AS transaction_epoch,
-         status AS transaction_status, type AS service_type
-  FROM service_other
-";
+$paymentServiceTypeMap = [
+  'order' => 'خرید سرویس',
+  'extend_user' => 'تمدید',
+  'extra_user' => 'افزایش حجم',
+  'extra_time_user' => 'افزایش زمان',
+  'wallet' => 'شارژ کیف پول',
+];
+
+$orderStatusMap = [
+  'active' => ['tag-ok', 'فعال'],
+  'end_of_time' => ['tag-warn', 'اعلان پایان زمان'],
+  'end_of_volume' => ['tag-no', 'اعلان پایان حجم'],
+  'sendedwarn' => ['tag-warn', 'ارسال تمامی اعلان ها'],
+  'send_on_hold' => ['tag-plain', 'اعلان متصنل نشدن ارسال شده'],
+  'unpaid' => ['tag-plain', 'پرداخت نشده'],
+  'Unsuccessful' => ['tag-plain', 'خطا دریافت اطلاعات'],
+  'paid' => ['tag-ok', 'انجام شده'],
+  'done' => ['tag-ok', 'انجام شده'],
+  'pending' => ['tag-warn', 'در انتظار'],
+  'reject' => ['tag-no', 'رد شده'],
+];
+
+$paymentStatusMap = [
+  'paid' => ['tag-ok', 'پرداخت شده'],
+  'Unpaid' => ['tag-no', 'پرداخت نشده'],
+  'waiting' => ['tag-warn', 'در انتظار تأیید'],
+  'reject' => ['tag-no', 'رد شده'],
+  'expire' => ['tag-plain', 'منقضی'],
+];
+
+if ($tab === 'payments') {
+  $recordsSQL = "
+    SELECT id_user, id_order, price, Payment_Method AS payment_method,
+           id_invoice, time AS transaction_time,
+           CASE
+             WHEN time REGEXP '^[0-9]{9,}$' THEN CAST(time AS UNSIGNED)
+             ELSE COALESCE(
+               UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s')),
+               UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
+             )
+           END AS transaction_epoch,
+           payment_Status AS transaction_status,
+           CASE
+             WHEN id_invoice LIKE 'getconfigafterpay|%' THEN 'order'
+             WHEN id_invoice LIKE 'getextenduser|%' THEN 'extend_user'
+             WHEN id_invoice LIKE 'getextravolumeuser|%' THEN 'extra_user'
+             WHEN id_invoice LIKE 'getextratimeuser|%' THEN 'extra_time_user'
+             ELSE 'wallet'
+           END AS service_type
+    FROM Payment_report
+  ";
+} else {
+  $recordsSQL = "
+    SELECT id_user, username, name_product AS product_name, price_product AS price,
+           time_sell AS transaction_time, CAST(time_sell AS UNSIGNED) AS transaction_epoch,
+           Status AS transaction_status, 'order' AS service_type
+    FROM invoice
+    UNION ALL
+    SELECT id_user, username, value AS product_name, price,
+           time AS transaction_time,
+           CASE
+             WHEN time REGEXP '^[0-9]{9,}$' THEN CAST(time AS UNSIGNED)
+             ELSE COALESCE(
+               UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s')),
+               UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
+             )
+           END AS transaction_epoch,
+           status AS transaction_status, type AS service_type
+    FROM service_other
+  ";
+}
 
 $where = [];
 $params = [];
 if ($search !== '') {
-  $where[] = "(id_user LIKE ? OR COALESCE(product_name,'') LIKE ? OR COALESCE(username,'') LIKE ? OR COALESCE(service_type,'') LIKE ?)";
-  $params = ["%$search%", "%$search%", "%$search%"];
-  $params[] = "%$search%";
+  if ($tab === 'payments') {
+    $where[] = "(id_user LIKE ? OR COALESCE(id_order,'') LIKE ? OR COALESCE(payment_method,'') LIKE ? OR COALESCE(id_invoice,'') LIKE ?)";
+  } else {
+    $where[] = "(id_user LIKE ? OR COALESCE(product_name,'') LIKE ? OR COALESCE(username,'') LIKE ? OR COALESCE(service_type,'') LIKE ?)";
+  }
+  $params = array_fill(0, 4, "%$search%");
 }
 if ($status !== '') {
   $where[] = "transaction_status = ?";
@@ -159,19 +217,8 @@ try {
 }
 $totalPages = max(1, (int) ceil($total / $perPage));
 
-$statusMap = [
-  'active' => ['tag-ok', 'فعال'],
-  'end_of_time' => ['tag-warn', 'اعلان پایان زمان'],
-  'end_of_volume' => ['tag-no', 'اعلان پایان حجم'],
-  'sendedwarn' => ['tag-warn', 'ارسال تمامی اعلان ها'],
-  'send_on_hold' => ['tag-plain', 'اعلان متصنل نشدن ارسال شده'],
-  'unpaid' => ['tag-plain', 'پرداخت نشده'],
-  'Unsuccessful' => ['tag-plain', 'خطا دریافت اطلاعات'],
-  'paid' => ['tag-ok', 'انجام شده'],
-  'done' => ['tag-ok', 'انجام شده'],
-  'pending' => ['tag-warn', 'در انتظار'],
-  'reject' => ['tag-no', 'رد شده'],
-];
+$statusMap = $tab === 'payments' ? $paymentStatusMap : $orderStatusMap;
+$activeServiceTypeMap = $tab === 'payments' ? $paymentServiceTypeMap : $serviceTypeMap;
 
 $pageTitle = 'سفارشات';
 $pageLede = 'فهرست کلیه سفارشات ثبت‌شده در ربات.';
@@ -181,14 +228,23 @@ include __DIR__ . '/inc/layout_head.php';
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.min.css">
 
+<div style="display:flex;gap:4px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:4px;width:max-content;max-width:100%;margin-bottom:14px" class="fade-up">
+  <a href="invoice.php?tab=orders" class="btn btn-sm <?= $tab === 'orders' ? 'btn-primary' : 'btn-ghost' ?>">سفارشات جاری</a>
+  <a href="invoice.php?tab=payments" class="btn btn-sm <?= $tab === 'payments' ? 'btn-primary' : 'btn-ghost' ?>">گزارش پرداخت‌ها</a>
+</div>
+
 <div class="card fade-up">
   <div class="toolbar">
-    <div class="toolbar-title">سفارشات <small>(<?= number_format($total) ?>)</small></div>
+    <div class="toolbar-title">
+      <?= $tab === 'payments' ? 'گزارش پرداخت‌ها' : 'سفارشات جاری' ?>
+      <small>(<?= number_format($total) ?>)</small>
+    </div>
     <form method="GET" id="invoiceForm" class="toolbar-end">
+      <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
       <select name="service_type" class="select" style="width:auto"
         onchange="document.getElementById('invoiceForm').submit()">
         <option value="">همه نوع سرویس‌ها</option>
-        <?php foreach ($serviceTypeMap as $k => $lbl): ?>
+        <?php foreach ($activeServiceTypeMap as $k => $lbl): ?>
           <option value="<?= $k ?>" <?= $serviceType === $k ? 'selected' : '' ?>><?= $lbl ?></option>
         <?php endforeach; ?>
       </select>
@@ -217,13 +273,15 @@ include __DIR__ . '/inc/layout_head.php';
       </div>
       <div class="search-box" style="min-width:240px">
         <?= icon('search', 14) ?>
-        <input type="text" name="q" placeholder="آیدی کاربر، نام محصول..." value="<?= htmlspecialchars($search) ?>"
+        <input type="text" name="q"
+          placeholder="<?= $tab === 'payments' ? 'آیدی کاربر یا شناسه تراکنش...' : 'آیدی کاربر، نام محصول...' ?>"
+          value="<?= htmlspecialchars($search) ?>"
           autocomplete="off">
         <button type="button" class="search-clear">✕</button>
         <button type="submit" class="search-btn">جستجو</button>
       </div>
       <?php if ($search || $status || $serviceType || $fromDateTime || $toDateTime): ?>
-        <a href="invoice.php" class="btn-link" style="font-size:.78rem">پاک کردن</a>
+        <a href="invoice.php?tab=<?= urlencode($tab) ?>" class="btn-link" style="font-size:.78rem">پاک کردن</a>
       <?php endif; ?>
     </form>
   </div>
@@ -231,6 +289,18 @@ include __DIR__ . '/inc/layout_head.php';
   <div class="tbl-wrap">
     <table class="tbl-md">
       <thead>
+        <?php if ($tab === 'payments'): ?>
+        <tr>
+          <th>#</th>
+          <th>کاربر</th>
+          <th>شناسه تراکنش</th>
+          <th>نوع سرویس</th>
+          <th>روش پرداخت</th>
+          <th>مبلغ</th>
+          <th>تاریخ</th>
+          <th>وضعیت</th>
+        </tr>
+        <?php else: ?>
         <tr>
           <th>#</th>
           <th>کاربر</th>
@@ -240,11 +310,12 @@ include __DIR__ . '/inc/layout_head.php';
           <th>تاریخ</th>
           <th>وضعیت</th>
         </tr>
+        <?php endif; ?>
       </thead>
       <tbody>
         <?php if (empty($invoices)): ?>
           <tr>
-            <td colspan="7">
+            <td colspan="<?= $tab === 'payments' ? 8 : 7 ?>">
               <div class="empty">
                 <svg class="ill" viewBox="0 0 160 120" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <rect x="30" y="15" width="100" height="90" rx="8" fill="var(--sf3)" />
@@ -253,7 +324,11 @@ include __DIR__ . '/inc/layout_head.php';
                   <rect x="45" y="66" width="60" height="6" rx="3" fill="var(--bd)" />
                   <rect x="45" y="80" width="35" height="6" rx="3" fill="var(--bd)" />
                 </svg>
-                <p><?= $search ? 'سفارشی با این جستجو یافت نشد' : 'هنوز سفارشی ثبت نشده' ?></p>
+                <p>
+                  <?= $tab === 'payments'
+                    ? ($search ? 'پرداختی با این جستجو یافت نشد' : 'هنوز گزارشی ثبت نشده')
+                    : ($search ? 'سفارشی با این جستجو یافت نشد' : 'هنوز سفارشی ثبت نشده') ?>
+                </p>
               </div>
             </td>
           </tr>
@@ -262,8 +337,28 @@ include __DIR__ . '/inc/layout_head.php';
           foreach ($invoices as $inv):
             $st = $inv['transaction_status'] ?? '';
             [$cls, $lbl] = $statusMap[$st] ?? ['tag-plain', $st ?: '—'];
-            $typeLabel = $serviceTypeMap[$inv['service_type'] ?? ''] ?? ($inv['service_type'] ?? '—');
+            $typeLabel = $activeServiceTypeMap[$inv['service_type'] ?? ''] ?? ($inv['service_type'] ?? '—');
             ?>
+            <?php if ($tab === 'payments'): ?>
+            <tr>
+              <td class="cf"><?= $i++ ?></td>
+              <td class="cm">
+                <a href="user.php?id=<?= urlencode((string) ($inv['id_user'] ?? '')) ?>" style="color:var(--ac)">
+                  <?= htmlspecialchars($inv['id_user'] ?? '—') ?>
+                </a>
+              </td>
+              <td class="cm" style="font-size:.78rem"><?= htmlspecialchars(trunc((string) ($inv['id_order'] ?? '—'), 22)) ?></td>
+              <td style="font-size:.82rem;color:var(--text2)"><?= htmlspecialchars($typeLabel) ?></td>
+              <td style="font-size:.8rem"><?= htmlspecialchars(panel_payment_method_label($inv['payment_method'] ?? '')) ?></td>
+              <td class="cn cs"><?= number_format((int) ($inv['price'] ?? 0)) ?> <span class="cf">ت</span></td>
+              <td class="cf">
+                <?= !empty($inv['transaction_epoch'])
+                  ? jdate('Y/m/d H:i', (int) $inv['transaction_epoch'], '', 'Asia/Tehran', 'fa')
+                  : '—' ?>
+              </td>
+              <td><span class="tag <?= $cls ?>"><?= $lbl ?></span></td>
+            </tr>
+            <?php else: ?>
             <tr>
               <td class="cf"><?= $i++ ?></td>
               <td class="cm"><?= htmlspecialchars($inv['id_user'] ?? '—') ?></td>
@@ -277,6 +372,7 @@ include __DIR__ . '/inc/layout_head.php';
               </td>
               <td><span class="tag <?= $cls ?>"><?= $lbl ?></span></td>
             </tr>
+            <?php endif; ?>
           <?php endforeach; endif; ?>
       </tbody>
     </table>
@@ -287,6 +383,7 @@ include __DIR__ . '/inc/layout_head.php';
     <div class="pager">
       <?php
       $qs = fn($p) => '?' . http_build_query([
+        'tab' => $tab,
         'q' => $search,
         'status' => $status,
         'service_type' => $serviceType,

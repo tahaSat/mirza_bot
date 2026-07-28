@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
+require_once dirname(__DIR__) . '/jdf.php';
 require_auth();
 $pdo = panel_ensure_pdo();
 
@@ -8,9 +9,81 @@ $search = trim($_GET['q'] ?? '');
 
 $status = $_GET['status'] ?? '';
 $serviceType = $_GET['service_type'] ?? '';
+$fromDate = trim($_GET['from_date'] ?? '');
+$fromTime = trim($_GET['from_time'] ?? '');
+$toDate = trim($_GET['to_date'] ?? '');
+$toTime = trim($_GET['to_time'] ?? '');
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 30;
 $offset = ($page - 1) * $perPage;
+
+/**
+ * Convert a Jalali date entered in Tehran local time to a UTC Unix timestamp.
+ * Unix timestamps are timezone-neutral, so this can be compared directly with
+ * UTC timestamps stored in the database.
+ */
+function invoice_jalali_tehran_timestamp(string $date, string $time, bool $endOfDay = false): ?int
+{
+  $date = trim((string) tr_num($date, 'en'));
+  $time = trim((string) tr_num($time, 'en'));
+
+  if (!preg_match('/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/', $date, $dateParts)) {
+    return null;
+  }
+
+  if ($time === '') {
+    $time = $endOfDay ? '23:59:59' : '00:00:00';
+  } elseif (preg_match('/^\d{1,2}:\d{2}$/', $time)) {
+    $time .= ':00';
+  }
+
+  if (!preg_match('/^(\d{1,2}):(\d{2}):(\d{2})$/', $time, $timeParts)) {
+    return null;
+  }
+
+  [$jy, $jm, $jd] = [(int) $dateParts[1], (int) $dateParts[2], (int) $dateParts[3]];
+  [$hour, $minute, $second] = [(int) $timeParts[1], (int) $timeParts[2], (int) $timeParts[3]];
+  if ($jm < 1 || $jm > 12 || $jd < 1 || $jd > 31 || $hour > 23 || $minute > 59 || $second > 59) {
+    return null;
+  }
+
+  [$gy, $gm, $gd] = jalali_to_gregorian($jy, $jm, $jd);
+  if (!checkdate($gm, $gd, $gy) || gregorian_to_jalali($gy, $gm, $gd) !== [$jy, $jm, $jd]) {
+    return null;
+  }
+
+  $tehran = new DateTimeZone('Asia/Tehran');
+  $dateTime = DateTimeImmutable::createFromFormat(
+    '!Y-n-j H:i:s',
+    "$gy-$gm-$gd " . sprintf('%02d:%02d:%02d', $hour, $minute, $second),
+    $tehran
+  );
+
+  return $dateTime instanceof DateTimeImmutable ? $dateTime->getTimestamp() : null;
+}
+
+$fromTimestamp = null;
+$toTimestamp = null;
+$dateFilterError = '';
+if ($fromDate !== '' || $fromTime !== '') {
+  $fromTimestamp = invoice_jalali_tehran_timestamp($fromDate, $fromTime);
+  if ($fromTimestamp === null) {
+    $dateFilterError = 'تاریخ یا ساعت شروع معتبر نیست. نمونه تاریخ: ۱۴۰۵/۰۵/۰۶';
+  }
+}
+if ($toDate !== '' || $toTime !== '') {
+  $toTimestamp = invoice_jalali_tehran_timestamp($toDate, $toTime, true);
+  if ($toTimestamp === null) {
+    $dateFilterError = 'تاریخ یا ساعت پایان معتبر نیست. نمونه تاریخ: ۱۴۰۵/۰۵/۰۶';
+  }
+}
+if ($dateFilterError === '' && $fromTimestamp !== null && $toTimestamp !== null && $fromTimestamp > $toTimestamp) {
+  $dateFilterError = 'زمان شروع باید قبل از زمان پایان باشد.';
+}
+if ($dateFilterError !== '') {
+  flash('error', $dateFilterError);
+  $fromTimestamp = $toTimestamp = null;
+}
 
 $serviceTypeMap = [
   'order' => 'خرید سرویس',
@@ -24,11 +97,20 @@ $serviceTypeMap = [
 
 $recordsSQL = "
   SELECT id_user, username, name_product AS product_name, price_product AS price,
-         time_sell AS transaction_time, Status AS transaction_status, 'order' AS service_type
+         time_sell AS transaction_time, CAST(time_sell AS UNSIGNED) AS transaction_epoch,
+         Status AS transaction_status, 'order' AS service_type
   FROM invoice
   UNION ALL
   SELECT id_user, username, value AS product_name, price,
-         time AS transaction_time, status AS transaction_status, type AS service_type
+         time AS transaction_time,
+         CASE
+           WHEN time REGEXP '^[0-9]{9,}$' THEN CAST(time AS UNSIGNED)
+           ELSE COALESCE(
+             UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s')),
+             UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
+           )
+         END AS transaction_epoch,
+         status AS transaction_status, type AS service_type
   FROM service_other
 ";
 
@@ -47,11 +129,21 @@ if ($serviceType !== '') {
   $where[] = "service_type = ?";
   $params[] = $serviceType;
 }
+if ($fromTimestamp !== null) {
+  $where[] = "transaction_epoch >= ?";
+  $params[] = $fromTimestamp;
+}
+if ($toTimestamp !== null) {
+  $where[] = "transaction_epoch <= ?";
+  $params[] = $toTimestamp;
+}
 $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
 try {
+  // Date strings in service_other are UTC; make MySQL interpret them as UTC.
+  $pdo->exec("SET time_zone = '+00:00'");
   $total = db_count($pdo, "SELECT COUNT(*) FROM ($recordsSQL) AS records $whereSQL", $params);
-  $invoices = db_fetchAll($pdo, "SELECT * FROM ($recordsSQL) AS records $whereSQL ORDER BY transaction_time DESC LIMIT $perPage OFFSET $offset", $params);
+  $invoices = db_fetchAll($pdo, "SELECT * FROM ($recordsSQL) AS records $whereSQL ORDER BY transaction_epoch DESC LIMIT $perPage OFFSET $offset", $params);
 } catch (Exception $e) {
   $total = 0;
   $invoices = [];
@@ -97,6 +189,18 @@ include __DIR__ . '/inc/layout_head.php';
           <option value="<?= $k ?>" <?= $status === $k ? 'selected' : '' ?>><?= $lbl ?></option>
         <?php endforeach; ?>
       </select>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <label style="font-size:.76rem;color:var(--text2)">از</label>
+        <input class="select" style="width:112px" type="text" name="from_date" inputmode="numeric"
+          placeholder="۱۴۰۵/۰۵/۰۶" value="<?= htmlspecialchars($fromDate) ?>" aria-label="تاریخ شروع شمسی">
+        <input class="select" style="width:92px" type="time" name="from_time"
+          value="<?= htmlspecialchars($fromTime) ?>" aria-label="ساعت شروع به وقت تهران">
+        <label style="font-size:.76rem;color:var(--text2)">تا</label>
+        <input class="select" style="width:112px" type="text" name="to_date" inputmode="numeric"
+          placeholder="۱۴۰۵/۰۵/۰۶" value="<?= htmlspecialchars($toDate) ?>" aria-label="تاریخ پایان شمسی">
+        <input class="select" style="width:92px" type="time" name="to_time"
+          value="<?= htmlspecialchars($toTime) ?>" aria-label="ساعت پایان به وقت تهران">
+      </div>
       <div class="search-box" style="min-width:240px">
         <?= icon('search', 14) ?>
         <input type="text" name="q" placeholder="آیدی کاربر، نام محصول..." value="<?= htmlspecialchars($search) ?>"
@@ -104,7 +208,7 @@ include __DIR__ . '/inc/layout_head.php';
         <button type="button" class="search-clear">✕</button>
         <button type="submit" class="search-btn">جستجو</button>
       </div>
-      <?php if ($search || $status || $serviceType): ?>
+      <?php if ($search || $status || $serviceType || $fromDate || $fromTime || $toDate || $toTime): ?>
         <a href="invoice.php" class="btn-link" style="font-size:.78rem">پاک کردن</a>
       <?php endif; ?>
     </form>
@@ -152,7 +256,11 @@ include __DIR__ . '/inc/layout_head.php';
               <td class="cs"><?= htmlspecialchars(trunc($inv['product_name'] ?? '—', 28)) ?></td>
               <td style="font-size:.82rem;color:var(--text2)"><?= htmlspecialchars($typeLabel) ?></td>
               <td class="cn cs"><?= number_format((int) ($inv['price'] ?? 0)) ?> <span class="cf">ت</span></td>
-              <td class="cf"><?= safe_date($inv['transaction_time'] ?? null, 'Y/m/d') ?></td>
+              <td class="cf">
+                <?= !empty($inv['transaction_epoch'])
+                  ? jdate('Y/m/d H:i', (int) $inv['transaction_epoch'], '', 'Asia/Tehran', 'fa')
+                  : '—' ?>
+              </td>
               <td><span class="tag <?= $cls ?>"><?= $lbl ?></span></td>
             </tr>
           <?php endforeach; endif; ?>
@@ -163,7 +271,18 @@ include __DIR__ . '/inc/layout_head.php';
   <div class="tbl-foot">
     <span><?= number_format($total) ?> رکورد · صفحه <?= $page ?> از <?= $totalPages ?></span>
     <div class="pager">
-      <?php $qs = fn($p) => '?q=' . urlencode($search) . '&status=' . urlencode($status) . '&service_type=' . urlencode($serviceType) . '&page=' . $p; ?>
+      <?php
+      $qs = fn($p) => '?' . http_build_query([
+        'q' => $search,
+        'status' => $status,
+        'service_type' => $serviceType,
+        'from_date' => $fromDate,
+        'from_time' => $fromTime,
+        'to_date' => $toDate,
+        'to_time' => $toTime,
+        'page' => $p,
+      ]);
+      ?>
       <a class="<?= $page <= 1 ? 'dis' : '' ?>" href="<?= $qs(max(1, $page - 1)) ?>">‹</a>
       <?php for ($p = max(1, $page - 2); $p <= min($totalPages, $page + 2); $p++): ?>
         <a class="<?= $p === $page ? 'cur' : '' ?>" href="<?= $qs($p) ?>"><?= $p ?></a>

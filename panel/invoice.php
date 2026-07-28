@@ -361,7 +361,11 @@ include __DIR__ . '/inc/layout_head.php';
             <?php else: ?>
             <tr>
               <td class="cf"><?= $i++ ?></td>
-              <td class="cm"><?= htmlspecialchars($inv['id_user'] ?? '—') ?></td>
+              <td class="cm">
+                <a href="user.php?id=<?= urlencode((string) ($inv['id_user'] ?? '')) ?>" style="color:var(--ac)">
+                  <?= htmlspecialchars($inv['id_user'] ?? '—') ?>
+                </a>
+              </td>
               <td class="cs"><?= htmlspecialchars(trunc($inv['product_name'] ?? '—', 28)) ?></td>
               <td style="font-size:.82rem;color:var(--text2)"><?= htmlspecialchars($typeLabel) ?></td>
               <td class="cn cs"><?= number_format((int) ($inv['price'] ?? 0)) ?> <span class="cf">ت</span></td>

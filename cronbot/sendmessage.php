@@ -104,20 +104,39 @@ for ($i = 0; $i < 20; $i++) {
     if ($info['type'] == "unpinmessage") {
         unpinmessage($iduser->id);
     } elseif ($info['type'] == "sendmessage" or $info['type'] == "xdaynotmessage") {
-        if ($info['btnmessage'] == "none") {
-            $meesage = sendmessage($iduser->id, $info['message'], null, 'HTML');
-        } elseif ($info['btnmessage'] == "buy") {
-            $meesage = sendmessage($iduser->id, $info['message'], $keyboardbuy, 'HTML');
+        $btnkeyboard = null;
+        if ($info['btnmessage'] == "buy") {
+            $btnkeyboard = $keyboardbuy;
         } elseif ($info['btnmessage'] == "start") {
-            $meesage = sendmessage($iduser->id, $info['message'], $keyboardstart, 'HTML');
+            $btnkeyboard = $keyboardstart;
         } elseif ($info['btnmessage'] == "usertestbtn") {
-            $meesage = sendmessage($iduser->id, $info['message'], $keyboardusertest, 'HTML');
+            $btnkeyboard = $keyboardusertest;
         } elseif ($info['btnmessage'] == "helpbtn") {
-            $meesage = sendmessage($iduser->id, $info['message'], $keyboardhelpbtn, 'HTML');
+            $btnkeyboard = $keyboardhelpbtn;
         } elseif ($info['btnmessage'] == "affiliatesbtn") {
-            $meesage = sendmessage($iduser->id, $info['message'], $keyboardaffiliates, 'HTML');
+            $btnkeyboard = $keyboardaffiliates;
         } elseif ($info['btnmessage'] == "addbalance") {
-            $meesage = sendmessage($iduser->id, $info['message'], $keyboardaddbalance, 'HTML');
+            $btnkeyboard = $keyboardaddbalance;
+        }
+
+        $isphoto = (($info['messagemediatype'] ?? 'text') == 'photo') && !empty($info['photoid']);
+        if ($isphoto) {
+            $photoparams = [
+                'chat_id' => $iduser->id,
+                'photo' => $info['photoid'],
+                'parse_mode' => 'HTML',
+            ];
+            if ($info['message'] !== null && $info['message'] !== '') {
+                $photoparams['caption'] = $info['message'];
+            }
+            if ($btnkeyboard !== null) {
+                $photoparams['reply_markup'] = $btnkeyboard;
+            }
+            $meesage = telegram('sendphoto', $photoparams);
+        } elseif ($info['btnmessage'] == "none") {
+            $meesage = sendmessage($iduser->id, $info['message'], null, 'HTML');
+        } else {
+            $meesage = sendmessage($iduser->id, $info['message'], $btnkeyboard, 'HTML');
         }
 
         if ($meesage['ok'] == false and $meesage['description'] == "Forbidden: bot was blocked by the user") {

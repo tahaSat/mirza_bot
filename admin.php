@@ -1079,6 +1079,23 @@ elseif ($datain == "systemsms") {
         return;
     }
     savedata("save", "typeusermessage", $dataget[1]);
+    if ($userdata['typeservice'] == "sendmessage") {
+        $listbtn = json_encode([
+            'inline_keyboard' => [
+                [
+                    ['text' => "فقط متن", 'callback_data' => 'messagemediatype-text'],
+                ],
+                [
+                    ['text' => "ارسال با عکس", 'callback_data' => 'messagemediatype-photo'],
+                ],
+                [
+                    ['text' => "بازگشت به منوی قبل", 'callback_data' => 'typeservice-' . $userdata['typeservice']],
+                ],
+            ]
+        ]);
+        Editmessagetext($from_id, $message_id, "📌 نوع پیام ارسالی را انتخاب کنید:", $listbtn);
+        return;
+    }
     $listbtn = json_encode([
         'inline_keyboard' => [
             [
@@ -1099,6 +1116,90 @@ elseif ($datain == "systemsms") {
         ]
     ]);
     Editmessagetext($from_id, $message_id, "📌 سرویس برای چه دسته از کاربران اعمال شود؟", $listbtn);
+} elseif ($datain == "choosemessagemedia") {
+    $userdata = json_decode($user['Processing_value'], true);
+    if (!isset($userdata['typeservice']) || $userdata['typeservice'] != "sendmessage") {
+        deletemessage($from_id, $message_id);
+        sendmessage($from_id, "❌ خطایی رخ داده لطفا مراحل ارسال پیام از اول انجام دهید", $keyboardadmin, 'HTML');
+        return;
+    }
+    $listbtn = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "فقط متن", 'callback_data' => 'messagemediatype-text'],
+            ],
+            [
+                ['text' => "ارسال با عکس", 'callback_data' => 'messagemediatype-photo'],
+            ],
+            [
+                ['text' => "بازگشت به منوی قبل", 'callback_data' => 'typeservice-' . $userdata['typeservice']],
+            ],
+        ]
+    ]);
+    Editmessagetext($from_id, $message_id, "📌 نوع پیام ارسالی را انتخاب کنید:", $listbtn);
+} elseif (preg_match('/^messagemediatype-(\w+)/', $datain, $dataget)) {
+    $mediatype = $dataget[1];
+    $userdata = json_decode($user['Processing_value'], true);
+    if (!isset($userdata['typeservice']) || $userdata['typeservice'] != "sendmessage") {
+        deletemessage($from_id, $message_id);
+        sendmessage($from_id, "❌ خطایی رخ داده لطفا مراحل ارسال پیام از اول انجام دهید", $keyboardadmin, 'HTML');
+        return;
+    }
+    if (!in_array($mediatype, ['text', 'photo'], true)) {
+        sendmessage($from_id, "❌ گزینه نامعتبر است", $keyboardadmin, 'HTML');
+        return;
+    }
+    savedata("save", "messagemediatype", $mediatype);
+    $listbtn = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "همه کاربران", 'callback_data' => 'typeagent-all'],
+            ],
+            [
+                ['text' => "کاربران گروه f", 'callback_data' => 'typeagent-f'],
+            ],
+            [
+                ['text' => "کاربران گروه n", 'callback_data' => 'typeagent-n'],
+            ],
+            [
+                ['text' => "کاربران گروه n2", 'callback_data' => 'typeagent-n2'],
+            ],
+            [
+                ['text' => "بازگشت به منوی قبل", 'callback_data' => 'choosemessagemedia'],
+            ],
+        ]
+    ]);
+    Editmessagetext($from_id, $message_id, "📌 سرویس برای چه دسته از کاربران اعمال شود؟", $listbtn);
+} elseif ($datain == "showagentfilters") {
+    $userdata = json_decode($user['Processing_value'], true);
+    if (!isset($userdata['typeservice'])) {
+        deletemessage($from_id, $message_id);
+        sendmessage($from_id, "❌ خطایی رخ داده لطفا مراحل ارسال پیام از اول انجام دهید", $keyboardadmin, 'HTML');
+        return;
+    }
+    $backcb = ($userdata['typeservice'] == "sendmessage")
+        ? 'choosemessagemedia'
+        : ('typeservice-' . $userdata['typeservice']);
+    $listbtn = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "همه کاربران", 'callback_data' => 'typeagent-all'],
+            ],
+            [
+                ['text' => "کاربران گروه f", 'callback_data' => 'typeagent-f'],
+            ],
+            [
+                ['text' => "کاربران گروه n", 'callback_data' => 'typeagent-n'],
+            ],
+            [
+                ['text' => "کاربران گروه n2", 'callback_data' => 'typeagent-n2'],
+            ],
+            [
+                ['text' => "بازگشت به منوی قبل", 'callback_data' => $backcb],
+            ],
+        ]
+    ]);
+    Editmessagetext($from_id, $message_id, "📌 سرویس برای چه دسته از کاربران اعمال شود؟", $listbtn);
 } elseif (preg_match('/^typeagent-(\w+)/', $datain, $dataget)) {
     $type = $dataget[1];
     $userdata = json_decode($user['Processing_value'], true);
@@ -1108,6 +1209,9 @@ elseif ($datain == "systemsms") {
         return;
     }
     savedata("save", "agent", $type);
+    $back_to_agent_parent = ($userdata['typeservice'] == "sendmessage")
+        ? 'showagentfilters'
+        : ('typeusermessage-' . $userdata['typeusermessage']);
     if ($userdata['typeusermessage'] == "customer" || $userdata['typeusermessage'] == "highvolume") {
         $stmt = $pdo->prepare("SELECT * FROM marzban_panel WHERE agent = :agent OR agent = 'all'");
         $stmt->bindParam(':agent', $type);
@@ -1119,7 +1223,7 @@ elseif ($datain == "systemsms") {
                 ['text' => $result['name_panel'], 'callback_data' => "locationmessage_{$result['code_panel']}"]
             ];
         }
-        $list_panel['inline_keyboard'][] = [['text' => "بازگشت به منوی قبل", 'callback_data' => 'typeusermessage-' . $userdata['typeusermessage']],];
+        $list_panel['inline_keyboard'][] = [['text' => "بازگشت به منوی قبل", 'callback_data' => $back_to_agent_parent],];
         Editmessagetext($from_id, $message_id, "📌 پیام برای کدام کاربران موجود در پنل های زیر ارسال شود.", json_encode($list_panel));
         return;
     }
@@ -1131,7 +1235,7 @@ elseif ($datain == "systemsms") {
                     ['text' => "خیر", 'callback_data' => 'typepinmessage-no'],
                 ],
                 [
-                    ['text' => "بازگشت به منوی قبل", 'callback_data' => 'typeusermessage-' . $userdata['typeusermessage']],
+                    ['text' => "بازگشت به منوی قبل", 'callback_data' => $back_to_agent_parent],
                 ],
             ]
         ]);
@@ -1232,7 +1336,11 @@ elseif ($datain == "systemsms") {
         return;
     }
     step("gettextSystemMessage", $from_id);
-    sendmessage($from_id, "📌 متن پیام خود را ارسال نمایید.", $backadmin, 'HTML');
+    if (($userdata['messagemediatype'] ?? 'text') == "photo") {
+        sendmessage($from_id, "📌 تصویر خود را ارسال نمایید.\nمی‌توانید همراه عکس یک کپشن (متن) هم بفرستید.", $backadmin, 'HTML');
+    } else {
+        sendmessage($from_id, "📌 متن پیام خود را ارسال نمایید.", $backadmin, 'HTML');
+    }
 } elseif ($user['step'] == "gettextday") {
     if (!ctype_digit($text)) {
         sendmessage($from_id, $textbotlang['Admin']['agent']['invalidvlue'], $backadmin, 'HTML');
@@ -1264,10 +1372,19 @@ elseif ($datain == "systemsms") {
             return;
         }
     } elseif ($userdata['typeservice'] == "sendmessage") {
-        if ($text) {
+        if (($userdata['messagemediatype'] ?? 'text') == "photo") {
+            if ($photo) {
+                savedata("save", "photoid", $photoid);
+                savedata("save", "message", $caption !== '' ? $caption : '');
+            } else {
+                sendmessage($from_id, "📌 لطفا یک تصویر ارسال نمایید.\nمی‌توانید همراه عکس یک کپشن (متن) هم بفرستید.", $backadmin, 'HTML');
+                return;
+            }
+        } elseif ($text) {
             savedata("save", "message", $text);
+            savedata("save", "photoid", "");
         } else {
-            sendmessage($from_id, "📌  در بخش ارسال همگانی فقط امکان ارسال متن وجود دارد.", $backadmin, 'HTML');
+            sendmessage($from_id, "📌 در بخش ارسال همگانی فقط امکان ارسال متن وجود دارد.", $backadmin, 'HTML');
             return;
         }
     }
@@ -1288,10 +1405,17 @@ elseif ($datain == "systemsms") {
     } else {
         $textday = "";
     }
+    $mediatypetext = "";
+    if ($userdata['typeservice'] == "sendmessage") {
+        $mediatypetext = (($userdata['messagemediatype'] ?? 'text') == "photo")
+            ? "🖼 نوع محتوا : ارسال با عکس"
+            : "📝 نوع محتوا : فقط متن";
+    }
     $textconfirm = "📌 شما در حال انجام عملیات مربوط به ارسال پیام هستید با بررسی اطلاعات زیر و تایید دکمه زیر عملیات ارسال شروع خواهد شد.
 ⚙️ نوع عملیات : $typesend
 🎛 نوع سرویس : $typeservice
 🗂 نوع کاربری : {$userdata['agent']}
+$mediatypetext
 $textday
 ";
     $startaction = json_encode([
@@ -1393,6 +1517,8 @@ $textday
             'type' => "sendmessage",
             "id_message" => $message_id['result']['message_id'],
             "message" => $userdata['message'],
+            "messagemediatype" => $userdata['messagemediatype'] ?? 'text',
+            "photoid" => $userdata['photoid'] ?? '',
             "pingmessage" => $userdata['typepinmessage'],
             "btnmessage" => $userdata['btntypemessage']
         ));

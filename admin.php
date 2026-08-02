@@ -1051,25 +1051,29 @@ elseif ($datain == "systemsms") {
         step("home", $from_id);
         return;
     }
-    $listbtn = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => "همه کاربران", 'callback_data' => 'typeusermessage-all'],
-            ],
-            [
-                ['text' => "مشتریانی که خرید داشتند", 'callback_data' => 'typeusermessage-customer'],
-            ],
-            [
-                ['text' => "کاربرانی که خرید نداشتند", 'callback_data' => 'typeusermessage-nonecustomer'],
-            ],
-            [
-                ['text' => "کاربرانی که بیش از ۸۰٪ مصرف کرده‌اند", 'callback_data' => 'typeusermessage-highvolume'],
-            ],
-            [
-                ['text' => "بازگشت به منوی قبل", 'callback_data' => 'systemsms'],
-            ],
-        ]
-    ]);
+    $usergroup_rows = [
+        [
+            ['text' => "همه کاربران", 'callback_data' => 'typeusermessage-all'],
+        ],
+        [
+            ['text' => "مشتریانی که خرید داشتند", 'callback_data' => 'typeusermessage-customer'],
+        ],
+        [
+            ['text' => "کاربرانی که خرید نداشتند", 'callback_data' => 'typeusermessage-nonecustomer'],
+        ],
+        [
+            ['text' => "کاربرانی که بیش از ۸۰٪ مصرف کرده‌اند", 'callback_data' => 'typeusermessage-highvolume'],
+        ],
+    ];
+    if ($type == "sendmessage") {
+        $usergroup_rows[] = [
+            ['text' => "پست در کانال", 'callback_data' => 'typeusermessage-channelpost'],
+        ];
+    }
+    $usergroup_rows[] = [
+        ['text' => "بازگشت به منوی قبل", 'callback_data' => 'systemsms'],
+    ];
+    $listbtn = json_encode(['inline_keyboard' => $usergroup_rows]);
     Editmessagetext($from_id, $message_id, "📌 سرویس برای کدام گروه کاربری اعمال شود؟", $listbtn);
 } elseif (preg_match('/^typeusermessage-(\w+)/', $datain, $dataget)) {
     $userdata = json_decode($user['Processing_value'], true);
@@ -1079,6 +1083,23 @@ elseif ($datain == "systemsms") {
         return;
     }
     savedata("save", "typeusermessage", $dataget[1]);
+    if ($dataget[1] == "channelpost") {
+        if ($userdata['typeservice'] != "sendmessage") {
+            sendmessage($from_id, "❌ پست در کانال فقط برای ارسال همگانی در دسترس است.", $keyboardadmin, 'HTML');
+            return;
+        }
+        deletemessage($from_id, $message_id);
+        step("getchannelpostid", $from_id);
+        sendmessage($from_id, "📌 آیدی عددی یا یوزرنیم کانال را ارسال کنید.
+
+مثال:
+<code>@mychannel</code>
+یا
+<code>-1001234567890</code>
+
+⚠️ ربات باید ادمین کانال با دسترسی ارسال پیام باشد.", $backadmin, 'HTML');
+        return;
+    }
     if ($userdata['typeservice'] == "sendmessage") {
         $listbtn = json_encode([
             'inline_keyboard' => [
@@ -1116,6 +1137,135 @@ elseif ($datain == "systemsms") {
         ]
     ]);
     Editmessagetext($from_id, $message_id, "📌 سرویس برای چه دسته از کاربران اعمال شود؟", $listbtn);
+} elseif ($user['step'] == "getchannelpostid") {
+    $userdata = json_decode($user['Processing_value'], true);
+    if (!isset($userdata['typeservice']) || ($userdata['typeusermessage'] ?? '') != "channelpost") {
+        sendmessage($from_id, "❌ خطایی رخ داده لطفا مراحل ارسال پیام از اول انجام دهید", $keyboardadmin, 'HTML');
+        step("home", $from_id);
+        return;
+    }
+    $channel_input = trim((string) $text);
+    if ($channel_input === '') {
+        sendmessage($from_id, "❌ آیدی یا یوزرنیم کانال را ارسال کنید.", $backadmin, 'HTML');
+        return;
+    }
+    if (preg_match('/^https?:\/\/t\.me\/([A-Za-z0-9_]+)$/i', $channel_input, $m)) {
+        $channel_input = '@' . $m[1];
+    } elseif ($channel_input[0] !== '@' && !preg_match('/^-?\d+$/', $channel_input)) {
+        $channel_input = '@' . ltrim($channel_input, '@');
+    }
+    $chat = telegram('getChat', ['chat_id' => $channel_input]);
+    if (!isset($chat['ok']) || !$chat['ok']) {
+        sendmessage($from_id, "❌ کانال یافت نشد. یوزرنیم یا آیدی را بررسی کنید و مطمئن شوید ربات عضو کانال است.", $backadmin, 'HTML');
+        return;
+    }
+    $channel_id = $chat['result']['id'];
+    $bot_id = explode(':', $APIKEY)[0];
+    $member = telegram('getChatMember', ['chat_id' => $channel_id, 'user_id' => $bot_id]);
+    $bot_status = $member['result']['status'] ?? '';
+    if (!isset($member['ok']) || !$member['ok'] || !in_array($bot_status, ['administrator', 'creator'], true)) {
+        sendmessage($from_id, "❌ ربات ادمین این کانال نیست. ابتدا ربات را ادمین کانال کنید (با دسترسی ارسال پیام).", $backadmin, 'HTML');
+        return;
+    }
+    $can_post = true;
+    if ($bot_status === 'administrator' && array_key_exists('can_post_messages', $member['result'])) {
+        $can_post = (bool) $member['result']['can_post_messages'];
+    }
+    if (!$can_post) {
+        sendmessage($from_id, "❌ ربات دسترسی ارسال پیام در کانال را ندارد.", $backadmin, 'HTML');
+        return;
+    }
+    $channel_title = $chat['result']['title'] ?? $channel_input;
+    savedata("save", "channel_id", (string) $channel_id);
+    savedata("save", "channel_title", $channel_title);
+    $listbtn = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "دکمه استارت", 'callback_data' => 'channelpostbtn-start'],
+                ['text' => "دکمه آموزش", 'callback_data' => 'channelpostbtn-helpbtn'],
+            ],
+            [
+                ['text' => "دکمه خرید", 'callback_data' => 'channelpostbtn-buy'],
+                ['text' => "دکمه اکانت تست", 'callback_data' => 'channelpostbtn-usertestbtn'],
+            ],
+            [
+                ['text' => "دکمه زیرمجموعه گیری ", 'callback_data' => 'channelpostbtn-affiliatesbtn'],
+                ['text' => "شارژ حساب کاربری", 'callback_data' => 'channelpostbtn-addbalance'],
+            ],
+            [
+                ['text' => "ارسال بدون دکمه", 'callback_data' => 'channelpostbtn-none'],
+            ],
+            [
+                ['text' => "بازگشت به منوی قبل", 'callback_data' => 'typeservice-sendmessage'],
+            ],
+        ]
+    ]);
+    step("home", $from_id);
+    sendmessage($from_id, "✅ کانال <b>" . htmlspecialchars($channel_title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</b> تایید شد.\n\n📌 دکمه‌ای که زیر پست نمایش داده شود را انتخاب کنید:", $listbtn, 'HTML');
+} elseif (preg_match('/^channelpostbtn-(\w+)/', $datain, $dataget)) {
+    $btn_type = $dataget[1];
+    $userdata = json_decode($user['Processing_value'], true);
+    if (!isset($userdata['typeservice']) || ($userdata['typeusermessage'] ?? '') != "channelpost") {
+        deletemessage($from_id, $message_id);
+        sendmessage($from_id, "❌ خطایی رخ داده لطفا مراحل ارسال پیام از اول انجام دهید", $keyboardadmin, 'HTML');
+        return;
+    }
+    if (!in_array($btn_type, ['start', 'helpbtn', 'buy', 'usertestbtn', 'affiliatesbtn', 'addbalance', 'none'], true)) {
+        sendmessage($from_id, "❌ گزینه نامعتبر است", $keyboardadmin, 'HTML');
+        return;
+    }
+    savedata("save", "btntypemessage", $btn_type);
+    deletemessage($from_id, $message_id);
+    step("gettextChannelPost", $from_id);
+    sendmessage($from_id, "📌 محتوای پست کانال را ارسال کنید.\nمی‌توانید متن ساده یا عکس همراه با کپشن بفرستید.", $backadmin, 'HTML');
+} elseif ($user['step'] == "gettextChannelPost") {
+    $userdata = json_decode($user['Processing_value'], true);
+    if (!isset($userdata['typeservice']) || ($userdata['typeusermessage'] ?? '') != "channelpost") {
+        sendmessage($from_id, "❌ خطایی رخ داده لطفا مراحل ارسال پیام از اول انجام دهید", $keyboardadmin, 'HTML');
+        step("home", $from_id);
+        return;
+    }
+    if ($photo) {
+        savedata("save", "messagemediatype", "photo");
+        savedata("save", "photoid", $photoid);
+        savedata("save", "message", $caption !== '' ? $caption : '');
+    } elseif ($text) {
+        savedata("save", "messagemediatype", "text");
+        savedata("save", "photoid", "");
+        savedata("save", "message", $text);
+    } else {
+        sendmessage($from_id, "📌 لطفا متن یا عکس (با کپشن اختیاری) ارسال کنید.", $backadmin, 'HTML');
+        return;
+    }
+    $userdata = json_decode(select("user", "*", "id", $from_id, "select")['Processing_value'], true);
+    $btn_labels = [
+        'start' => 'دکمه استارت',
+        'helpbtn' => 'دکمه آموزش',
+        'buy' => 'دکمه خرید',
+        'usertestbtn' => 'دکمه اکانت تست',
+        'affiliatesbtn' => 'دکمه زیرمجموعه گیری',
+        'addbalance' => 'شارژ حساب کاربری',
+        'none' => 'بدون دکمه',
+    ];
+    $btn_label = $btn_labels[$userdata['btntypemessage'] ?? 'none'] ?? 'بدون دکمه';
+    $media_label = (($userdata['messagemediatype'] ?? 'text') == 'photo') ? 'عکس + متن' : 'فقط متن';
+    $channel_title = htmlspecialchars($userdata['channel_title'] ?? $userdata['channel_id'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $textconfirm = "📌 شما در حال ارسال پست به کانال هستید. با تایید، پست منتشر می‌شود.
+
+⚙️ نوع عملیات : پست در کانال
+📢 کانال : {$channel_title}
+🔘 دکمه : {$btn_label}
+📝 نوع محتوا : {$media_label}";
+    $startaction = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "تایید و ارسال به کانال", 'callback_data' => 'startaction'],
+            ],
+        ]
+    ]);
+    sendmessage($from_id, $textconfirm, $startaction, 'HTML');
+    sendmessage($from_id, "با تایید گزینه بالا پست در کانال منتشر خواهد شد", $keyboardadmin, 'HTML');
+    step("home", $from_id);
 } elseif ($datain == "choosemessagemedia") {
     $userdata = json_decode($user['Processing_value'], true);
     if (!isset($userdata['typeservice']) || $userdata['typeservice'] != "sendmessage") {
@@ -1432,6 +1582,81 @@ $textday
     $userdata = json_decode($user['Processing_value'], true);
     if (!isset($userdata['typeservice'])) {
         sendmessage($from_id, "❌ خطایی رخ داده لطفا مراحل ارسال پیام از اول انجام دهید", $keyboardadmin, 'HTML');
+        return;
+    }
+    if (($userdata['typeusermessage'] ?? '') == "channelpost") {
+        global $usernamebot;
+        $channel_id = $userdata['channel_id'] ?? '';
+        if ($channel_id === '') {
+            sendmessage($from_id, "❌ کانال مشخص نشده است. مراحل را از اول انجام دهید.", $keyboardadmin, 'HTML');
+            return;
+        }
+        $btn_type = $userdata['btntypemessage'] ?? 'none';
+        $btn_keyboard = null;
+        if ($btn_type != 'none') {
+            $btn_texts = [
+                'start' => 'شروع',
+                'buy' => $datatextbot['text_sell'] ?? 'خرید',
+                'usertestbtn' => $datatextbot['text_usertest'] ?? 'اکانت تست',
+                'helpbtn' => $datatextbot['text_help'] ?? 'آموزش',
+                'affiliatesbtn' => $datatextbot['text_affiliates'] ?? 'زیرمجموعه گیری',
+                'addbalance' => $datatextbot['text_Add_Balance'] ?? 'شارژ حساب',
+            ];
+            $start_payloads = [
+                'start' => 'start',
+                'buy' => 'buy',
+                'usertestbtn' => 'usertest',
+                'helpbtn' => 'help',
+                'affiliatesbtn' => '',
+                'addbalance' => '',
+            ];
+            $btn_text = $btn_texts[$btn_type] ?? 'ورود به ربات';
+            $payload = $start_payloads[$btn_type] ?? '';
+            $btn_url = "https://t.me/{$usernamebot}" . ($payload !== '' ? "?start={$payload}" : '');
+            $btn_keyboard = json_encode([
+                'inline_keyboard' => [
+                    [
+                        ['text' => $btn_text, 'url' => $btn_url],
+                    ],
+                ]
+            ]);
+        }
+        $is_photo = (($userdata['messagemediatype'] ?? 'text') == 'photo') && !empty($userdata['photoid']);
+        if ($is_photo) {
+            $params = [
+                'chat_id' => $channel_id,
+                'photo' => $userdata['photoid'],
+                'parse_mode' => 'HTML',
+            ];
+            if (($userdata['message'] ?? '') !== '') {
+                $params['caption'] = $userdata['message'];
+            }
+            if ($btn_keyboard !== null) {
+                $params['reply_markup'] = $btn_keyboard;
+            }
+            $result = telegram('sendphoto', $params);
+        } else {
+            if (($userdata['message'] ?? '') === '') {
+                sendmessage($from_id, "❌ متن پست خالی است.", $keyboardadmin, 'HTML');
+                return;
+            }
+            $params = [
+                'chat_id' => $channel_id,
+                'text' => $userdata['message'],
+                'parse_mode' => 'HTML',
+            ];
+            if ($btn_keyboard !== null) {
+                $params['reply_markup'] = $btn_keyboard;
+            }
+            $result = telegram('sendmessage', $params);
+        }
+        if (!isset($result['ok']) || !$result['ok']) {
+            $err = $result['description'] ?? 'خطای نامشخص';
+            sendmessage($from_id, "❌ ارسال پست به کانال ناموفق بود:\n<code>" . htmlspecialchars($err, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</code>", $keyboardadmin, 'HTML');
+            return;
+        }
+        Editmessagetext($from_id, $message_id, "✅ پست با موفقیت در کانال منتشر شد.", null);
+        sendmessage($from_id, "✅ پست کانال با موفقیت ارسال شد.", $keyboardadmin, 'HTML');
         return;
     }
     $agent = $userdata['agent'];

@@ -4613,3 +4613,308 @@ function discount_sell_record_usage(array $data): bool
         return false;
     }
 }
+
+function broadcast_audience_label(array $userdata)
+{
+    if (($userdata['typeusermessage'] ?? '') === 'channelpost') {
+        $channel = $userdata['channel_id'] ?? '';
+        return 'پست کانال: ' . $channel;
+    }
+    $audience = [
+        'all' => 'همه کاربران',
+        'customer' => 'مشتریان',
+        'nonecustomer' => 'بدون خرید',
+        'highvolume' => 'مصرف بیش از ۸۰٪',
+    ][$userdata['typeusermessage'] ?? ''] ?? ($userdata['typeusermessage'] ?? '-');
+    $agent = [
+        'all' => 'همه نمایندگی‌ها',
+        'f' => 'کاربر عادی',
+        'n' => 'نماینده',
+        'n2' => 'نماینده سطح ۲',
+    ][$userdata['agent'] ?? ''] ?? ($userdata['agent'] ?? '-');
+    $extra = '';
+    if (($userdata['typeservice'] ?? '') === 'xdaynotmessage' && !empty($userdata['daynoyuse'])) {
+        $extra = " | غیرفعال {$userdata['daynoyuse']} روز";
+    }
+    if (!empty($userdata['selectpanel']) && $userdata['selectpanel'] !== 'all') {
+        $panel = select("marzban_panel", "*", "code_panel", $userdata['selectpanel'], "select");
+        if (!empty($panel['name_panel'])) {
+            $extra .= ' | پنل: ' . $panel['name_panel'];
+        }
+    }
+    return "{$audience} / {$agent}{$extra}";
+}
+
+function ensure_broadcast_schema()
+{
+    global $pdo;
+    static $ready = false;
+    if ($ready) {
+        return;
+    }
+    $pdo->exec("INSERT IGNORE INTO topicid (idreport, report) VALUES ('0', 'reportsms')");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS broadcast_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        admin_id BIGINT NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        message_text TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+        media_type VARCHAR(20) NOT NULL DEFAULT 'text',
+        photo_id VARCHAR(255) NOT NULL DEFAULT '',
+        btn_type VARCHAR(50) NOT NULL DEFAULT 'none',
+        audience_label VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+        recipient_count INT NOT NULL DEFAULT 0,
+        click_count INT NOT NULL DEFAULT 0,
+        report_message_id BIGINT NOT NULL DEFAULT 0,
+        status VARCHAR(30) NOT NULL DEFAULT 'started',
+        created_at INT NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS broadcast_click (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        broadcast_id INT NOT NULL,
+        user_id BIGINT NOT NULL,
+        clicked_at INT NOT NULL,
+        UNIQUE KEY uniq_broadcast_user (broadcast_id, user_id),
+        KEY idx_broadcast_id (broadcast_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+    $ready = true;
+}
+
+function broadcast_btn_action_map()
+{
+    return [
+        'buy' => 'buy',
+        'start' => 'start',
+        'usertestbtn' => 'usertestbtn',
+        'helpbtn' => 'helpbtn',
+        'affiliatesbtn' => 'affiliatesbtn',
+        'addbalance' => 'Add_Balance',
+    ];
+}
+
+function broadcast_btn_label($btn_type, $texts = null)
+{
+    global $datatextbot;
+    if (!is_array($texts)) {
+        $texts = is_array($datatextbot) ? $datatextbot : [];
+    }
+    $labels = [
+        'none' => 'بدون دکمه',
+        'start' => 'شروع',
+        'buy' => $texts['text_sell'] ?? 'خرید',
+        'usertestbtn' => $texts['text_usertest'] ?? 'اکانت تست',
+        'helpbtn' => $texts['text_help'] ?? 'آموزش',
+        'affiliatesbtn' => $texts['text_affiliates'] ?? 'زیرمجموعه گیری',
+        'addbalance' => $texts['text_Add_Balance'] ?? 'شارژ حساب',
+    ];
+    return $labels[$btn_type] ?? $btn_type;
+}
+
+function broadcast_type_label($type)
+{
+    $labels = [
+        'sendmessage' => 'ارسال همگانی',
+        'forwardmessage' => 'فوروارد همگانی',
+        'xdaynotmessage' => 'ارسال به کاربران غیرفعال',
+        'channelpost' => 'ارسال پست کانال',
+        'unpinmessage' => 'لغو پین پیام',
+    ];
+    return $labels[$type] ?? $type;
+}
+
+function ensure_reportsms_topic()
+{
+    global $setting, $pdo;
+
+    ensure_broadcast_schema();
+    $row = select("topicid", "*", "report", "reportsms", "select", ['cache' => false]);
+    $topic_id = $row['idreport'] ?? '0';
+    if (!empty($setting['Channel_Report']) && (empty($topic_id) || $topic_id === '0')) {
+        $create = telegram('createForumTopic', [
+            'chat_id' => $setting['Channel_Report'],
+            'name' => '📨 گزارش ارسال پیام',
+        ]);
+        if (!empty($create['ok']) && isset($create['result']['message_thread_id'])) {
+            $topic_id = $create['result']['message_thread_id'];
+            update("topicid", "idreport", $topic_id, "report", "reportsms");
+        }
+    }
+    return $topic_id;
+}
+
+function build_broadcast_report_text($row)
+{
+    $time = function_exists('jdate') ? jdate('Y/m/d H:i:s', intval($row['created_at'])) : date('Y/m/d H:i:s', intval($row['created_at']));
+    $btn = broadcast_btn_label($row['btn_type'] ?? 'none');
+    $type = broadcast_type_label($row['type'] ?? '');
+    $status_map = [
+        'started' => 'در حال انجام',
+        'completed' => 'تمام شد',
+        'cancelled' => 'لغو شد',
+        'published' => 'منتشر شد',
+    ];
+    $status = $status_map[$row['status'] ?? 'started'] ?? ($row['status'] ?? '');
+    $message = trim((string) ($row['message_text'] ?? ''));
+    if (mb_strlen($message) > 2500) {
+        $message = mb_substr($message, 0, 2500) . '…';
+    }
+    $media = (($row['media_type'] ?? 'text') === 'photo') ? 'عکس' : 'متن';
+    $click_line = '';
+    if (($row['btn_type'] ?? 'none') !== 'none') {
+        $click_line = "\n👆 کلیک دکمه (یونیک): <b>" . intval($row['click_count'] ?? 0) . "</b>";
+    }
+    $text = "📨 <b>گزارش ارسال پیام</b>\n\n"
+        . "🕒 زمان: <code>{$time}</code>\n"
+        . "👤 ادمین: <code>{$row['admin_id']}</code>\n"
+        . "📋 نوع: {$type}\n"
+        . "👥 مخاطب: " . htmlspecialchars((string) ($row['audience_label'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\n"
+        . "📊 تعداد مخاطب: <b>" . intval($row['recipient_count'] ?? 0) . "</b>\n"
+        . "🎛 رسانه: {$media}\n"
+        . "🔘 دکمه: {$btn}"
+        . $click_line
+        . "\n📌 وضعیت: {$status}";
+    if ($message !== '') {
+        $safe = htmlspecialchars($message, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $text .= "\n\n💬 متن پیام:\n<blockquote>{$safe}</blockquote>";
+    }
+    return $text;
+}
+
+function log_broadcast_to_report(array $data)
+{
+    global $pdo, $setting;
+
+    ensure_broadcast_schema();
+    $admin_id = intval($data['admin_id'] ?? 0);
+    $type = (string) ($data['type'] ?? 'sendmessage');
+    $message_text = (string) ($data['message_text'] ?? '');
+    $media_type = (string) ($data['media_type'] ?? 'text');
+    $photo_id = (string) ($data['photo_id'] ?? '');
+    $btn_type = (string) ($data['btn_type'] ?? 'none');
+    $audience_label = (string) ($data['audience_label'] ?? '');
+    $recipient_count = intval($data['recipient_count'] ?? 0);
+    $status = (string) ($data['status'] ?? 'started');
+    $created_at = time();
+
+    $stmt = $pdo->prepare("INSERT INTO broadcast_log
+        (admin_id, type, message_text, media_type, photo_id, btn_type, audience_label, recipient_count, click_count, report_message_id, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)");
+    $stmt->execute([
+        $admin_id,
+        $type,
+        $message_text,
+        $media_type,
+        $photo_id,
+        $btn_type,
+        $audience_label,
+        $recipient_count,
+        $status,
+        $created_at,
+    ]);
+    $broadcast_id = intval($pdo->lastInsertId());
+    $row = [
+        'id' => $broadcast_id,
+        'admin_id' => $admin_id,
+        'type' => $type,
+        'message_text' => $message_text,
+        'media_type' => $media_type,
+        'photo_id' => $photo_id,
+        'btn_type' => $btn_type,
+        'audience_label' => $audience_label,
+        'recipient_count' => $recipient_count,
+        'click_count' => 0,
+        'status' => $status,
+        'created_at' => $created_at,
+    ];
+
+    $report_message_id = 0;
+    if (!empty($setting['Channel_Report'])) {
+        $topic_id = ensure_reportsms_topic();
+        $report_text = build_broadcast_report_text($row);
+        $send = telegram('sendmessage', [
+            'chat_id' => $setting['Channel_Report'],
+            'message_thread_id' => $topic_id,
+            'text' => $report_text,
+            'parse_mode' => 'HTML',
+        ]);
+        if (!empty($send['ok']) && isset($send['result']['message_id'])) {
+            $report_message_id = intval($send['result']['message_id']);
+            update("broadcast_log", "report_message_id", $report_message_id, "id", $broadcast_id);
+        }
+        if ($media_type === 'photo' && $photo_id !== '') {
+            telegram('sendphoto', [
+                'chat_id' => $setting['Channel_Report'],
+                'message_thread_id' => $topic_id,
+                'photo' => $photo_id,
+                'caption' => "🖼 تصویر پیام همگانی #{$broadcast_id}",
+            ]);
+        }
+    }
+
+    return [
+        'id' => $broadcast_id,
+        'report_message_id' => $report_message_id,
+    ];
+}
+
+function refresh_broadcast_report_message($broadcast_id)
+{
+    global $setting, $pdo;
+
+    $stmt = $pdo->prepare("SELECT * FROM broadcast_log WHERE id = ? LIMIT 1");
+    $stmt->execute([intval($broadcast_id)]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row || empty($setting['Channel_Report']) || intval($row['report_message_id']) <= 0) {
+        return false;
+    }
+    $topic_id = ensure_reportsms_topic();
+    $params = [
+        'chat_id' => $setting['Channel_Report'],
+        'message_id' => intval($row['report_message_id']),
+        'text' => build_broadcast_report_text($row),
+        'parse_mode' => 'HTML',
+    ];
+    if (!empty($topic_id) && $topic_id !== '0') {
+        $params['message_thread_id'] = $topic_id;
+    }
+    telegram('editMessageText', $params);
+    return true;
+}
+
+function track_broadcast_click($broadcast_id, $user_id)
+{
+    global $pdo;
+
+    ensure_broadcast_schema();
+    $broadcast_id = intval($broadcast_id);
+    $user_id = intval($user_id);
+    if ($broadcast_id <= 0 || $user_id <= 0) {
+        return false;
+    }
+    try {
+        $stmt = $pdo->prepare("INSERT IGNORE INTO broadcast_click (broadcast_id, user_id, clicked_at) VALUES (?, ?, ?)");
+        $stmt->execute([$broadcast_id, $user_id, time()]);
+        if ($stmt->rowCount() <= 0) {
+            return false;
+        }
+        $pdo->prepare("UPDATE broadcast_log SET click_count = click_count + 1 WHERE id = ?")->execute([$broadcast_id]);
+        refresh_broadcast_report_message($broadcast_id);
+        return true;
+    } catch (Throwable $e) {
+        error_log('track_broadcast_click: ' . $e->getMessage());
+        return false;
+    }
+}
+
+function resolve_broadcast_callback_action($payload)
+{
+    if (!preg_match('/^bc_(\d+)_(.+)$/', (string) $payload, $match)) {
+        return null;
+    }
+    $map = broadcast_btn_action_map();
+    $btn_type = $match[2];
+    return [
+        'broadcast_id' => intval($match[1]),
+        'btn_type' => $btn_type,
+        'action' => $map[$btn_type] ?? $btn_type,
+    ];
+}

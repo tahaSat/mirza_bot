@@ -150,6 +150,8 @@ foreach ($topic_id as $topic) {
         $otherservice = $topic['idreport'];
     if ($topic['report'] == 'paymentreport')
         $paymentreports = $topic['idreport'];
+    if ($topic['report'] == 'reportsms')
+        $reportsms = $topic['idreport'];
 
 }
 if ($setting['statusnamecustom'] == 'onnamecustom')
@@ -158,7 +160,33 @@ if ($setting['statusnoteforf'] == "0" && $user['agent'] == "f")
     $statusnote = false;
 $time_Start = jdate('Y/m/d');
 $date_start = jdate('H:i:s', time());
-$time_string = "📆 $date_start → ⏰ $time_Start";
+
+#-----------broadcast click tracking------------#
+$broadcast_resolved = resolve_broadcast_callback_action($datain);
+if ($broadcast_resolved !== null) {
+    track_broadcast_click($broadcast_resolved['broadcast_id'], $from_id);
+    $datain = $broadcast_resolved['action'];
+}
+if (is_string($text) && strpos($text, "/start ") !== false) {
+    $start_payload = explode(" ", $text, 2)[1] ?? '';
+    $broadcast_start = resolve_broadcast_callback_action($start_payload);
+    if ($broadcast_start !== null) {
+        track_broadcast_click($broadcast_start['broadcast_id'], $from_id);
+        $action = $broadcast_start['action'];
+        if (in_array($action, ['buy', 'start'], true)) {
+            $text = $action;
+        } elseif ($action === 'usertestbtn') {
+            $text = 'usertest';
+        } elseif ($action === 'helpbtn') {
+            $text = 'help';
+        } elseif (in_array($action, ['affiliatesbtn', 'Add_Balance'], true)) {
+            $datain = $action;
+            $text = '';
+        } else {
+            $text = $action;
+        }
+    }
+}$time_string = "📆 $date_start → ⏰ $time_Start";
 $varable_start = [
     '{username}' => $username,
     '{first_name}' => $first_name,
@@ -221,7 +249,25 @@ if (floor($TimeLastMessage / 60) >= 1) {
 
 if (strpos($text, "/start ") !== false && $user['step'] != "gettextSystemMessage") {
     $affiliatesid = explode(" ", $text)[1];
-    if (preg_match('/^ref_(\d+)_(\d+)$/', $affiliatesid, $referral_match)
+    if (preg_match('/^bc_(\d+)_(.+)$/', $affiliatesid, $bc_match)) {
+        $broadcast_start = resolve_broadcast_callback_action($affiliatesid);
+        if ($broadcast_start !== null) {
+            // click already tracked earlier; only remap routing here if still needed
+            $action = $broadcast_start['action'];
+            if (in_array($action, ['buy', 'start'], true)) {
+                $text = $action;
+            } elseif ($action === 'usertestbtn') {
+                $text = 'usertest';
+            } elseif ($action === 'helpbtn') {
+                $text = 'help';
+            } elseif (in_array($action, ['affiliatesbtn', 'Add_Balance'], true)) {
+                $datain = $action;
+                $text = '';
+            } else {
+                $text = $action;
+            }
+        }
+    } elseif (preg_match('/^ref_(\d+)_(\d+)$/', $affiliatesid, $referral_match)
         || preg_match('/^ref_([A-Za-z][A-Za-z0-9]*)_(\d+)$/', $affiliatesid, $referral_match)) {
         handle_referral_start($referral_match[1], $referral_match[2], $from_id, $was_new_user, $username);
     } elseif (!in_array($affiliatesid, ['start', "usertest", "/start", "buy", "help"])) {

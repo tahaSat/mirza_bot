@@ -37,6 +37,10 @@ if(count($userid) == 0){
     if(isset($info['id_admin'])){
     deletemessage($info['id_admin'], $info['id_message']);
     sendmessage($info['id_admin'], "📌 عملیات برای تمامی کاربران درخواستی انجام شد.", null, 'HTML');
+    if (!empty($info['broadcast_id'])) {
+        update("broadcast_log", "status", "completed", "id", intval($info['broadcast_id']));
+        refresh_broadcast_report_message(intval($info['broadcast_id']));
+    }
     unlink('info');
     unlink('users.json');
     }
@@ -55,48 +59,34 @@ $cancelmessage = json_encode([
         ]
     ]);
 Editmessagetext($info['id_admin'], $info['id_message'],$textprocces, $cancelmessage);
-$keyboardbuy = json_encode([
+
+$broadcast_id = intval($info['broadcast_id'] ?? 0);
+$btnmessage = $info['btnmessage'] ?? 'none';
+$btnkeyboard = null;
+if ($btnmessage != 'none' && $btnmessage != '') {
+    $btn_texts = [
+        'buy' => $datatextbot['text_sell'],
+        'start' => 'شروع',
+        'usertestbtn' => $datatextbot['text_usertest'],
+        'helpbtn' => $datatextbot['text_help'],
+        'affiliatesbtn' => $datatextbot['text_affiliates'],
+        'addbalance' => $datatextbot['text_Add_Balance'],
+    ];
+    $btn_text = $btn_texts[$btnmessage] ?? 'ورود به ربات';
+    $callback = ($broadcast_id > 0) ? ('bc_' . $broadcast_id . '_' . $btnmessage) : $btnmessage;
+    if ($btnmessage === 'addbalance' && $broadcast_id <= 0) {
+        $callback = 'Add_Balance';
+    } elseif ($btnmessage === 'buy' && $broadcast_id <= 0) {
+        $callback = 'buy';
+    }
+    $btnkeyboard = json_encode([
         'inline_keyboard' => [
             [
-                ['text' => $datatextbot['text_sell'], 'callback_data' => 'buy'],
+                ['text' => $btn_text, 'callback_data' => $callback],
             ],
         ]
     ]);
-$keyboardstart = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => "شروع", 'callback_data' => 'start'],
-            ],
-        ]
-    ]);
-$keyboardusertest = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => $datatextbot['text_usertest'], 'callback_data' => 'usertestbtn'],
-            ],
-        ]
-    ]);
-$keyboardhelpbtn = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => $datatextbot['text_help'], 'callback_data' => 'helpbtn'],
-            ],
-        ]
-    ]);
-$keyboardaffiliates = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => $datatextbot['text_affiliates'], 'callback_data' => 'affiliatesbtn'],
-            ],
-        ]
-    ]);
-$keyboardaddbalance = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => $datatextbot['text_Add_Balance'], 'callback_data' => 'Add_Balance'],
-            ],
-        ]
-    ]);
+}
 for ($i = 0; $i < 20; $i++) {
     $iduser = $userid[$i];
     unset($userid[$i]);
@@ -104,21 +94,6 @@ for ($i = 0; $i < 20; $i++) {
     if ($info['type'] == "unpinmessage") {
         unpinmessage($iduser->id);
     } elseif ($info['type'] == "sendmessage" or $info['type'] == "xdaynotmessage") {
-        $btnkeyboard = null;
-        if ($info['btnmessage'] == "buy") {
-            $btnkeyboard = $keyboardbuy;
-        } elseif ($info['btnmessage'] == "start") {
-            $btnkeyboard = $keyboardstart;
-        } elseif ($info['btnmessage'] == "usertestbtn") {
-            $btnkeyboard = $keyboardusertest;
-        } elseif ($info['btnmessage'] == "helpbtn") {
-            $btnkeyboard = $keyboardhelpbtn;
-        } elseif ($info['btnmessage'] == "affiliatesbtn") {
-            $btnkeyboard = $keyboardaffiliates;
-        } elseif ($info['btnmessage'] == "addbalance") {
-            $btnkeyboard = $keyboardaddbalance;
-        }
-
         $isphoto = (($info['messagemediatype'] ?? 'text') == 'photo') && !empty($info['photoid']);
         if ($isphoto) {
             $photoparams = [
@@ -133,7 +108,7 @@ for ($i = 0; $i < 20; $i++) {
                 $photoparams['reply_markup'] = $btnkeyboard;
             }
             $meesage = telegram('sendphoto', $photoparams);
-        } elseif ($info['btnmessage'] == "none") {
+        } elseif ($btnkeyboard === null) {
             $meesage = sendmessage($iduser->id, $info['message'], null, 'HTML');
         } else {
             $meesage = sendmessage($iduser->id, $info['message'], $btnkeyboard, 'HTML');

@@ -1313,6 +1313,7 @@ try {
         $connect->query("INSERT INTO topicid (idreport,report) VALUES ('0','reportnight')");
         $connect->query("INSERT INTO topicid (idreport,report) VALUES ('0','reportcron')");
         $connect->query("INSERT INTO topicid (idreport,report) VALUES ('0','backupfile')");
+        $connect->query("INSERT INTO topicid (idreport,report) VALUES ('0','reportsms')");
     } else {
         $connect->query("INSERT IGNORE INTO topicid (idreport,report) VALUES ('0','buyreport')");
         $connect->query("INSERT IGNORE INTO topicid (idreport,report) VALUES ('0','otherservice')");
@@ -1324,13 +1325,49 @@ try {
         $connect->query("INSERT IGNORE INTO topicid (idreport,report) VALUES ('0','reportnight')");
         $connect->query("INSERT IGNORE INTO topicid (idreport,report) VALUES ('0','reportcron')");
         $connect->query("INSERT IGNORE INTO topicid (idreport,report) VALUES ('0','backupfile')");
-
-
-
-
+        $connect->query("INSERT IGNORE INTO topicid (idreport,report) VALUES ('0','reportsms')");
     }
 } catch (Exception $e) {
     file_put_contents('error_log topicid', $e->getMessage());
+}
+try {
+    $result = $connect->query("SHOW TABLES LIKE 'broadcast_log'");
+    $table_exists = ($result->num_rows > 0);
+    if (!$table_exists) {
+        $connect->query("CREATE TABLE broadcast_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        admin_id BIGINT NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        message_text TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+        media_type VARCHAR(20) NOT NULL DEFAULT 'text',
+        photo_id VARCHAR(255) NOT NULL DEFAULT '',
+        btn_type VARCHAR(50) NOT NULL DEFAULT 'none',
+        audience_label VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+        recipient_count INT NOT NULL DEFAULT 0,
+        click_count INT NOT NULL DEFAULT 0,
+        report_message_id BIGINT NOT NULL DEFAULT 0,
+        status VARCHAR(30) NOT NULL DEFAULT 'started',
+        created_at INT NOT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+    }
+} catch (Exception $e) {
+    file_put_contents('error_log broadcast_log', $e->getMessage());
+}
+try {
+    $result = $connect->query("SHOW TABLES LIKE 'broadcast_click'");
+    $table_exists = ($result->num_rows > 0);
+    if (!$table_exists) {
+        $connect->query("CREATE TABLE broadcast_click (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        broadcast_id INT NOT NULL,
+        user_id BIGINT NOT NULL,
+        clicked_at INT NOT NULL,
+        UNIQUE KEY uniq_broadcast_user (broadcast_id, user_id),
+        KEY idx_broadcast_id (broadcast_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+    }
+} catch (Exception $e) {
+    file_put_contents('error_log broadcast_click', $e->getMessage());
 }
 try {
     $result = $connect->query("SHOW TABLES LIKE 'manualsell'");

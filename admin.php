@@ -1591,6 +1591,22 @@ $textday
             sendmessage($from_id, "❌ کانال مشخص نشده است. مراحل را از اول انجام دهید.", $keyboardadmin, 'HTML');
             return;
         }
+        $is_photo = (($userdata['messagemediatype'] ?? 'text') == 'photo') && !empty($userdata['photoid']);
+        if (!$is_photo && (($userdata['message'] ?? '') === '')) {
+            sendmessage($from_id, "❌ متن پست خالی است.", $keyboardadmin, 'HTML');
+            return;
+        }
+        $broadcast = log_broadcast_to_report([
+            'admin_id' => $from_id,
+            'type' => 'channelpost',
+            'message_text' => $userdata['message'] ?? '',
+            'media_type' => $userdata['messagemediatype'] ?? 'text',
+            'photo_id' => $userdata['photoid'] ?? '',
+            'btn_type' => $userdata['btntypemessage'] ?? 'none',
+            'audience_label' => broadcast_audience_label($userdata),
+            'recipient_count' => 1,
+            'status' => 'started',
+        ]);
         $btn_type = $userdata['btntypemessage'] ?? 'none';
         $btn_keyboard = null;
         if ($btn_type != 'none') {
@@ -1602,17 +1618,9 @@ $textday
                 'affiliatesbtn' => $datatextbot['text_affiliates'] ?? 'زیرمجموعه گیری',
                 'addbalance' => $datatextbot['text_Add_Balance'] ?? 'شارژ حساب',
             ];
-            $start_payloads = [
-                'start' => 'start',
-                'buy' => 'buy',
-                'usertestbtn' => 'usertest',
-                'helpbtn' => 'help',
-                'affiliatesbtn' => '',
-                'addbalance' => '',
-            ];
             $btn_text = $btn_texts[$btn_type] ?? 'ورود به ربات';
-            $payload = $start_payloads[$btn_type] ?? '';
-            $btn_url = "https://t.me/{$usernamebot}" . ($payload !== '' ? "?start={$payload}" : '');
+            $payload = 'bc_' . intval($broadcast['id']) . '_' . $btn_type;
+            $btn_url = "https://t.me/{$usernamebot}?start={$payload}";
             $btn_keyboard = json_encode([
                 'inline_keyboard' => [
                     [
@@ -1621,7 +1629,6 @@ $textday
                 ]
             ]);
         }
-        $is_photo = (($userdata['messagemediatype'] ?? 'text') == 'photo') && !empty($userdata['photoid']);
         if ($is_photo) {
             $params = [
                 'chat_id' => $channel_id,
@@ -1636,10 +1643,6 @@ $textday
             }
             $result = telegram('sendphoto', $params);
         } else {
-            if (($userdata['message'] ?? '') === '') {
-                sendmessage($from_id, "❌ متن پست خالی است.", $keyboardadmin, 'HTML');
-                return;
-            }
             $params = [
                 'chat_id' => $channel_id,
                 'text' => $userdata['message'],
@@ -1651,10 +1654,14 @@ $textday
             $result = telegram('sendmessage', $params);
         }
         if (!isset($result['ok']) || !$result['ok']) {
+            update("broadcast_log", "status", "cancelled", "id", intval($broadcast['id']));
+            refresh_broadcast_report_message(intval($broadcast['id']));
             $err = $result['description'] ?? 'خطای نامشخص';
             sendmessage($from_id, "❌ ارسال پست به کانال ناموفق بود:\n<code>" . htmlspecialchars($err, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</code>", $keyboardadmin, 'HTML');
             return;
         }
+        update("broadcast_log", "status", "published", "id", intval($broadcast['id']));
+        refresh_broadcast_report_message(intval($broadcast['id']));
         Editmessagetext($from_id, $message_id, "✅ پست با موفقیت در کانال منتشر شد.", null);
         sendmessage($from_id, "✅ پست کانال با موفقیت ارسال شد.", $keyboardadmin, 'HTML');
         return;
@@ -1737,6 +1744,18 @@ $textday
             }
         }
         $message_id = Editmessagetext($from_id, $message_id, "✅ عملیات آغاز گردید پس از پایان اطلاع رسانی خواهد شد.", $cancelmessage);
+        $recipient_count = is_string($userslist) ? count(json_decode($userslist, true) ?: []) : 0;
+        $broadcast = log_broadcast_to_report([
+            'admin_id' => $from_id,
+            'type' => 'sendmessage',
+            'message_text' => $userdata['message'] ?? '',
+            'media_type' => $userdata['messagemediatype'] ?? 'text',
+            'photo_id' => $userdata['photoid'] ?? '',
+            'btn_type' => $userdata['btntypemessage'] ?? 'none',
+            'audience_label' => broadcast_audience_label($userdata),
+            'recipient_count' => $recipient_count,
+            'status' => 'started',
+        ]);
         $data = json_encode(array(
             "id_admin" => $from_id,
             'type' => "sendmessage",
@@ -1745,7 +1764,8 @@ $textday
             "messagemediatype" => $userdata['messagemediatype'] ?? 'text',
             "photoid" => $userdata['photoid'] ?? '',
             "pingmessage" => $userdata['typepinmessage'],
-            "btnmessage" => $userdata['btntypemessage']
+            "btnmessage" => $userdata['btntypemessage'],
+            "broadcast_id" => intval($broadcast['id']),
         ));
         file_put_contents("cronbot/users.json", $userslist);
         file_put_contents('cronbot/info', $data);
@@ -1790,12 +1810,25 @@ $textday
             }
         }
         $message_id = Editmessagetext($from_id, $message_id, "✅ عملیات آغاز گردید پس از پایان اطلاع رسانی خواهد شد.", $cancelmessage);
+        $recipient_count = is_string($userslist) ? count(json_decode($userslist, true) ?: []) : 0;
+        $broadcast = log_broadcast_to_report([
+            'admin_id' => $from_id,
+            'type' => 'forwardmessage',
+            'message_text' => 'فوروارد پیام #' . ($userdata['message'] ?? ''),
+            'media_type' => 'text',
+            'photo_id' => '',
+            'btn_type' => 'none',
+            'audience_label' => broadcast_audience_label($userdata),
+            'recipient_count' => $recipient_count,
+            'status' => 'started',
+        ]);
         $data = json_encode(array(
             "id_admin" => $from_id,
             'type' => "forwardmessage",
             "id_message" => $message_id['result']['message_id'],
             "message" => $userdata['message'],
             "pingmessage" => $userdata['typepinmessage'],
+            "broadcast_id" => intval($broadcast['id']),
         ));
         file_put_contents("cronbot/users.json", $userslist);
         file_put_contents('cronbot/info', $data);
@@ -1859,18 +1892,40 @@ $textday
             }
         }
         $message_id = Editmessagetext($from_id, $message_id, "✅ عملیات آغاز گردید پس از پایان اطلاع رسانی خواهد شد.", $cancelmessage);
+        $recipient_count = is_string($userslist) ? count(json_decode($userslist, true) ?: []) : 0;
+        $broadcast = log_broadcast_to_report([
+            'admin_id' => $from_id,
+            'type' => 'xdaynotmessage',
+            'message_text' => $userdata['message'] ?? '',
+            'media_type' => 'text',
+            'photo_id' => '',
+            'btn_type' => $userdata['btntypemessage'] ?? 'none',
+            'audience_label' => broadcast_audience_label($userdata),
+            'recipient_count' => $recipient_count,
+            'status' => 'started',
+        ]);
         $data = json_encode(array(
             "id_admin" => $from_id,
             'type' => "xdaynotmessage",
             "id_message" => $message_id['result']['message_id'],
             "message" => $userdata['message'],
             "pingmessage" => $userdata['typepinmessage'],
-            "btnmessage" => $userdata['btntypemessage']
+            "btnmessage" => $userdata['btntypemessage'],
+            "broadcast_id" => intval($broadcast['id']),
         ));
         file_put_contents("cronbot/users.json", $userslist);
         file_put_contents('cronbot/info', $data);
     }
 } elseif ($datain == "cancel_sendmessage") {
+    ensure_broadcast_schema();
+    $info_raw = @file_get_contents(__DIR__ . '/cronbot/info');
+    if ($info_raw) {
+        $info_cancel = json_decode($info_raw, true);
+        if (!empty($info_cancel['broadcast_id'])) {
+            update("broadcast_log", "status", "cancelled", "id", intval($info_cancel['broadcast_id']));
+            refresh_broadcast_report_message(intval($info_cancel['broadcast_id']));
+        }
+    }
     file_put_contents('users.json', json_encode(array()));
     unlink('cronbot/users.json');
     unlink('cronbot/info');
@@ -3607,6 +3662,19 @@ $caption";
 
     if ($reportbackup != $createForumTopic['result']['message_thread_id']) {
         update("topicid", "idreport", $createForumTopic['result']['message_thread_id'], "report", "backupfile");
+    }
+    $createForumTopic = telegram('createForumTopic', [
+        'chat_id' => $text,
+        'name' => "📨 گزارش ارسال پیام"
+    ]);
+    if (!$createForumTopic['ok']) {
+        $texterror = "❌ ربات ادمین گروه نیست";
+        sendmessage($from_id, $texterror, null, 'HTML');
+        return;
+    }
+    $reportsms_topic = select("topicid", "idreport", "report", "reportsms", "select")['idreport'] ?? '0';
+    if ($reportsms_topic != $createForumTopic['result']['message_thread_id']) {
+        update("topicid", "idreport", $createForumTopic['result']['message_thread_id'], "report", "reportsms");
     }
     sendmessage($from_id, $textbotlang['Admin']['Channel']['SetChannelReport'], $setting_panel, 'HTML');
     update("setting", "Channel_Report", $text);

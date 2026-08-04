@@ -6,6 +6,20 @@ require_auth();
 $pdo = panel_ensure_pdo();
 $currentPanelAdmin = db_fetch($pdo, 'SELECT id_admin, username, rule FROM admin WHERE username = ?', [$_SESSION['admin_user'] ?? '']);
 $canManageAdmins = ($currentPanelAdmin['rule'] ?? '') === 'administrator';
+$bulkChargeJob = null;
+$bulkChargeRemaining = 0;
+$bulkChargeFile = dirname(__DIR__) . '/cronbot/gift';
+$bulkChargeQueueFile = dirname(__DIR__) . '/cronbot/username.json';
+if (is_file($bulkChargeFile)) {
+    $activeBulkJob = json_decode((string) file_get_contents($bulkChargeFile), true);
+    if (is_array($activeBulkJob) && !empty($activeBulkJob['bulk_service_charge'])) {
+        $bulkChargeJob = $activeBulkJob;
+        if (is_file($bulkChargeQueueFile)) {
+            $remainingServices = json_decode((string) file_get_contents($bulkChargeQueueFile), true);
+            $bulkChargeRemaining = is_array($remainingServices) ? count($remainingServices) : 0;
+        }
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check_post();
@@ -129,6 +143,23 @@ include __DIR__ . '/inc/layout_head.php';
             <a href="users.php?view=admins" class="tag <?= $view === 'admins' ? 'tag-info' : 'tag-plain' ?>" style="cursor:pointer">ادمین‌ها</a>
             <?php if ($view === 'admins' && $canManageAdmins): ?>
                 <button type="button" class="btn btn-primary btn-sm" onclick="openModal('addAdminModal')"><?= icon('plus', 14) ?> افزودن ادمین</button>
+            <?php endif; ?>
+            <?php if ($view === 'users' && $canManageAdmins): ?>
+                <?php if ($bulkChargeJob): ?>
+                    <span class="tag tag-warn">
+                        شارژ همگانی در حال اجرا · <?= number_format($bulkChargeRemaining) ?> باقی‌مانده
+                    </span>
+                    <form method="POST" action="bulk_service_charge_action.php"
+                        onsubmit="return confirm('عملیات شارژ همگانی سرویس‌ها لغو شود؟')">
+                        <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                        <input type="hidden" name="action" value="cancel">
+                        <button type="submit" class="btn btn-no btn-sm"><?= icon('close', 13) ?> لغو عملیات</button>
+                    </form>
+                <?php else: ?>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="openModal('bulkServiceChargeModal')">
+                        <?= icon('plus', 14) ?> شارژ همگانی سرویس‌ها
+                    </button>
+                <?php endif; ?>
             <?php endif; ?>
 
             <?php if ($view === 'users' && $blockedCount > 0): ?>
@@ -337,6 +368,90 @@ include __DIR__ . '/inc/layout_head.php';
         </div>
     </div>
 </div>
+
+<?php if ($view === 'users' && $canManageAdmins && !$bulkChargeJob): ?>
+<div class="modal-veil" id="bulkServiceChargeModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h3>شارژ همگانی سرویس‌ها</h3>
+            <button class="modal-x" type="button" onclick="closeModal('bulkServiceChargeModal')"><?= icon('close', 14) ?></button>
+        </div>
+        <form method="POST" action="bulk_service_charge_action.php" id="bulkServiceChargeForm">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="start">
+
+                <div class="field">
+                    <label>گروه کاربری</label>
+                    <select class="select" name="agent" required>
+                        <option value="all">همه کاربران</option>
+                        <option value="f">کاربران گروه f</option>
+                        <option value="n">کاربران گروه n</option>
+                        <option value="n2">کاربران گروه n2</option>
+                    </select>
+                    <span class="field-hint">فقط کاربرانی که خرید و سرویس فعال دارند انتخاب می‌شوند.</span>
+                </div>
+
+                <div class="field">
+                    <label>نوع کاربران</label>
+                    <select class="select" name="service_type" id="bulkServiceType" required>
+                        <option value="volume">کاربران حجمی — افزایش حجم</option>
+                        <option value="day">کاربران نامحدود — افزایش زمان</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label id="bulkServiceValueLabel">حجم افزایشی (گیگابایت)</label>
+                    <input class="input" type="number" name="value" id="bulkServiceValue"
+                        min="1" step="1" inputmode="numeric" required>
+                    <span class="field-hint" id="bulkServiceValueHint">این مقدار به تمام سرویس‌های حجمی فعال اضافه می‌شود.</span>
+                </div>
+
+                <div class="field">
+                    <label>پیام ارسالی</label>
+                    <textarea class="input" name="message" rows="5" maxlength="4000" required
+                        placeholder="پیامی که پس از شارژ موفق هر سرویس برای کاربر ارسال می‌شود"></textarea>
+                    <span class="field-hint">برای هر سرویس که با موفقیت شارژ شود، این پیام یک‌بار ارسال خواهد شد.</span>
+                </div>
+
+                <div style="margin:0;padding:10px 12px;border:1px solid var(--warn);border-radius:var(--r);color:var(--warn);font-size:.8rem;line-height:1.8">
+                    عملیات روی تمام سرویس‌های فعال مطابق فیلتر اجرا می‌شود و ممکن است چند دقیقه زمان ببرد.
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-primary" type="submit">تایید و شروع عملیات</button>
+                <button class="btn btn-ghost" type="button" onclick="closeModal('bulkServiceChargeModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+(function () {
+    var type = document.getElementById('bulkServiceType');
+    var label = document.getElementById('bulkServiceValueLabel');
+    var hint = document.getElementById('bulkServiceValueHint');
+    var form = document.getElementById('bulkServiceChargeForm');
+    if (!type || !label || !hint || !form) return;
+
+    function updateValueCopy() {
+        var isVolume = type.value === 'volume';
+        label.textContent = isVolume ? 'حجم افزایشی (گیگابایت)' : 'زمان افزایشی (روز)';
+        hint.textContent = isVolume
+            ? 'این مقدار به تمام سرویس‌های حجمی فعال اضافه می‌شود.'
+            : 'این مقدار به تمام سرویس‌های نامحدود فعال اضافه می‌شود.';
+    }
+
+    type.addEventListener('change', updateValueCopy);
+    form.addEventListener('submit', function (event) {
+        var kind = type.value === 'volume' ? 'حجم' : 'زمان';
+        if (!window.confirm('افزایش ' + kind + ' برای تمام سرویس‌های فعال مطابق فیلتر آغاز شود؟')) {
+            event.preventDefault();
+        }
+    });
+    updateValueCopy();
+}());
+</script>
+<?php endif; ?>
 
 <?php if ($canManageAdmins): ?>
 <div class="modal-veil" id="addAdminModal">

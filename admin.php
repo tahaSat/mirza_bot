@@ -1182,27 +1182,10 @@ elseif ($datain == "systemsms") {
     $channel_title = $chat['result']['title'] ?? $channel_input;
     savedata("save", "channel_id", (string) $channel_id);
     savedata("save", "channel_title", $channel_title);
-    $listbtn = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => "دکمه استارت", 'callback_data' => 'channelpostbtn-start'],
-                ['text' => "دکمه آموزش", 'callback_data' => 'channelpostbtn-helpbtn'],
-            ],
-            [
-                ['text' => "دکمه خرید", 'callback_data' => 'channelpostbtn-buy'],
-                ['text' => "دکمه اکانت تست", 'callback_data' => 'channelpostbtn-usertestbtn'],
-            ],
-            [
-                ['text' => "دکمه زیرمجموعه گیری ", 'callback_data' => 'channelpostbtn-affiliatesbtn'],
-                ['text' => "شارژ حساب کاربری", 'callback_data' => 'channelpostbtn-addbalance'],
-            ],
-            [
-                ['text' => "ارسال بدون دکمه", 'callback_data' => 'channelpostbtn-none'],
-            ],
-            [
-                ['text' => "بازگشت به منوی قبل", 'callback_data' => 'typeservice-sendmessage'],
-            ],
-        ]
+    $listbtn = broadcast_btn_picker_keyboard('channelpostbtn', [
+        [
+            ['text' => "بازگشت به منوی قبل", 'callback_data' => 'typeservice-sendmessage'],
+        ],
     ]);
     step("home", $from_id);
     sendmessage($from_id, "✅ کانال <b>" . htmlspecialchars($channel_title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</b> تایید شد.\n\n📌 دکمه‌ای که زیر پست نمایش داده شود را انتخاب کنید:", $listbtn, 'HTML');
@@ -1214,7 +1197,7 @@ elseif ($datain == "systemsms") {
         sendmessage($from_id, "❌ خطایی رخ داده لطفا مراحل ارسال پیام از اول انجام دهید", $keyboardadmin, 'HTML');
         return;
     }
-    if (!in_array($btn_type, ['start', 'helpbtn', 'buy', 'usertestbtn', 'affiliatesbtn', 'addbalance', 'none'], true)) {
+    if (!in_array($btn_type, broadcast_attachable_button_keys(), true)) {
         sendmessage($from_id, "❌ گزینه نامعتبر است", $keyboardadmin, 'HTML');
         return;
     }
@@ -1474,27 +1457,10 @@ elseif ($datain == "systemsms") {
         return;
     }
     savedata("save", "typepinmessage", $type);
-    $listbtn = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => "دکمه استارت", 'callback_data' => 'btntypemessage-start'],
-                ['text' => "دکمه آموزش", 'callback_data' => 'btntypemessage-helpbtn'],
-            ],
-            [
-                ['text' => "دکمه خرید", 'callback_data' => 'btntypemessage-buy'],
-                ['text' => "دکمه اکانت تست", 'callback_data' => 'btntypemessage-usertestbtn'],
-            ],
-            [
-                ['text' => "دکمه زیرمجموعه گیری ", 'callback_data' => 'btntypemessage-affiliatesbtn'],
-                ['text' => "شارژ حساب کاربری", 'callback_data' => 'btntypemessage-addbalance'],
-            ],
-            [
-                ['text' => "ارسال بدون دکمه", 'callback_data' => 'btntypemessage-none'],
-            ],
-            [
-                ['text' => "بازگشت به منوی قبل", 'callback_data' => 'typeagent-' . $userdata['agent']],
-            ],
-        ]
+    $listbtn = broadcast_btn_picker_keyboard('btntypemessage', [
+        [
+            ['text' => "بازگشت به منوی قبل", 'callback_data' => 'typeagent-' . $userdata['agent']],
+        ],
     ]);
     if ($userdata['typeservice'] == "forwardmessage") {
         step("gettextSystemMessage", $from_id);
@@ -1505,6 +1471,10 @@ elseif ($datain == "systemsms") {
 } elseif (preg_match('/^btntypemessage-(\w+)/', $datain, $dataget)) {
     deletemessage($from_id, $message_id);
     $type = $dataget[1];
+    if (!in_array($type, broadcast_attachable_button_keys(), true)) {
+        sendmessage($from_id, "❌ گزینه نامعتبر است", $keyboardadmin, 'HTML');
+        return;
+    }
     savedata("save", "btntypemessage", $type);
     savedata("save", "btntextmessage", "");
     $userdata = json_decode(select("user", "*", "id", $from_id, "select")['Processing_value'], true);

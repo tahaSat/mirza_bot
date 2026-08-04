@@ -4679,16 +4679,169 @@ function ensure_broadcast_schema()
     $ready = true;
 }
 
-function broadcast_btn_action_map()
+function broadcast_attachable_buttons()
 {
     return [
-        'buy' => 'buy',
-        'start' => 'start',
-        'usertestbtn' => 'usertestbtn',
-        'helpbtn' => 'helpbtn',
-        'affiliatesbtn' => 'affiliatesbtn',
-        'addbalance' => 'Add_Balance',
+        'start' => [
+            'admin_label' => 'دکمه استارت',
+            'text_key' => null,
+            'fallback' => 'شروع',
+            'callback' => 'start',
+            'legacy' => 'start',
+            'route_text' => 'start',
+            'route_datain' => 'start',
+        ],
+        'buy' => [
+            'admin_label' => 'دکمه خرید',
+            'text_key' => 'text_sell',
+            'fallback' => '🔐 خرید اشتراک',
+            'callback' => 'buy',
+            'legacy' => 'buy',
+            'route_text' => 'buy',
+            'route_datain' => 'buy',
+        ],
+        'usertestbtn' => [
+            'admin_label' => 'دکمه اکانت تست',
+            'text_key' => 'text_usertest',
+            'fallback' => '🔑 اکانت تست',
+            'callback' => 'usertestbtn',
+            'legacy' => 'usertest',
+            'route_text' => 'usertest',
+            'route_datain' => 'usertestbtn',
+        ],
+        'services' => [
+            'admin_label' => 'دکمه سرویس های من',
+            'text_key' => 'text_Purchased_services',
+            'fallback' => '🛍 سرویس های من',
+            'callback' => 'backorder',
+            'legacy' => 'services',
+            'route_text' => '',
+            'route_datain' => 'backorder',
+        ],
+        'extendbtn' => [
+            'admin_label' => 'دکمه تمدید سرویس',
+            'text_key' => 'text_extend',
+            'fallback' => '♻️ تمدید سرویس',
+            'callback' => 'extendbtn',
+            'legacy' => 'extend',
+            'route_text' => '',
+            'route_datain' => 'extendbtn',
+        ],
+        'wallet' => [
+            'admin_label' => 'دکمه کیف پول',
+            'text_key' => 'accountwallet',
+            'fallback' => '🏦 کیف پول + شارژ',
+            'callback' => 'account',
+            'legacy' => 'wallet',
+            'route_text' => '',
+            'route_datain' => 'account',
+        ],
+        'addbalance' => [
+            'admin_label' => 'شارژ حساب کاربری',
+            'text_key' => 'text_Add_Balance',
+            'fallback' => '💰 شارژ حساب',
+            'callback' => 'Add_Balance',
+            'legacy' => 'bal',
+            'route_text' => '',
+            'route_datain' => 'Add_Balance',
+        ],
+        'tariff' => [
+            'admin_label' => 'دکمه تعرفه اشتراک ها',
+            'text_key' => 'text_Tariff_list',
+            'fallback' => '💵 تعرفه اشتراک ها',
+            'callback' => 'Tariff_list',
+            'legacy' => 'tariff',
+            'route_text' => '',
+            'route_datain' => 'Tariff_list',
+        ],
+        'helpbtn' => [
+            'admin_label' => 'دکمه آموزش',
+            'text_key' => 'text_help',
+            'fallback' => '📚 آموزش',
+            'callback' => 'helpbtn',
+            'legacy' => 'help',
+            'route_text' => 'help',
+            'route_datain' => 'helpbtn',
+        ],
+        'support' => [
+            'admin_label' => 'دکمه پشتیبانی',
+            'text_key' => 'text_support',
+            'fallback' => '☎️ پشتیبانی',
+            'callback' => 'supportbtns',
+            'legacy' => 'support',
+            'route_text' => '',
+            'route_datain' => 'supportbtns',
+        ],
+        'affiliatesbtn' => [
+            'admin_label' => 'دکمه زیرمجموعه گیری',
+            'text_key' => 'text_affiliates',
+            'fallback' => '👥 زیر مجموعه گیری',
+            'callback' => 'affiliatesbtn',
+            'legacy' => 'aff',
+            'route_text' => '',
+            'route_datain' => 'affiliatesbtn',
+        ],
+        'referral' => [
+            'admin_label' => 'دکمه دعوت دوستان',
+            'text_key' => 'text_referral',
+            'fallback' => '🎁 دعوت دوستان',
+            'callback' => 'referralbtn',
+            'legacy' => 'invite',
+            'route_text' => '',
+            'route_datain' => 'referralbtn',
+        ],
+        'wheel' => [
+            'admin_label' => 'دکمه گردونه شانس',
+            'text_key' => 'text_wheel_luck',
+            'fallback' => '🎲 گردونه شانس',
+            'callback' => 'wheel_luck',
+            'legacy' => 'wheel',
+            'route_text' => '',
+            'route_datain' => 'wheel_luck',
+        ],
     ];
+}
+
+function broadcast_attachable_button_keys()
+{
+    return array_merge(array_keys(broadcast_attachable_buttons()), ['none']);
+}
+
+function broadcast_btn_picker_keyboard($prefix, $extra_rows = [])
+{
+    $rows = [];
+    $row = [];
+    foreach (broadcast_attachable_buttons() as $key => $meta) {
+        $row[] = [
+            'text' => $meta['admin_label'],
+            'callback_data' => $prefix . '-' . $key,
+        ];
+        if (count($row) >= 2) {
+            $rows[] = $row;
+            $row = [];
+        }
+    }
+    if ($row !== []) {
+        $rows[] = $row;
+    }
+    $rows[] = [
+        ['text' => 'ارسال بدون دکمه', 'callback_data' => $prefix . '-none'],
+    ];
+    foreach ($extra_rows as $extra) {
+        if (is_array($extra) && $extra !== []) {
+            $rows[] = $extra;
+        }
+    }
+    return json_encode(['inline_keyboard' => $rows]);
+}
+
+function broadcast_btn_action_map()
+{
+    $map = [];
+    foreach (broadcast_attachable_buttons() as $key => $meta) {
+        $map[$key] = $meta['callback'];
+    }
+    return $map;
 }
 
 function broadcast_btn_label($btn_type, $texts = null)
@@ -4697,16 +4850,27 @@ function broadcast_btn_label($btn_type, $texts = null)
     if (!is_array($texts)) {
         $texts = is_array($datatextbot) ? $datatextbot : [];
     }
-    $labels = [
-        'none' => 'بدون دکمه',
-        'start' => 'شروع',
-        'buy' => $texts['text_sell'] ?? 'خرید',
-        'usertestbtn' => $texts['text_usertest'] ?? 'اکانت تست',
-        'helpbtn' => $texts['text_help'] ?? 'آموزش',
-        'affiliatesbtn' => $texts['text_affiliates'] ?? 'زیرمجموعه گیری',
-        'addbalance' => $texts['text_Add_Balance'] ?? 'شارژ حساب',
-    ];
-    return $labels[$btn_type] ?? $btn_type;
+    if ($btn_type === 'none') {
+        return 'بدون دکمه';
+    }
+    $meta = broadcast_attachable_buttons()[$btn_type] ?? null;
+    if ($meta === null) {
+        return $btn_type;
+    }
+    $key = $meta['text_key'] ?? null;
+    if ($key && !empty($texts[$key])) {
+        return $texts[$key];
+    }
+    return $meta['fallback'] ?? $btn_type;
+}
+
+function broadcast_legacy_codes()
+{
+    $codes = [];
+    foreach (broadcast_attachable_buttons() as $meta) {
+        $codes[] = $meta['legacy'];
+    }
+    return array_values(array_unique($codes));
 }
 
 function broadcast_resolve_btn_text($btn_type, $custom_text = null, $texts = null)
@@ -4965,22 +5129,25 @@ function track_broadcast_click($broadcast_id, $user_id)
 function resolve_broadcast_callback_action($payload)
 {
     $payload = (string) $payload;
-    if (preg_match('/^(start|buy|usertest|help|aff|bal)__(\d+)$/', $payload, $match)) {
-        $legacy_to_btn = [
-            'start' => 'start',
-            'buy' => 'buy',
-            'usertest' => 'usertestbtn',
-            'help' => 'helpbtn',
-            'aff' => 'affiliatesbtn',
-            'bal' => 'addbalance',
-        ];
-        $btn_type = $legacy_to_btn[$match[1]] ?? $match[1];
+    $legacy_codes = implode('|', array_map('preg_quote', broadcast_legacy_codes()));
+    if ($legacy_codes !== '' && preg_match('/^(' . $legacy_codes . ')__(\d+)$/', $payload, $match)) {
+        $legacy = $match[1];
+        $btn_type = null;
+        foreach (broadcast_attachable_buttons() as $key => $meta) {
+            if ($meta['legacy'] === $legacy) {
+                $btn_type = $key;
+                break;
+            }
+        }
+        if ($btn_type === null) {
+            return null;
+        }
         $map = broadcast_btn_action_map();
         return [
             'broadcast_id' => intval($match[2]),
             'btn_type' => $btn_type,
             'action' => $map[$btn_type] ?? $btn_type,
-            'legacy' => $match[1],
+            'legacy' => $legacy,
         ];
     }
     if (!preg_match('/^bc_(\d+)_(.+)$/', $payload, $match)) {
@@ -4988,19 +5155,12 @@ function resolve_broadcast_callback_action($payload)
     }
     $map = broadcast_btn_action_map();
     $btn_type = $match[2];
-    $legacy_map = [
-        'buy' => 'buy',
-        'start' => 'start',
-        'usertestbtn' => 'usertest',
-        'helpbtn' => 'help',
-        'affiliatesbtn' => 'aff',
-        'addbalance' => 'bal',
-    ];
+    $meta = broadcast_attachable_buttons()[$btn_type] ?? null;
     return [
         'broadcast_id' => intval($match[1]),
         'btn_type' => $btn_type,
         'action' => $map[$btn_type] ?? $btn_type,
-        'legacy' => $legacy_map[$btn_type] ?? null,
+        'legacy' => $meta['legacy'] ?? null,
     ];
 }
 
@@ -5010,51 +5170,15 @@ function apply_broadcast_start_payload($payload, &$text, &$datain, $from_id)
     if ($resolved === null) {
         return false;
     }
-    $legacy = $resolved['legacy'] ?? null;
-    if ($legacy === null) {
-        $action = $resolved['action'] ?? '';
-        $legacy = [
-            'buy' => 'buy',
-            'start' => 'start',
-            'usertestbtn' => 'usertest',
-            'helpbtn' => 'help',
-            'affiliatesbtn' => 'aff',
-            'Add_Balance' => 'bal',
-        ][$action] ?? null;
-    }
-    if ($legacy === null) {
+    $btn_type = $resolved['btn_type'] ?? null;
+    $meta = ($btn_type !== null) ? (broadcast_attachable_buttons()[$btn_type] ?? null) : null;
+    if ($meta === null) {
         return false;
     }
 
     // Remap routing first so a tracking failure never drops the user on /start.
-    switch ($legacy) {
-        case 'usertest':
-            $text = 'usertest';
-            $datain = 'usertestbtn';
-            break;
-        case 'buy':
-            $text = 'buy';
-            $datain = 'buy';
-            break;
-        case 'help':
-            $text = 'help';
-            $datain = 'helpbtn';
-            break;
-        case 'start':
-            $text = 'start';
-            $datain = 'start';
-            break;
-        case 'aff':
-            $text = '';
-            $datain = 'affiliatesbtn';
-            break;
-        case 'bal':
-            $text = '';
-            $datain = 'Add_Balance';
-            break;
-        default:
-            return false;
-    }
+    $text = (string) ($meta['route_text'] ?? '');
+    $datain = (string) ($meta['route_datain'] ?? $meta['callback']);
 
     try {
         track_broadcast_click($resolved['broadcast_id'], $from_id);
@@ -5066,14 +5190,8 @@ function apply_broadcast_start_payload($payload, &$text, &$datain, $from_id)
 
 function broadcast_channel_start_payload($btn_type, $broadcast_id)
 {
-    $legacy = [
-        'start' => 'start',
-        'buy' => 'buy',
-        'usertestbtn' => 'usertest',
-        'helpbtn' => 'help',
-        'affiliatesbtn' => 'aff',
-        'addbalance' => 'bal',
-    ][$btn_type] ?? null;
+    $meta = broadcast_attachable_buttons()[$btn_type] ?? null;
+    $legacy = $meta['legacy'] ?? null;
     if ($legacy === null || intval($broadcast_id) <= 0) {
         return $legacy ?? 'start';
     }

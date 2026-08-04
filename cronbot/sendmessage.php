@@ -65,12 +65,10 @@ $btnmessage = $info['btnmessage'] ?? 'none';
 $btnkeyboard = null;
 if ($btnmessage != 'none' && $btnmessage != '') {
     $btn_text = broadcast_resolve_btn_text($btnmessage, $info['btntextmessage'] ?? '', $datatextbot);
-    $callback = ($broadcast_id > 0) ? ('bc_' . $broadcast_id . '_' . $btnmessage) : $btnmessage;
-    if ($btnmessage === 'addbalance' && $broadcast_id <= 0) {
-        $callback = 'Add_Balance';
-    } elseif ($btnmessage === 'buy' && $broadcast_id <= 0) {
-        $callback = 'buy';
-    }
+    $action_map = broadcast_btn_action_map();
+    $callback = ($broadcast_id > 0)
+        ? ('bc_' . $broadcast_id . '_' . $btnmessage)
+        : ($action_map[$btnmessage] ?? $btnmessage);
     $btnkeyboard = json_encode([
         'inline_keyboard' => [
             [
@@ -79,10 +77,8 @@ if ($btnmessage != 'none' && $btnmessage != '') {
         ]
     ]);
 }
-for ($i = 0; $i < 20; $i++) {
-    $iduser = $userid[$i];
-    unset($userid[$i]);
-    $userid = array_values($userid);
+$batch = array_splice($userid, 0, 50);
+foreach ($batch as $iduser) {
     if ($info['type'] == "unpinmessage") {
         unpinmessage($iduser->id);
     } elseif ($info['type'] == "sendmessage" or $info['type'] == "xdaynotmessage") {

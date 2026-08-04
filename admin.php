@@ -1002,6 +1002,10 @@ $paycount
 }
 //_____________________[ message ]____________________________//
 elseif ($datain == "systemsms") {
+    if (is_file('cronbot/gift')) {
+        sendmessage($from_id, "❌ سیستم شارژ گروهی سرویس‌ها در حال انجام عملیات است. پس از پایان آن پیام جدید ارسال کنید.", $keyboardadmin, 'HTML');
+        return;
+    }
     if (is_file('cronbot/users.json')) {
         $userslist = json_decode(file_get_contents('cronbot/users.json'), true);
         if (is_array($userslist) and count($userslist) != 0) {
@@ -4416,8 +4420,241 @@ $caption";
     sendmessage($from_id, $textbotlang['Admin']['Product']['TimeUpdated'], $shopkeyboard, 'HTML');
     step('home', $from_id);
 } elseif ($datain == "balanceaddall") {
+    $keyboardbulkcharge = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "💰 شارژ کیف پول کاربران", 'callback_data' => "bulkcharge_wallet"],
+            ],
+            [
+                ['text' => "🔋 افزایش حجم یا زمان سرویس‌ها", 'callback_data' => "bulkcharge_service"],
+            ],
+            [
+                ['text' => "بازگشت به منوی اصلی", 'callback_data' => "backuser"],
+            ],
+        ]
+    ]);
+    Editmessagetext($from_id, $message_id, "📌 نوع شارژ همگانی را انتخاب نمایید.", $keyboardbulkcharge);
+    step('home', $from_id);
+} elseif ($datain == "bulkcharge_wallet") {
     sendmessage($from_id, $textbotlang['Admin']['Balance']['addallbalance'], $backadmin, 'HTML');
     step('add_Balance_all', $from_id);
+} elseif ($datain == "bulkcharge_service") {
+    $giftQueueBusy = false;
+    foreach (['cronbot/username.json', 'cronbot/users.json'] as $queueFile) {
+        if (!is_file($queueFile)) {
+            continue;
+        }
+        $queuedItems = json_decode(file_get_contents($queueFile), true);
+        if (is_array($queuedItems) && count($queuedItems) > 0) {
+            $giftQueueBusy = true;
+            break;
+        }
+    }
+    if ($giftQueueBusy || is_file('cronbot/gift') || is_file('cronbot/info')) {
+        sendmessage($from_id, "❌ یک عملیات گروهی در حال اجرا است. پس از پایان آن دوباره تلاش کنید.", $keyboardadmin, 'HTML');
+        return;
+    }
+    savedata("clear", "bulkcharge_mode", "service");
+    $keyboardagent = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "همه کاربران", 'callback_data' => 'servicechargeagent_all'],
+            ],
+            [
+                ['text' => "کاربران گروه f", 'callback_data' => 'servicechargeagent_f'],
+                ['text' => "کاربران گروه n", 'callback_data' => 'servicechargeagent_n'],
+                ['text' => "کاربران گروه n2", 'callback_data' => 'servicechargeagent_n2'],
+            ],
+            [
+                ['text' => "بازگشت", 'callback_data' => 'balanceaddall'],
+            ],
+        ]
+    ]);
+    Editmessagetext($from_id, $message_id, "📌 سرویس‌های کدام گروه کاربری شارژ شوند؟", $keyboardagent);
+} elseif (preg_match('/^servicechargeagent_(all|f|n|n2)$/', $datain, $dataget)) {
+    $userdata = json_decode($user['Processing_value'], true);
+    if (($userdata['bulkcharge_mode'] ?? '') !== 'service') {
+        sendmessage($from_id, "❌ اطلاعات عملیات ناقص است. مراحل را از ابتدا انجام دهید.", $keyboardadmin, 'HTML');
+        return;
+    }
+    savedata("save", "agent", $dataget[1]);
+    $keyboardcustomers = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "کاربرانی که خرید داشته‌اند", 'callback_data' => 'servicechargecustomers'],
+            ],
+            [
+                ['text' => "بازگشت", 'callback_data' => 'bulkcharge_service'],
+            ],
+        ]
+    ]);
+    Editmessagetext($from_id, $message_id, "📌 گروه مشتریان را انتخاب نمایید.", $keyboardcustomers);
+} elseif ($datain == "servicechargecustomers") {
+    $userdata = json_decode($user['Processing_value'], true);
+    if (($userdata['bulkcharge_mode'] ?? '') !== 'service' || !isset($userdata['agent'])) {
+        sendmessage($from_id, "❌ اطلاعات عملیات ناقص است. مراحل را از ابتدا انجام دهید.", $keyboardadmin, 'HTML');
+        return;
+    }
+    savedata("save", "typecustomer", "customer");
+    $keyboardservicetype = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "📦 کاربران حجمی", 'callback_data' => 'servicechargetype_volume'],
+            ],
+            [
+                ['text' => "♾ کاربران نامحدود", 'callback_data' => 'servicechargetype_day'],
+            ],
+            [
+                ['text' => "بازگشت", 'callback_data' => 'servicechargeagent_' . $userdata['agent']],
+            ],
+        ]
+    ]);
+    Editmessagetext($from_id, $message_id, "📌 نوع سرویس کاربران را انتخاب نمایید.", $keyboardservicetype);
+} elseif (preg_match('/^servicechargetype_(volume|day)$/', $datain, $dataget)) {
+    $userdata = json_decode($user['Processing_value'], true);
+    if (($userdata['bulkcharge_mode'] ?? '') !== 'service' || ($userdata['typecustomer'] ?? '') !== 'customer') {
+        sendmessage($from_id, "❌ اطلاعات عملیات ناقص است. مراحل را از ابتدا انجام دهید.", $keyboardadmin, 'HTML');
+        return;
+    }
+    $serviceChargeType = $dataget[1];
+    savedata("save", "typegift", $serviceChargeType);
+    deletemessage($from_id, $message_id);
+    if ($serviceChargeType === "volume") {
+        sendmessage($from_id, "📌 چند گیگابایت به تمام سرویس‌های حجمی فعال اضافه شود؟", $backadmin, 'HTML');
+    } else {
+        sendmessage($from_id, "📌 چند روز به تمام سرویس‌های نامحدود فعال اضافه شود؟", $backadmin, 'HTML');
+    }
+    step("getbulkservicevalue", $from_id);
+} elseif ($user['step'] == "getbulkservicevalue") {
+    $userdata = json_decode($user['Processing_value'], true);
+    if (($userdata['bulkcharge_mode'] ?? '') !== 'service' || !in_array($userdata['typegift'] ?? '', ['volume', 'day'], true)) {
+        sendmessage($from_id, "❌ اطلاعات عملیات ناقص است. مراحل را از ابتدا انجام دهید.", $keyboardadmin, 'HTML');
+        step('home', $from_id);
+        return;
+    }
+    if (!ctype_digit((string) $text) || intval($text) <= 0) {
+        sendmessage($from_id, "❌ مقدار باید یک عدد صحیح بزرگ‌تر از صفر باشد.", $backadmin, 'HTML');
+        return;
+    }
+    savedata("save", "value", intval($text));
+    sendmessage($from_id, "📌 پیام ارسالی پس از شارژ موفق هر سرویس را ارسال نمایید.", $backadmin, 'HTML');
+    step("getbulkservicemessage", $from_id);
+} elseif ($user['step'] == "getbulkservicemessage") {
+    $userdata = json_decode($user['Processing_value'], true);
+    if (($userdata['bulkcharge_mode'] ?? '') !== 'service' || !isset($userdata['value'])) {
+        sendmessage($from_id, "❌ اطلاعات عملیات ناقص است. مراحل را از ابتدا انجام دهید.", $keyboardadmin, 'HTML');
+        step('home', $from_id);
+        return;
+    }
+    if (!$text || trim($text) === '') {
+        sendmessage($from_id, "❌ پیام ارسالی نمی‌تواند خالی باشد.", $backadmin, 'HTML');
+        return;
+    }
+    savedata("save", "text", $text);
+    savedata("save", "id_admin", $from_id);
+    $typeLabel = ($userdata['typegift'] === 'volume') ? 'کاربران حجمی' : 'کاربران نامحدود';
+    $unitLabel = ($userdata['typegift'] === 'volume') ? 'گیگابایت' : 'روز';
+    $agentLabel = ($userdata['agent'] === 'all') ? 'همه گروه‌ها' : $userdata['agent'];
+    $keyboardconfirm = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "✅ تایید و شروع فرآیند", 'callback_data' => 'startbulkservicecharge'],
+            ],
+            [
+                ['text' => "لغو", 'callback_data' => 'balanceaddall'],
+            ],
+        ]
+    ]);
+    $safeMessage = htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    sendmessage(
+        $from_id,
+        "📌 تایید شارژ همگانی سرویس‌ها\n\n"
+        . "👥 نوع کاربران: {$typeLabel}\n"
+        . "🗂 گروه کاربری: {$agentLabel}\n"
+        . "➕ مقدار: {$userdata['value']} {$unitLabel}\n"
+        . "💬 پیام ارسالی:\n<blockquote>{$safeMessage}</blockquote>",
+        $keyboardconfirm,
+        'HTML'
+    );
+    step("home", $from_id);
+} elseif ($datain == "startbulkservicecharge") {
+    $userdata = json_decode($user['Processing_value'], true);
+    $requiredKeys = ['bulkcharge_mode', 'agent', 'typecustomer', 'typegift', 'value', 'text'];
+    foreach ($requiredKeys as $requiredKey) {
+        if (!isset($userdata[$requiredKey])) {
+            sendmessage($from_id, "❌ اطلاعات عملیات ناقص است. مراحل را از ابتدا انجام دهید.", $keyboardadmin, 'HTML');
+            return;
+        }
+    }
+    if ($userdata['bulkcharge_mode'] !== 'service'
+        || $userdata['typecustomer'] !== 'customer'
+        || !in_array($userdata['typegift'], ['volume', 'day'], true)
+        || intval($userdata['value']) <= 0
+    ) {
+        sendmessage($from_id, "❌ اطلاعات عملیات نامعتبر است. مراحل را از ابتدا انجام دهید.", $keyboardadmin, 'HTML');
+        return;
+    }
+    foreach (['cronbot/username.json', 'cronbot/users.json', 'cronbot/gift', 'cronbot/info'] as $queueFile) {
+        if (!is_file($queueFile)) {
+            continue;
+        }
+        $queueBusy = true;
+        if (str_ends_with($queueFile, '.json')) {
+            $queuedItems = json_decode(file_get_contents($queueFile), true);
+            $queueBusy = is_array($queuedItems) && count($queuedItems) > 0;
+        }
+        if ($queueBusy) {
+            sendmessage($from_id, "❌ یک عملیات گروهی دیگر در حال اجرا است.", $keyboardadmin, 'HTML');
+            return;
+        }
+    }
+    $sql = "SELECT i.id_invoice, i.id_user, i.username, i.Service_location
+            FROM invoice i
+            INNER JOIN user u ON u.id = i.id_user
+            WHERE i.Status = 'active'
+              AND i.name_product != 'سرویس تست'
+              AND u.User_Status = 'Active'";
+    $params = [];
+    if ($userdata['agent'] !== 'all') {
+        $sql .= " AND u.agent = :agent";
+        $params[':agent'] = $userdata['agent'];
+    }
+    if ($userdata['typegift'] === 'volume') {
+        $sql .= " AND CAST(COALESCE(NULLIF(i.Volume, ''), '0') AS UNSIGNED) > 0";
+    } else {
+        $sql .= " AND CAST(COALESCE(NULLIF(i.Volume, ''), '0') AS UNSIGNED) = 0
+                  AND CAST(COALESCE(NULLIF(i.Service_time, ''), '0') AS UNSIGNED) > 0";
+    }
+    $sql .= " ORDER BY i.id_invoice";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$services) {
+        sendmessage($from_id, "❌ هیچ سرویس فعال مطابق فیلتر انتخاب‌شده یافت نشد.", $keyboardadmin, 'HTML');
+        return;
+    }
+    $cancelKeyboard = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "❌ لغو عملیات", 'callback_data' => 'cancel_gift'],
+            ],
+        ]
+    ]);
+    $messageResult = Editmessagetext(
+        $from_id,
+        $message_id,
+        "✅ عملیات برای " . count($services) . " سرویس آغاز شد. پس از پایان اطلاع‌رسانی می‌شود.",
+        $cancelKeyboard
+    );
+    $userdata['id_admin'] = $from_id;
+    $userdata['id_message'] = $messageResult['result']['message_id'] ?? $message_id;
+    $userdata['bulk_service_charge'] = true;
+    $userdata['total'] = count($services);
+    $userdata['success_count'] = 0;
+    $userdata['failed_count'] = 0;
+    $userdata['skipped_count'] = 0;
+    file_put_contents('cronbot/gift', json_encode($userdata, JSON_UNESCAPED_UNICODE), LOCK_EX);
+    file_put_contents('cronbot/username.json', json_encode($services, JSON_UNESCAPED_UNICODE), LOCK_EX);
 } elseif ($user['step'] == "add_Balance_all") {
     if (!ctype_digit($text)) {
         sendmessage($from_id, $textbotlang['Admin']['Balance']['Invalidprice'], $backadmin, 'HTML');
@@ -12048,10 +12285,17 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
     update("botsaz", "hide_panel", json_encode($list_panel), "id_user", $userdata['id_user']);
     sendmessage($from_id, "✅ پنل انتخاب شد  پس از اتمام دستور /remove را ارسال نمایید تا ذخیره نهایی شود.", null, 'HTML');
 } elseif ($datain == "voloume_or_day_all") {
-    if (is_file('cronbot/username.json')) {
-        $userslist = json_decode(file_get_contents('cronbot/users.json'), true);
-        if (is_array($userslist) and count($userslist) != 0) {
-            sendmessage($from_id, "❌ سیستم ارسال هدیه درحال انجام عملیات است پس از پایان و اطلاع رسانی  می توانید پیام جدید را ارسال نمایید.", $keyboardadmin, 'HTML');
+    if (is_file('cronbot/gift') || is_file('cronbot/info')) {
+        sendmessage($from_id, "❌ یک عملیات گروهی در حال اجرا است. پس از پایان آن دوباره تلاش کنید.", $keyboardadmin, 'HTML');
+        return;
+    }
+    foreach (['cronbot/username.json', 'cronbot/users.json'] as $queueFile) {
+        if (!is_file($queueFile)) {
+            continue;
+        }
+        $queuedItems = json_decode(file_get_contents($queueFile), true);
+        if (is_array($queuedItems) && count($queuedItems) > 0) {
+            sendmessage($from_id, "❌ یک عملیات گروهی در حال اجرا است. پس از پایان آن دوباره تلاش کنید.", $keyboardadmin, 'HTML');
             return;
         }
     }
@@ -12085,7 +12329,7 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
     }
     step("getvaluegift", $from_id);
 } elseif ($user['step'] == "getvaluegift") {
-    if (!ctype_digit($text)) {
+    if (!ctype_digit((string) $text) || intval($text) <= 0) {
         sendmessage($from_id, $textbotlang['Admin']['agent']['invalidvlue'], $backadmin, 'HTML');
         return;
     }
@@ -12117,16 +12361,48 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
         sendmessage($from_id, "❌ خطایی رخ داده است مراحل را از اول طی کنید.", $keyboardstatistics, "html");
         return;
     }
+    foreach (['cronbot/username.json', 'cronbot/users.json', 'cronbot/gift', 'cronbot/info'] as $queueFile) {
+        if (!is_file($queueFile)) {
+            continue;
+        }
+        $queueBusy = true;
+        if (str_ends_with($queueFile, '.json')) {
+            $queuedItems = json_decode(file_get_contents($queueFile), true);
+            $queueBusy = is_array($queuedItems) && count($queuedItems) > 0;
+        }
+        if ($queueBusy) {
+            sendmessage($from_id, "❌ یک عملیات گروهی دیگر در حال اجرا است.", $keyboardadmin, 'HTML');
+            return;
+        }
+    }
+    $stmt = $pdo->prepare(
+        "SELECT id_invoice, id_user, username, Service_location
+         FROM invoice
+         WHERE Status IN ('active', 'end_of_time', 'end_of_volume', 'sendedwarn', 'send_on_hold')
+           AND Service_location = :panel
+           AND name_product != 'سرویس تست'"
+    );
+    $stmt->execute([':panel' => $userdata['name_panel']]);
+    $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$services) {
+        sendmessage($from_id, "❌ سرویسی برای اعمال هدیه یافت نشد.", $keyboardadmin, 'HTML');
+        return;
+    }
     $message_id = Editmessagetext($from_id, $message_id, "✅ عملیات ارسال هدیه با موفقیت آغاز گردید پس از اضافه شدن و اتمام به شما اطلاع داده می شود.", $keyboardstatistics);
     $userdata['id_message'] = $message_id['result']['message_id'];
-    $stmt = $pdo->prepare("SELECT username FROM invoice WHERE  (status = 'active' OR status = 'end_of_time'  OR status = 'end_of_volume' OR status = 'sendedwarn' OR Status = 'send_on_hold') AND Service_location = '{$userdata['name_panel']}' AND name_product != 'سرویس تست'");
-    $stmt->execute();
-    $userslist = json_encode($stmt->fetchAll());
-    file_put_contents('cronbot/gift', json_encode($userdata));
-    file_put_contents('cronbot/username.json', $userslist);
+    $userdata['total'] = count($services);
+    $userdata['success_count'] = 0;
+    $userdata['failed_count'] = 0;
+    $userdata['skipped_count'] = 0;
+    file_put_contents('cronbot/gift', json_encode($userdata, JSON_UNESCAPED_UNICODE), LOCK_EX);
+    file_put_contents('cronbot/username.json', json_encode($services, JSON_UNESCAPED_UNICODE), LOCK_EX);
 } elseif ($datain == "cancel_gift") {
-    unlink('cronbot/username.json');
-    unlink('cronbot/gift');
+    if (is_file('cronbot/username.json')) {
+        unlink('cronbot/username.json');
+    }
+    if (is_file('cronbot/gift')) {
+        unlink('cronbot/gift');
+    }
     deletemessage($from_id, $message_id);
     sendmessage($from_id, "📌 ارسال هدیه لغو گردید.", null, 'HTML');
 } elseif (preg_match('/expireset_(\w+)/', $datain, $datagetr)) {

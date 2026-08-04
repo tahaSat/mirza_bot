@@ -6,158 +6,172 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../botapi.php';
 require_once __DIR__ . '/../panels.php';
 require_once __DIR__ . '/../function.php';
+
 $ManagePanel = new ManagePanel();
-
-
 $setting = select("setting", "*");
-$errorreport = select("topicid","idreport","report","errorreport","select")['idreport'];
+$errorTopic = select("topicid", "idreport", "report", "errorreport", "select");
+$errorreport = $errorTopic['idreport'] ?? null;
 
-$datatextbotget = select("textbot", "*",null ,null ,"fetchAll");
-$datatxtbot = array();
-foreach ($datatextbotget as $row) {
-    $datatxtbot[] = array(
-        'id_text' => $row['id_text'],
-        'text' => $row['text']
+if (!is_file('gift') || !is_file('username.json')) {
+    return;
+}
+
+$info = json_decode((string) file_get_contents('gift'), true);
+$services = json_decode((string) file_get_contents('username.json'), true);
+if (!is_array($info) || !is_array($services) || !isset($info['typegift'])) {
+    return;
+}
+
+$finishGift = static function (array $job): void {
+    if (isset($job['id_admin'])) {
+        if (!empty($job['id_message'])) {
+            deletemessage($job['id_admin'], $job['id_message']);
+        }
+        $success = intval($job['success_count'] ?? 0);
+        $failed = intval($job['failed_count'] ?? 0);
+        $skipped = intval($job['skipped_count'] ?? 0);
+        $summary = "📌 عملیات برای تمامی سرویس‌های درخواستی انجام شد.";
+        if (!empty($job['bulk_service_charge']) || isset($job['success_count'])) {
+            $summary .= "\n\n✅ موفق: {$success}\n❌ ناموفق: {$failed}\n⏭ ردشده: {$skipped}";
+        }
+        sendmessage($job['id_admin'], $summary, null, 'HTML');
+    }
+    if (is_file('gift')) {
+        unlink('gift');
+    }
+    if (is_file('username.json')) {
+        unlink('username.json');
+    }
+};
+
+if (count($services) === 0) {
+    $finishGift($info);
+    return;
+}
+
+$reportFailure = static function (array $panel, string $username, array $result) use ($setting, $errorreport): void {
+    if (empty($setting['Channel_Report'])) {
+        return;
+    }
+    $reason = $result['msg'] ?? 'خطای نامشخص';
+    if (!is_string($reason)) {
+        $reason = json_encode($reason, JSON_UNESCAPED_UNICODE);
+    }
+    telegram('sendmessage', [
+        'chat_id' => $setting['Channel_Report'],
+        'message_thread_id' => $errorreport,
+        'text' => "خطای اعمال شارژ همگانی سرویس\n"
+            . "نام پنل : {$panel['name_panel']}\n"
+            . "نام کاربری سرویس : {$username}\n"
+            . "دلیل خطا : {$reason}",
+        'parse_mode' => 'HTML',
+    ]);
+};
+
+$logResult = static function (array $invoice, array $liveUser, array $job, array $result) use ($pdo): void {
+    $isVolume = $job['typegift'] === 'volume';
+    $valueData = [
+        $isVolume ? 'volume_value' : 'time_value' => intval($job['value']),
+        'old_volume' => $liveUser['data_limit'] ?? null,
+        'expire_old' => $liveUser['expire'] ?? null,
+    ];
+    $stmt = $pdo->prepare(
+        "INSERT IGNORE INTO service_other (id_user, username, value, type, time, price, output)
+         VALUES (:id_user, :username, :value, :type, :time, :price, :output)"
+    );
+    $stmt->execute([
+        ':id_user' => $invoice['id_user'],
+        ':username' => $invoice['username'],
+        ':value' => json_encode($valueData, JSON_UNESCAPED_UNICODE),
+        ':type' => $isVolume ? 'gift_volume' : 'gift_time',
+        ':time' => date('Y/m/d H:i:s'),
+        ':price' => 0,
+        ':output' => json_encode($result, JSON_UNESCAPED_UNICODE),
+    ]);
+};
+
+$batch = array_splice($services, 0, 5);
+foreach ($batch as $queuedService) {
+    if (!is_array($queuedService) || empty($queuedService['username'])) {
+        $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
+        continue;
+    }
+
+    if (!empty($queuedService['id_invoice'])) {
+        $invoice = select("invoice", "*", "id_invoice", $queuedService['id_invoice'], "select");
+    } else {
+        $invoice = select("invoice", "*", "username", $queuedService['username'], "select");
+    }
+    if (!$invoice) {
+        $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
+        continue;
+    }
+
+    $panelName = $queuedService['Service_location'] ?? ($info['name_panel'] ?? $invoice['Service_location']);
+    $panel = select("marzban_panel", "*", "name_panel", $panelName, "select");
+    if (!$panel) {
+        $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
+        continue;
+    }
+
+    $liveUser = $ManagePanel->DataUser($panelName, $invoice['username']);
+    if (!is_array($liveUser) || ($liveUser['status'] ?? '') === 'Unsuccessful') {
+        $info['failed_count'] = intval($info['failed_count'] ?? 0) + 1;
+        $reportFailure($panel, $invoice['username'], is_array($liveUser) ? $liveUser : ['msg' => 'پاسخ نامعتبر پنل']);
+        continue;
+    }
+
+    $isVolume = $info['typegift'] === 'volume';
+    $eligible = $isVolume
+        ? (isset($liveUser['data_limit']) && is_numeric($liveUser['data_limit']) && floatval($liveUser['data_limit']) > 0)
+        : (isset($liveUser['expire']) && is_numeric($liveUser['expire']) && intval($liveUser['expire']) > 0);
+    if (!$eligible) {
+        $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
+        continue;
+    }
+
+    if ($isVolume) {
+        $result = $ManagePanel->extra_volume($invoice['username'], $panel['code_panel'], intval($info['value']));
+    } else {
+        $result = $ManagePanel->extra_time($invoice['username'], $panel['code_panel'], intval($info['value']));
+    }
+    if (!is_array($result)) {
+        $result = ['status' => false, 'msg' => 'پاسخ نامعتبر پنل'];
+    }
+
+    $logResult($invoice, $liveUser, $info, $result);
+    if (($result['status'] ?? false) === false) {
+        $info['failed_count'] = intval($info['failed_count'] ?? 0) + 1;
+        $reportFailure($panel, $invoice['username'], $result);
+        continue;
+    }
+
+    $info['success_count'] = intval($info['success_count'] ?? 0) + 1;
+    if (isset($info['text']) && trim((string) $info['text']) !== '') {
+        sendmessage($invoice['id_user'], $info['text'], null, 'HTML');
+    }
+}
+
+file_put_contents('gift', json_encode($info, JSON_UNESCAPED_UNICODE), LOCK_EX);
+file_put_contents('username.json', json_encode(array_values($services), JSON_UNESCAPED_UNICODE), LOCK_EX);
+
+if (!empty($info['id_admin']) && !empty($info['id_message'])) {
+    $remaining = count($services);
+    $success = intval($info['success_count'] ?? 0);
+    $failed = intval($info['failed_count'] ?? 0);
+    $skipped = intval($info['skipped_count'] ?? 0);
+    $cancelKeyboard = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "❌ لغو عملیات", 'callback_data' => 'cancel_gift'],
+            ],
+        ],
+    ]);
+    Editmessagetext(
+        $info['id_admin'],
+        $info['id_message'],
+        "✏️ عملیات شارژ سرویس‌ها در حال انجام است...\n\n"
+        . "باقی‌مانده: {$remaining}\n✅ موفق: {$success}\n❌ ناموفق: {$failed}\n⏭ ردشده: {$skipped}",
+        $cancelKeyboard
     );
 }
-$datatextbot = array(
-    'text_usertest' => '',
-    'text_support' => '',
-    'text_help' => '',
-    'text_sell' => '',
-    'text_affiliates' => '',
-    'text_Add_Balance' => ''
-);
-foreach ($datatxtbot as $item) {
-    if (isset($datatextbot[$item['id_text']])) {
-        $datatextbot[$item['id_text']] = $item['text'];
-    }
-}
-if(!is_file('gift'))return;
-if(!is_file('username.json'))return;
-
-
-$userid = json_decode(file_get_contents('username.json'));
-if(is_file('gift')){
-$info = json_decode(file_get_contents('gift'),true);
-}
-$count = 0;
-if(count($userid) == 0){
-    if(isset($info['id_admin'])){
-    deletemessage($info['id_admin'], $info['id_message']);
-    sendmessage($info['id_admin'], "📌 عملیات برای تمامی سرویس های درخواستی انجام شد.", null, 'HTML');
-    unlink('gift');
-    unlink('username.json');
-    }
-    return;
-    
-}
-
-if(!isset($info['typegift']))return;
-if($info['typegift'] == "volume"){
-    $count =  0;
-foreach ($userid as $iduser){
-    $count +=1;
-    if($count == 5)break;
-    $get_username_info = $ManagePanel->DataUser($info['name_panel'],$iduser->username);
-    unset($userid[0]);
-    $userid = array_values($userid);
-    if(!(empty($get_username_info['expire']) || empty($get_username_info['data_limit']) || $get_username_info['status'] == "Unsuccessful")){
-    $invoce = select("invoice","*","username",$iduser->username,"select");
-    $marzban_list_get = select("marzban_panel","*","name_panel",$info['name_panel'],"select");
-    $data_limit = $get_username_info['data_limit'] / pow(1024,3);
-    $data_limit_new = $data_limit + intval($info['value']);
-    $data_limit_byte = $data_limit_new *pow(1024,3);
-    $extra_volume = $ManagePanel->extra_volume($invoce['username'],$marzban_list_get['code_panel'],$info['value']);
-     if($extra_volume['status'] == false){
-            $extra_volume['msg'] = json_encode($extra_volume['msg']);
-            $textreports = "خطای اضافه شدن هدیه حجم
-نام پنل : {$marzban_list_get['name_panel']}
-نام کاربری سرویس : {$nameloc['username']}
-دلیل خطا : {$extra_volume['msg']}";
-            if (strlen($setting['Channel_Report']) > 0) {
-                telegram('sendmessage',[
-                    'chat_id' => $setting['Channel_Report'],
-                    'message_thread_id' => $errorreport,
-                    'text' => $textreports,
-                    'parse_mode' => "HTML"
-                ]);
-            }
-        }else{
-sendmessage($invoce['id_user'],$info['text'],null,"html");
-}
-$data_for_database = json_encode(array(
-        'volume_value' => $info['value'],
-        'old_volume' => $get_username_info['data_limit'],
-        'expire_old' => $get_username_info['expire']
-    ));
-$volumepricelast = 0;
-$stmt = $pdo->prepare("INSERT IGNORE INTO service_other (id_user, username, value, type, time, price, output) VALUES (:id_user, :username, :value, :type, :time, :price, :output)");
-    $value = $data_for_database;
-    $dateacc = date('Y/m/d H:i:s');
-    $type = "gift_volume";
-    $stmt->execute([
-    ':id_user' => $iduser->username,
-    ':username' => $invoce['username'],
-    ':value' => $value,
-    ':type' => $type,
-    ':time' => $dateacc,
-    ':price' => $volumepricelast,
-    ':output' => json_encode($extra_volume),
-    ]);
-}
-}
-}
-else{
-    
-$count =  0;
-foreach ($userid as $iduser){
-    $count +=1;
-    if($count == 5)break;
-    $get_username_info = $ManagePanel->DataUser($info['name_panel'],$iduser->username);
-    unset($userid[0]);
-    $userid = array_values($userid);
-    if(!(empty($get_username_info['expire']) || $get_username_info['status'] == "Unsuccessful")){
-    $invoce = select("invoice","*","username",$iduser->username,"select");
-    $marzban_list_get = select("marzban_panel","*","name_panel",$info['name_panel'],"select");
-    $extra_time = $ManagePanel->extra_time($get_username_info['username'],$marzban_list_get['code_panel'],intval($info['value']));
-     if($extra_time['status'] == false){
-            $extra_time['msg'] = json_encode($extra_time['msg']);
-            $textreports = "خطای اضافه شدن هدیه حجم
-نام پنل : {$marzban_list_get['name_panel']}
-نام کاربری سرویس : {$nameloc['username']}
-دلیل خطا : {$extra_time['msg']}";
-            if (strlen($setting['Channel_Report']) > 0) {
-                telegram('sendmessage',[
-                    'chat_id' => $setting['Channel_Report'],
-                    'message_thread_id' => $errorreport,
-                    'text' => $textreports,
-                    'parse_mode' => "HTML"
-                ]);
-            }
-        }else{
-            sendmessage($invoce['id_user'],$info['text'],null,"html");
-        }
-$data_for_database = json_encode(array(
-        'time_value' => $info['value'],
-        'old_volume' => $get_username_info['data_limit'],
-        'expire_old' => $get_username_info['expire']
-    ));
-$volumepricelast = 0;
-$stmt = $pdo->prepare("INSERT IGNORE INTO service_other (id_user, username, value, type, time, price, output) VALUES (:id_user, :username, :value, :type, :time, :price, :output)");
-    $value = $data_for_database;
-    $dateacc = date('Y/m/d H:i:s');
-    $type = "gift_time";
-    $stmt->execute([
-    ':id_user' => $invoce['id_user'],
-    ':username' => $invoce['username'],
-    ':value' => $value,
-    ':type' => $type,
-    ':time' => $dateacc,
-    ':price' => $volumepricelast,
-    ':output' => json_encode($extra_time),
-    ]);
-}
-}
-}
-file_put_contents('username.json',json_encode($userid,true));

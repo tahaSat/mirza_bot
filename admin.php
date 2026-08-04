@@ -1215,9 +1215,43 @@ elseif ($datain == "systemsms") {
         return;
     }
     savedata("save", "btntypemessage", $btn_type);
+    savedata("save", "btntextmessage", "");
     deletemessage($from_id, $message_id);
-    step("gettextChannelPost", $from_id);
-    sendmessage($from_id, "📌 محتوای پست کانال را ارسال کنید.\nمی‌توانید متن ساده یا عکس همراه با کپشن بفرستید.", $backadmin, 'HTML');
+    if ($btn_type === 'none') {
+        step("gettextChannelPost", $from_id);
+        sendmessage($from_id, "📌 محتوای پست کانال را ارسال کنید.\nمی‌توانید متن ساده یا عکس همراه با کپشن بفرستید.", $backadmin, 'HTML');
+        return;
+    }
+    broadcast_ask_btn_title_step($from_id, $btn_type);
+} elseif ($datain == "btntextdefault") {
+    $userdata = json_decode($user['Processing_value'], true);
+    if (!isset($userdata['typeservice']) || empty($userdata['btntypemessage']) || ($userdata['btntypemessage'] ?? 'none') === 'none') {
+        deletemessage($from_id, $message_id);
+        sendmessage($from_id, "❌ خطایی رخ داده لطفا مراحل ارسال پیام از اول انجام دهید", $keyboardadmin, 'HTML');
+        return;
+    }
+    $default = broadcast_btn_label($userdata['btntypemessage'], $datatextbot);
+    savedata("save", "btntextmessage", $default);
+    deletemessage($from_id, $message_id);
+    broadcast_continue_after_btn_title($from_id);
+} elseif ($user['step'] == "getbtntextmessage") {
+    $userdata = json_decode($user['Processing_value'], true);
+    if (!isset($userdata['typeservice']) || empty($userdata['btntypemessage']) || ($userdata['btntypemessage'] ?? 'none') === 'none') {
+        sendmessage($from_id, "❌ خطایی رخ داده لطفا مراحل ارسال پیام از اول انجام دهید", $keyboardadmin, 'HTML');
+        step("home", $from_id);
+        return;
+    }
+    if (!$text || trim($text) === '') {
+        sendmessage($from_id, "📌 لطفا عنوان دکمه را به صورت متن ارسال کنید.", $backadmin, 'HTML');
+        return;
+    }
+    $btn_title = trim($text);
+    if (mb_strlen($btn_title) > 64) {
+        sendmessage($from_id, "❌ عنوان دکمه نباید بیشتر از ۶۴ کاراکتر باشد.", $backadmin, 'HTML');
+        return;
+    }
+    savedata("save", "btntextmessage", $btn_title);
+    broadcast_continue_after_btn_title($from_id);
 } elseif ($user['step'] == "gettextChannelPost") {
     $userdata = json_decode($user['Processing_value'], true);
     if (!isset($userdata['typeservice']) || ($userdata['typeusermessage'] ?? '') != "channelpost") {
@@ -1238,23 +1272,18 @@ elseif ($datain == "systemsms") {
         return;
     }
     $userdata = json_decode(select("user", "*", "id", $from_id, "select")['Processing_value'], true);
-    $btn_labels = [
-        'start' => 'دکمه استارت',
-        'helpbtn' => 'دکمه آموزش',
-        'buy' => 'دکمه خرید',
-        'usertestbtn' => 'دکمه اکانت تست',
-        'affiliatesbtn' => 'دکمه زیرمجموعه گیری',
-        'addbalance' => 'شارژ حساب کاربری',
-        'none' => 'بدون دکمه',
-    ];
-    $btn_label = $btn_labels[$userdata['btntypemessage'] ?? 'none'] ?? 'بدون دکمه';
+    $btn_type_selected = $userdata['btntypemessage'] ?? 'none';
+    $btn_title_show = ($btn_type_selected === 'none')
+        ? 'بدون دکمه'
+        : broadcast_resolve_btn_text($btn_type_selected, $userdata['btntextmessage'] ?? '', $datatextbot);
     $media_label = (($userdata['messagemediatype'] ?? 'text') == 'photo') ? 'عکس + متن' : 'فقط متن';
     $channel_title = htmlspecialchars($userdata['channel_title'] ?? $userdata['channel_id'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $btn_title_safe = htmlspecialchars($btn_title_show, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $textconfirm = "📌 شما در حال ارسال پست به کانال هستید. با تایید، پست منتشر می‌شود.
 
 ⚙️ نوع عملیات : پست در کانال
 📢 کانال : {$channel_title}
-🔘 دکمه : {$btn_label}
+🔘 دکمه : {$btn_title_safe}
 📝 نوع محتوا : {$media_label}";
     $startaction = json_encode([
         'inline_keyboard' => [
@@ -1473,24 +1502,28 @@ elseif ($datain == "systemsms") {
     deletemessage($from_id, $message_id);
     $type = $dataget[1];
     savedata("save", "btntypemessage", $type);
-    $userdata = json_decode($user['Processing_value'], true);
+    savedata("save", "btntextmessage", "");
+    $userdata = json_decode(select("user", "*", "id", $from_id, "select")['Processing_value'], true);
     if (!isset($userdata['typeservice'])) {
-        deletemessage($from_id, $message_id);
         sendmessage($from_id, "❌ خطایی رخ داده لطفا مراحل ارسال پیام از اول انجام دهید", $keyboardadmin, 'HTML');
         return;
     }
-    if ($userdata['typeservice'] == "xdaynotmessage") {
-        step("gettextday", $from_id);
-        sendmessage($from_id, "📌 در این قابلیت پیام به کاربرانی ارسال میشود که تعیین  میکنید چند روز از ربات استفاده نکرده اند
+    if ($type === 'none') {
+        if ($userdata['typeservice'] == "xdaynotmessage") {
+            step("gettextday", $from_id);
+            sendmessage($from_id, "📌 در این قابلیت پیام به کاربرانی ارسال میشود که تعیین  میکنید چند روز از ربات استفاده نکرده اند
 تعداد روز خود را ارسال نمایید.", $backadmin, 'HTML');
+            return;
+        }
+        step("gettextSystemMessage", $from_id);
+        if (($userdata['messagemediatype'] ?? 'text') == "photo") {
+            sendmessage($from_id, "📌 تصویر خود را ارسال نمایید.\nمی‌توانید همراه عکس یک کپشن (متن) هم بفرستید.", $backadmin, 'HTML');
+        } else {
+            sendmessage($from_id, "📌 متن پیام خود را ارسال نمایید.", $backadmin, 'HTML');
+        }
         return;
     }
-    step("gettextSystemMessage", $from_id);
-    if (($userdata['messagemediatype'] ?? 'text') == "photo") {
-        sendmessage($from_id, "📌 تصویر خود را ارسال نمایید.\nمی‌توانید همراه عکس یک کپشن (متن) هم بفرستید.", $backadmin, 'HTML');
-    } else {
-        sendmessage($from_id, "📌 متن پیام خود را ارسال نمایید.", $backadmin, 'HTML');
-    }
+    broadcast_ask_btn_title_step($from_id, $type);
 } elseif ($user['step'] == "gettextday") {
     if (!ctype_digit($text)) {
         sendmessage($from_id, $textbotlang['Admin']['agent']['invalidvlue'], $backadmin, 'HTML');
@@ -1561,10 +1594,17 @@ elseif ($datain == "systemsms") {
             ? "🖼 نوع محتوا : ارسال با عکس"
             : "📝 نوع محتوا : فقط متن";
     }
+    $userdata = json_decode(select("user", "*", "id", $from_id, "select")['Processing_value'], true);
+    $btn_type_selected = $userdata['btntypemessage'] ?? 'none';
+    $btn_title_show = ($btn_type_selected === 'none')
+        ? 'بدون دکمه'
+        : broadcast_resolve_btn_text($btn_type_selected, $userdata['btntextmessage'] ?? '', $datatextbot);
+    $btn_title_safe = htmlspecialchars($btn_title_show, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $textconfirm = "📌 شما در حال انجام عملیات مربوط به ارسال پیام هستید با بررسی اطلاعات زیر و تایید دکمه زیر عملیات ارسال شروع خواهد شد.
 ⚙️ نوع عملیات : $typesend
 🎛 نوع سرویس : $typeservice
 🗂 نوع کاربری : {$userdata['agent']}
+🔘 عنوان دکمه : {$btn_title_safe}
 $mediatypetext
 $textday
 ";
@@ -1610,16 +1650,8 @@ $textday
         $btn_type = $userdata['btntypemessage'] ?? 'none';
         $btn_keyboard = null;
         if ($btn_type != 'none') {
-            $btn_texts = [
-                'start' => 'شروع',
-                'buy' => $datatextbot['text_sell'] ?? 'خرید',
-                'usertestbtn' => $datatextbot['text_usertest'] ?? 'اکانت تست',
-                'helpbtn' => $datatextbot['text_help'] ?? 'آموزش',
-                'affiliatesbtn' => $datatextbot['text_affiliates'] ?? 'زیرمجموعه گیری',
-                'addbalance' => $datatextbot['text_Add_Balance'] ?? 'شارژ حساب',
-            ];
-            $btn_text = $btn_texts[$btn_type] ?? 'ورود به ربات';
-            $payload = 'bc_' . intval($broadcast['id']) . '_' . $btn_type;
+            $btn_text = broadcast_resolve_btn_text($btn_type, $userdata['btntextmessage'] ?? '', $datatextbot);
+            $payload = broadcast_channel_start_payload($btn_type, $broadcast['id']);
             $btn_url = "https://t.me/{$usernamebot}?start={$payload}";
             $btn_keyboard = json_encode([
                 'inline_keyboard' => [
@@ -1765,6 +1797,7 @@ $textday
             "photoid" => $userdata['photoid'] ?? '',
             "pingmessage" => $userdata['typepinmessage'],
             "btnmessage" => $userdata['btntypemessage'],
+            "btntextmessage" => $userdata['btntextmessage'] ?? '',
             "broadcast_id" => intval($broadcast['id']),
         ));
         file_put_contents("cronbot/users.json", $userslist);
@@ -1911,6 +1944,7 @@ $textday
             "message" => $userdata['message'],
             "pingmessage" => $userdata['typepinmessage'],
             "btnmessage" => $userdata['btntypemessage'],
+            "btntextmessage" => $userdata['btntextmessage'] ?? '',
             "broadcast_id" => intval($broadcast['id']),
         ));
         file_put_contents("cronbot/users.json", $userslist);

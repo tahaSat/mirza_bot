@@ -4709,6 +4709,63 @@ function broadcast_btn_label($btn_type, $texts = null)
     return $labels[$btn_type] ?? $btn_type;
 }
 
+function broadcast_resolve_btn_text($btn_type, $custom_text = null, $texts = null)
+{
+    $custom = trim((string) $custom_text);
+    if ($custom !== '') {
+        return mb_substr($custom, 0, 64);
+    }
+    return broadcast_btn_label($btn_type, $texts);
+}
+
+function broadcast_ask_btn_title_step($from_id, $btn_type)
+{
+    global $datatextbot;
+    $default = broadcast_btn_label($btn_type, $datatextbot);
+    $keyboard = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => "استفاده از عنوان پیش‌فرض", 'callback_data' => 'btntextdefault'],
+            ],
+        ]
+    ]);
+    step("getbtntextmessage", $from_id);
+    sendmessage(
+        $from_id,
+        "✏️ عنوان دکمه‌ای که زیر پیام نمایش داده می‌شود را ارسال کنید.\n\nعنوان پیش‌فرض: <b>" . htmlspecialchars($default, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</b>\n\n⚠️ حداکثر ۶۴ کاراکتر.",
+        $keyboard,
+        'HTML'
+    );
+}
+
+function broadcast_continue_after_btn_title($from_id)
+{
+    global $datatextbot, $backadmin, $keyboardadmin;
+    $userdata = json_decode(select("user", "*", "id", $from_id, "select")['Processing_value'], true);
+    if (!isset($userdata['typeservice'])) {
+        sendmessage($from_id, "❌ خطایی رخ داده لطفا مراحل ارسال پیام از اول انجام دهید", $keyboardadmin, 'HTML');
+        step("home", $from_id);
+        return;
+    }
+    if (($userdata['typeusermessage'] ?? '') === 'channelpost') {
+        step("gettextChannelPost", $from_id);
+        sendmessage($from_id, "📌 محتوای پست کانال را ارسال کنید.\nمی‌توانید متن ساده یا عکس همراه با کپشن بفرستید.", $backadmin, 'HTML');
+        return;
+    }
+    if (($userdata['typeservice'] ?? '') === 'xdaynotmessage') {
+        step("gettextday", $from_id);
+        sendmessage($from_id, "📌 در این قابلیت پیام به کاربرانی ارسال میشود که تعیین  میکنید چند روز از ربات استفاده نکرده اند
+تعداد روز خود را ارسال نمایید.", $backadmin, 'HTML');
+        return;
+    }
+    step("gettextSystemMessage", $from_id);
+    if (($userdata['messagemediatype'] ?? 'text') == "photo") {
+        sendmessage($from_id, "📌 تصویر خود را ارسال نمایید.\nمی‌توانید همراه عکس یک کپشن (متن) هم بفرستید.", $backadmin, 'HTML');
+    } else {
+        sendmessage($from_id, "📌 متن پیام خود را ارسال نمایید.", $backadmin, 'HTML');
+    }
+}
+
 function broadcast_type_label($type)
 {
     $labels = [
@@ -4907,14 +4964,118 @@ function track_broadcast_click($broadcast_id, $user_id)
 
 function resolve_broadcast_callback_action($payload)
 {
-    if (!preg_match('/^bc_(\d+)_(.+)$/', (string) $payload, $match)) {
+    $payload = (string) $payload;
+    if (preg_match('/^(start|buy|usertest|help|aff|bal)__(\d+)$/', $payload, $match)) {
+        $legacy_to_btn = [
+            'start' => 'start',
+            'buy' => 'buy',
+            'usertest' => 'usertestbtn',
+            'help' => 'helpbtn',
+            'aff' => 'affiliatesbtn',
+            'bal' => 'addbalance',
+        ];
+        $btn_type = $legacy_to_btn[$match[1]] ?? $match[1];
+        $map = broadcast_btn_action_map();
+        return [
+            'broadcast_id' => intval($match[2]),
+            'btn_type' => $btn_type,
+            'action' => $map[$btn_type] ?? $btn_type,
+            'legacy' => $match[1],
+        ];
+    }
+    if (!preg_match('/^bc_(\d+)_(.+)$/', $payload, $match)) {
         return null;
     }
     $map = broadcast_btn_action_map();
     $btn_type = $match[2];
+    $legacy_map = [
+        'buy' => 'buy',
+        'start' => 'start',
+        'usertestbtn' => 'usertest',
+        'helpbtn' => 'help',
+        'affiliatesbtn' => 'aff',
+        'addbalance' => 'bal',
+    ];
     return [
         'broadcast_id' => intval($match[1]),
         'btn_type' => $btn_type,
         'action' => $map[$btn_type] ?? $btn_type,
+        'legacy' => $legacy_map[$btn_type] ?? null,
     ];
+}
+
+function apply_broadcast_start_payload($payload, &$text, &$datain, $from_id)
+{
+    $resolved = resolve_broadcast_callback_action($payload);
+    if ($resolved === null) {
+        return false;
+    }
+    $legacy = $resolved['legacy'] ?? null;
+    if ($legacy === null) {
+        $action = $resolved['action'] ?? '';
+        $legacy = [
+            'buy' => 'buy',
+            'start' => 'start',
+            'usertestbtn' => 'usertest',
+            'helpbtn' => 'help',
+            'affiliatesbtn' => 'aff',
+            'Add_Balance' => 'bal',
+        ][$action] ?? null;
+    }
+    if ($legacy === null) {
+        return false;
+    }
+
+    // Remap routing first so a tracking failure never drops the user on /start.
+    switch ($legacy) {
+        case 'usertest':
+            $text = 'usertest';
+            $datain = 'usertestbtn';
+            break;
+        case 'buy':
+            $text = 'buy';
+            $datain = 'buy';
+            break;
+        case 'help':
+            $text = 'help';
+            $datain = 'helpbtn';
+            break;
+        case 'start':
+            $text = 'start';
+            $datain = 'start';
+            break;
+        case 'aff':
+            $text = '';
+            $datain = 'affiliatesbtn';
+            break;
+        case 'bal':
+            $text = '';
+            $datain = 'Add_Balance';
+            break;
+        default:
+            return false;
+    }
+
+    try {
+        track_broadcast_click($resolved['broadcast_id'], $from_id);
+    } catch (Throwable $e) {
+        error_log('apply_broadcast_start_payload track: ' . $e->getMessage());
+    }
+    return true;
+}
+
+function broadcast_channel_start_payload($btn_type, $broadcast_id)
+{
+    $legacy = [
+        'start' => 'start',
+        'buy' => 'buy',
+        'usertestbtn' => 'usertest',
+        'helpbtn' => 'help',
+        'affiliatesbtn' => 'aff',
+        'addbalance' => 'bal',
+    ][$btn_type] ?? null;
+    if ($legacy === null || intval($broadcast_id) <= 0) {
+        return $legacy ?? 'start';
+    }
+    return $legacy . '__' . intval($broadcast_id);
 }

@@ -64,15 +64,7 @@ $broadcast_id = intval($info['broadcast_id'] ?? 0);
 $btnmessage = $info['btnmessage'] ?? 'none';
 $btnkeyboard = null;
 if ($btnmessage != 'none' && $btnmessage != '') {
-    $btn_texts = [
-        'buy' => $datatextbot['text_sell'],
-        'start' => 'شروع',
-        'usertestbtn' => $datatextbot['text_usertest'],
-        'helpbtn' => $datatextbot['text_help'],
-        'affiliatesbtn' => $datatextbot['text_affiliates'],
-        'addbalance' => $datatextbot['text_Add_Balance'],
-    ];
-    $btn_text = $btn_texts[$btnmessage] ?? 'ورود به ربات';
+    $btn_text = broadcast_resolve_btn_text($btnmessage, $info['btntextmessage'] ?? '', $datatextbot);
     $callback = ($broadcast_id > 0) ? ('bc_' . $broadcast_id . '_' . $btnmessage) : $btnmessage;
     if ($btnmessage === 'addbalance' && $broadcast_id <= 0) {
         $callback = 'Add_Balance';

@@ -1,15 +1,15 @@
 {
   "id": "/panel/",
-  "name": "پنل مدیریت میرزا بات",
-  "short_name": "میرزا",
-  "description": "پنل مدیریت میرزا بات",
+  "name": "پنل مدیریت پیچا",
+  "short_name": "پیچا",
+  "description": "پنل مدیریت پیچا",
   "lang": "fa",
   "dir": "rtl",
   "start_url": "/panel/login.php",
   "scope": "/panel/",
   "display": "standalone",
-  "background_color": "#0F172A",
-  "theme_color": "#0F172A",
+  "background_color": "#07070a",
+  "theme_color": "#07070a",
   "icons": [
     {
       "src": "/panel/icons/icon-192.png",

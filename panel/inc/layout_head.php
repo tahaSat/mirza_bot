@@ -20,7 +20,7 @@ $supportUnansweredCount = isset($pdo) && $pdo instanceof PDO ? panel_support_una
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/panel/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/panel/icons/apple-touch-icon.png">
-  <title>پنل مدیریت میرزا بات</title>
+  <title>پنل مدیریت پیچا</title>
   <link rel="stylesheet" href="<?= htmlspecialchars(panel_asset('css/style.css')) ?>">
   <script>
     window.openModal = function (id) { var m = document.getElementById(id); if (m) m.classList.add('open'); };
@@ -70,8 +70,8 @@ $supportUnansweredCount = isset($pdo) && $pdo instanceof PDO ? panel_support_una
 
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
-        <div class="brand-mark"><img src="/panel/icons/icon-192.png" alt="" width="28" height="28" style="display:block;border-radius:8px"></div>
-        <div class="brand-name">میرزا<span> · پنل</span></div>
+        <div class="brand-mark"><img src="/panel/icons/icon-192.png" alt="پیچا" width="28" height="28" style="display:block;border-radius:8px"></div>
+        <div class="brand-name">پیچا<span> · پنل</span></div>
       </div>
       <nav class="sidebar-nav">
         <div class="nav-section">
@@ -154,7 +154,7 @@ $supportUnansweredCount = isset($pdo) && $pdo instanceof PDO ? panel_support_una
           <button class="icon-btn sb-toggle" onclick="toggleSidebar()"><?= icon('menu', 17) ?></button>
           <div>
             <div class="topbar-title"><?= htmlspecialchars($pageTitle) ?></div>
-            <div class="crumb"><span>میرزا</span><span
+            <div class="crumb"><span>پیچا</span><span
                 style="opacity:.4;margin:0 3px">/</span><span><?= htmlspecialchars($pageTitle) ?></span></div>
           </div>
         </div>

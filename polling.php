@@ -1,6 +1,6 @@
 <?php
 /**
- * Mirza Pro VPN - Long-Polling Daemon (for servers where Telegram webhook IPs are blocked).
+ * Picha — Long-Polling Daemon (for servers where Telegram webhook IPs are blocked).
  * Run under Supervisor; forwards updates to local Apache index.php.
  */
 

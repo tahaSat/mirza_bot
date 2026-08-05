@@ -84,67 +84,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-  <meta name="theme-color" content="#0F172A" id="mtc">
+  <meta name="theme-color" content="#07070a" id="mtc">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/panel/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/panel/icons/apple-touch-icon.png">
-  <title>ورود — پنل مدیریت میرزا</title>
+  <title>ورود — پیچا</title>
+  <meta name="apple-mobile-web-app-title" content="پیچا">
+  <link rel="icon" href="/panel/icons/icon-192.png" type="image/png">
   <link rel="stylesheet" href="css/style.css">
-  <script>(function () { var t = localStorage.getItem('panel-theme') || 'navy'; document.documentElement.setAttribute('data-theme', t); var c = { navy: '#0F172A', purple: '#180D2E', emerald: '#0A1F1C', sunset: '#1A0D0D', slate: '#080808', light: '#F1F5F9', linen: '#FAF7F2', mint: '#F0FDF4', lavender: '#FAF5FF' }; var m = document.getElementById('mtc'); if (m && c[t]) m.content = c[t]; })();</script>
+  <link rel="stylesheet" href="css/login.css">
+  <script>document.documentElement.setAttribute('data-theme', 'slate');</script>
 </head>
 
 <body>
-  <div class="auth">
-    <aside class="auth-aside">
-      <div class="auth-mark">
-        <div class="dot"><img src="/panel/icons/icon-192.png" alt="" width="28" height="28" style="display:block;border-radius:8px"></div>
-        <span>پنل مدیریت میرزا</span>
-      </div>
-      <div class="auth-quote">
-        <h2>برای حمایت لطفا به <a style="color:#a8dafd !important  "
-            href="https://github.com/mahdiMGF2/mirzabot">پروژه</a>
-          استار و
-          دونیت دهید</h2>
-        <cite>پنل مدیریت میرزا</cite>
-      </div>
-      <div class="auth-foot">© <?= date('Y') ?> · نسخه 1.0 میرزا</div>
-    </aside>
-    <main class="auth-main">
-      <div class="auth-box" style="animation:fadeUp .5s ease-out">
-        <h1>ورود به پنل</h1>
-        <p class="lede">برای مدیریت ربات، اطلاعات حساب خود را وارد کنید.</p>
+  <div class="login-page">
+    <div class="login-shell">
+      <header class="login-brand">
+        <img class="login-logo" src="/panel/icons/logo.png" width="96" height="96" alt="پیچا">
+        <h1 class="login-name">پیچا</h1>
+        <p class="login-name-en">picha</p>
+        <p class="login-tagline">ورود به پنل مدیریت ربات</p>
+      </header>
+
+      <div class="login-form-wrap">
         <?php if ($error): ?>
-          <div class="notice notice-no" style="margin-bottom:20px"><?= htmlspecialchars($error) ?></div>
+          <div class="notice notice-no"><?= htmlspecialchars($error) ?></div>
         <?php endif; ?>
-        <form class="auth-form" method="POST" autocomplete="on">
+        <form class="login-form auth-form" method="POST" autocomplete="on">
           <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-          <div class="field">
+          <div class="login-field">
             <label for="username">نام کاربری</label>
             <input type="text" id="username" name="username" class="input" placeholder="admin"
               value="<?= htmlspecialchars($_POST['username'] ?? '') ?>" autocomplete="username" required autofocus
               maxlength="100">
           </div>
-          <div class="field">
+          <div class="login-field">
             <label for="password">رمز عبور</label>
             <input type="password" id="password" name="password" class="input" placeholder="••••••••"
               autocomplete="current-password" required maxlength="200">
           </div>
-          <label class="check-row" for="remember">
+          <label class="login-check" for="remember">
             <input type="checkbox" id="remember" name="remember" value="1"
               <?= (!isset($_POST['username']) || !empty($_POST['remember'])) ? 'checked' : '' ?>>
             <span>مرا به خاطر بسپار (۳۰ روز)</span>
           </label>
-          <button type="submit" class="btn btn-primary" id="loginBtn">
-            <span id="loginText">ورود به پنل</span>
-            <span id="loginSpin"
-              style="display:none;width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite"></span>
+          <button type="submit" class="login-submit" id="loginBtn">
+            <span id="loginText">ورود</span>
+            <span class="login-spin" id="loginSpin"></span>
           </button>
         </form>
-        <div class="auth-bottom">دسترسی به این پنل فقط برای مدیران مجاز است.</div>
       </div>
-    </main>
+
+      <p class="login-foot">© <?= date('Y') ?> · پیچا</p>
+    </div>
   </div>
   <script src="js/login.js"></script>
   <script>

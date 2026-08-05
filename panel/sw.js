@@ -1,9 +1,11 @@
-const CACHE_NAME = 'mirza-panel-static-v2';
+const CACHE_NAME = 'picha-panel-static-v1';
 const STATIC_ASSETS = [
   '/panel/css/style.css',
+  '/panel/css/login.css',
   '/panel/js/app.js',
   '/panel/icons/icon-192.png',
   '/panel/icons/icon-512.png',
+  '/panel/icons/logo.png',
   '/panel/icons/apple-touch-icon.png'
 ];
 
@@ -16,7 +18,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((keys) => Promise.all(keys
-        .filter((key) => key.startsWith('mirza-panel-') && key !== CACHE_NAME)
+        .filter((key) => (key.startsWith('mirza-panel-') || key.startsWith('picha-panel-')) && key !== CACHE_NAME)
         .map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
   );

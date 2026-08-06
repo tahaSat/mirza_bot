@@ -35,6 +35,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_bot_button_title') {
+    csrf_check_post();
+    $button_id = trim((string) ($_POST['button_id'] ?? ''));
+    $title = trim((string) ($_POST['title'] ?? ''));
+    $allowed_ids = get_main_keyboard_button_ids();
+
+    if (!in_array($button_id, $allowed_ids, true)) {
+        flash('error', 'دکمه نامعتبر است.');
+    } elseif ($title === '') {
+        flash('error', 'عنوان دکمه نمی‌تواند خالی باشد.');
+    } elseif (str_contains($title, "\n") || mb_strlen($title) > 32) {
+        flash('error', 'عنوان دکمه باید حداکثر ۳۲ کاراکتر و بدون خط جدید باشد.');
+    } elseif (is_main_keyboard_internal_id($title)) {
+        flash('error', 'این عنوان مجاز نیست.');
+    } else {
+        $exists = db_fetch($pdo, "SELECT id_text FROM textbot WHERE id_text = ?", [$button_id]);
+        if ($exists) {
+            db_query($pdo, "UPDATE textbot SET text = ? WHERE id_text = ?", [$title, $button_id]);
+        } else {
+            db_query($pdo, "INSERT INTO textbot (id_text, text) VALUES (?, ?)", [$button_id, $title]);
+        }
+        clearSelectCache('textbot');
+        flash('success', 'عنوان دکمه ذخیره شد.');
+    }
+    header('Location: settings.php?tab=bot');
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'change_password') {
     csrf_check_post();
     $cur = $_POST['current_password'] ?? '';
@@ -216,7 +244,7 @@ include __DIR__ . '/inc/layout_head.php';
         <div class="card-head">
             <div>
                 <div class="card-title">دکمه‌های منوی اصلی ربات</div>
-                <div class="card-subtitle">نمایش یا مخفی کردن دکمه‌هایی که کاربران در تلگرام می‌بینند</div>
+                <div class="card-subtitle">تغییر عنوان، نمایش یا مخفی کردن دکمه‌هایی که کاربران در تلگرام می‌بینند</div>
             </div>
             <form method="POST">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
@@ -228,7 +256,7 @@ include __DIR__ . '/inc/layout_head.php';
             <table class="tbl-md">
                 <thead>
                     <tr>
-                        <th>دکمه</th>
+                        <th>عنوان دکمه</th>
                         <th>وضعیت</th>
                         <th></th>
                     </tr>
@@ -236,7 +264,19 @@ include __DIR__ . '/inc/layout_head.php';
                 <tbody>
                     <?php foreach ($bot_menu_buttons as $btn): ?>
                         <tr>
-                            <td class="cell-strong"><?= htmlspecialchars($btn['label']) ?></td>
+                            <td>
+                                <form method="POST" style="display:flex;gap:8px;align-items:center;min-width:220px">
+                                    <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                                    <input type="hidden" name="action" value="save_bot_button_title">
+                                    <input type="hidden" name="button_id" value="<?= htmlspecialchars($btn['id']) ?>">
+                                    <input type="text" name="title" class="input" maxlength="32" required
+                                        value="<?= htmlspecialchars($btn['label']) ?>"
+                                        style="flex:1;min-width:0;padding:7px 10px;font-size:.85rem">
+                                    <button type="submit" class="btn btn-primary btn-sm" title="ذخیره عنوان">
+                                        <?= icon('check', 14) ?>
+                                    </button>
+                                </form>
+                            </td>
                             <td>
                                 <span class="tag <?= $btn['active'] ? 'tag-ok' : 'tag-plain' ?>">
                                     <?= $btn['active'] ? 'نمایش' : 'مخفی' ?>
@@ -261,7 +301,8 @@ include __DIR__ . '/inc/layout_head.php';
 
     <div class="card fade-up d1" style="margin-top:14px">
         <div class="card-body" style="font-size:.82rem;color:var(--mute);line-height:1.7">
-            تغییرات بلافاصله برای کاربران اعمال می‌شود. همین تنظیمات از طریق
+            عنوان دکمه حداکثر ۳۲ کاراکتر است. تغییرات عنوان و نمایش بلافاصله برای کاربران جدید اعمال می‌شود؛ کاربران فعلی پس از دریافت مجدد منو عنوان جدید را می‌بینند.
+            همین تنظیمات از طریق
             <strong>/panel → ⚙️ تنظیمات عمومی → ⌨️ تنظیم دکمه‌های منو</strong>
             در ربات تلگرام هم قابل مدیریت است.
         </div>

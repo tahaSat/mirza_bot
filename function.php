@@ -2258,7 +2258,21 @@ function normalize_keyboardmain_to_ids($keyboardmain_json, $datatextbot = null)
     if ($rows === []) {
         return get_default_main_keyboard_json();
     }
-    return json_encode(['keyboard' => $rows], JSON_UNESCAPED_UNICODE);
+    $full_width = [];
+    if (array_key_exists('full_width', $layout) && is_array($layout['full_width'])) {
+        foreach ($layout['full_width'] as $id) {
+            if (isset($seen[$id]) && !in_array($id, $full_width, true)) {
+                $full_width[] = $id;
+            }
+        }
+    } elseif (isset($seen['text_help'])) {
+        // Legacy layouts had no explicit width metadata; only Help was full-width by default.
+        $full_width[] = 'text_help';
+    }
+    return json_encode([
+        'keyboard' => $rows,
+        'full_width' => $full_width,
+    ], JSON_UNESCAPED_UNICODE);
 }
 
 function check_active_btn($keyboard, $text_var, $datatextbot = null)
@@ -2281,7 +2295,10 @@ function get_default_main_keyboard_layout()
 
 function get_default_main_keyboard_json()
 {
-    $keyboard = ['keyboard' => []];
+    $keyboard = [
+        'keyboard' => [],
+        'full_width' => ['text_help'],
+    ];
     foreach (get_default_main_keyboard_layout() as $row) {
         $row_buttons = [];
         foreach ($row as $btn) {
@@ -2336,9 +2353,13 @@ function pack_main_keyboard_buttons(array $button_ids, $per_row = 2)
     return json_encode($keyboard, JSON_UNESCAPED_UNICODE);
 }
 
-function encode_main_keyboard_rows(array $rows)
+function encode_main_keyboard_rows(array $rows, array $full_width = [])
 {
-    $keyboard = ['keyboard' => []];
+    $keyboard = [
+        'keyboard' => [],
+        'full_width' => [],
+    ];
+    $included = [];
     foreach ($rows as $row) {
         if (!is_array($row) || $row === []) {
             continue;
@@ -2349,6 +2370,7 @@ function encode_main_keyboard_rows(array $rows)
                 continue;
             }
             $encoded_row[] = ['text' => $id];
+            $included[$id] = true;
         }
         if ($encoded_row !== []) {
             $keyboard['keyboard'][] = $encoded_row;
@@ -2356,6 +2378,11 @@ function encode_main_keyboard_rows(array $rows)
     }
     if ($keyboard['keyboard'] === []) {
         return get_default_main_keyboard_json();
+    }
+    foreach ($full_width as $id) {
+        if (isset($included[$id]) && !in_array($id, $keyboard['full_width'], true)) {
+            $keyboard['full_width'][] = $id;
+        }
     }
     return json_encode($keyboard, JSON_UNESCAPED_UNICODE);
 }
@@ -2388,13 +2415,11 @@ function get_main_keyboard_rows_as_ids($keyboardmain_json, $datatextbot = null)
 
 function get_main_keyboard_solo_button_ids($keyboardmain_json, $datatextbot = null)
 {
-    $solos = [];
-    foreach (get_main_keyboard_rows_as_ids($keyboardmain_json, $datatextbot) as $row) {
-        if (count($row) === 1) {
-            $solos[] = $row[0];
-        }
-    }
-    return $solos;
+    $keyboardmain_json = normalize_keyboardmain_to_ids($keyboardmain_json, $datatextbot);
+    $layout = json_decode($keyboardmain_json, true);
+    return is_array($layout) && !empty($layout['full_width']) && is_array($layout['full_width'])
+        ? array_values(array_unique($layout['full_width']))
+        : [];
 }
 
 function rebuild_main_keyboard_layout(array $ordered_ids, array $solo_ids)
@@ -2435,7 +2460,7 @@ function rebuild_main_keyboard_layout(array $ordered_ids, array $solo_ids)
     if ($pending !== []) {
         $rows[] = $pending;
     }
-    return encode_main_keyboard_rows($rows);
+    return encode_main_keyboard_rows($rows, array_keys($solo_map));
 }
 
 function build_keyboardmain_from_active_buttons($active_buttons)

@@ -5092,13 +5092,38 @@ function broadcast_attachable_button_keys()
     return array_merge(array_keys(broadcast_attachable_buttons()), ['none']);
 }
 
-function broadcast_btn_picker_keyboard($prefix, $extra_rows = [])
+function broadcast_btn_picker_keyboard($prefix, $extra_rows = [], $texts = null)
 {
+    global $datatextbot, $setting;
+    if (!is_array($texts)) {
+        $texts = is_array($datatextbot) ? $datatextbot : [];
+    }
+    if (!is_array($setting) || !isset($setting['keyboardmain'])) {
+        $setting_row = select('setting', 'keyboardmain', null, null, 'select');
+        $keyboardmain = is_array($setting_row) ? ($setting_row['keyboardmain'] ?? '') : '';
+    } else {
+        $keyboardmain = $setting['keyboardmain'] ?? '';
+    }
+    $main_ids = get_main_keyboard_button_ids();
+
     $rows = [];
     $row = [];
     foreach (broadcast_attachable_buttons() as $key => $meta) {
+        $text_key = $meta['text_key'] ?? null;
+        // Main-menu buttons: only show when currently active in the user keyboard.
+        if ($text_key !== null && in_array($text_key, $main_ids, true)
+            && !check_active_btn($keyboardmain, $text_key, $texts)) {
+            continue;
+        }
+        $label = broadcast_btn_label($key, $texts);
+        if ($label === '') {
+            $label = $meta['admin_label'] ?? $key;
+        }
+        if (mb_strlen($label) > 64) {
+            $label = mb_substr($label, 0, 64);
+        }
         $row[] = [
-            'text' => $meta['admin_label'],
+            'text' => $label,
             'callback_data' => $prefix . '-' . $key,
         ];
         if (count($row) >= 2) {
@@ -5117,7 +5142,7 @@ function broadcast_btn_picker_keyboard($prefix, $extra_rows = [])
             $rows[] = $extra;
         }
     }
-    return json_encode(['inline_keyboard' => $rows]);
+    return json_encode(['inline_keyboard' => $rows], JSON_UNESCAPED_UNICODE);
 }
 
 function broadcast_btn_action_map()
@@ -5143,8 +5168,14 @@ function broadcast_btn_label($btn_type, $texts = null)
         return $btn_type;
     }
     $key = $meta['text_key'] ?? null;
+    if ($key !== null && in_array($key, get_main_keyboard_button_ids(), true)) {
+        return get_main_keyboard_button_label($key, $texts);
+    }
     if ($key && !empty($texts[$key])) {
-        return $texts[$key];
+        $label = trim((string) $texts[$key]);
+        if ($label !== '' && !str_contains($label, "\n") && mb_strlen($label) <= 64) {
+            return $label;
+        }
     }
     return $meta['fallback'] ?? $btn_type;
 }

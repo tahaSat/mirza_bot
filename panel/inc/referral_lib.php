@@ -192,85 +192,244 @@ function referral_lib_pending_rewards(PDO $pdo, int $campaign_id): array
 
 /**
  * Manually provision the campaign prize for a referrer who already qualifies.
+ * Uses the panel service path (same as user_services add) instead of bot provision_free_service.
  *
  * @return array{ok:bool,msg:string}
  */
 function referral_lib_manual_grant(PDO $pdo, int $campaign_id, $user_id): array
 {
-    if (!function_exists('panel_payment_bootstrap')) {
-        require_once __DIR__ . '/payments_lib.php';
-    }
-    panel_payment_bootstrap();
-
-    global $setting, $buyreport;
-
-    $campaign = referral_lib_get_campaign($pdo, $campaign_id);
-    if (!$campaign) {
-        return ['ok' => false, 'msg' => 'کمپین یافت نشد.'];
-    }
-
-    $user_id = (string) $user_id;
-    if ($user_id === '' || !ctype_digit($user_id)) {
-        return ['ok' => false, 'msg' => 'آیدی کاربر نامعتبر است.'];
-    }
-
-    if (referral_has_reward($campaign_id, $user_id)) {
-        return ['ok' => false, 'msg' => 'این کاربر قبلاً جایزه این کمپین را دریافت کرده است.'];
-    }
-
-    $invite_count = referral_count_invites($campaign_id, $user_id);
-    $required = max(1, (int) ($campaign['required_invites'] ?? 1));
-    if ($invite_count < $required) {
-        return ['ok' => false, 'msg' => "تعداد دعوت کافی نیست ({$invite_count} / {$required})."];
-    }
-
-    $product = select('product', '*', 'code_product', $campaign['code_product'], 'select');
-    $panel = select('marzban_panel', '*', 'name_panel', $campaign['panel_name'], 'select');
-    if (!$product || !$panel) {
-        return ['ok' => false, 'msg' => 'محصول یا پنل جایزه یافت نشد.'];
-    }
-
-    if (!function_exists('provision_free_service')) {
-        return ['ok' => false, 'msg' => 'تابع ساخت سرویس در دسترس نیست.'];
-    }
-
-    $result = provision_free_service($user_id, $product, $panel, 'referral_reward_' . $campaign['code']);
-    if (empty($result['ok'])) {
-        $err = (string) ($result['msg'] ?? 'unknown');
-        return ['ok' => false, 'msg' => 'خطا در ساخت ساب/سرویس: ' . $err];
-    }
-
-    $granted_at = date('Y/m/d H:i:s');
     try {
-        db_query(
-            $pdo,
-            'INSERT INTO referral_reward (campaign_id, user_id, id_invoice, granted_at) VALUES (?, ?, ?, ?)',
-            [$campaign_id, $user_id, $result['invoice_id'], $granted_at]
-        );
+        if (!function_exists('panel_add_user_service')) {
+            require_once __DIR__ . '/users_lib.php';
+        }
+        panel_service_bootstrap();
+
+        global $ManagePanel, $textbotlang, $datatextbot, $setting, $buyreport;
+
+        $campaign = referral_lib_get_campaign($pdo, $campaign_id);
+        if (!$campaign) {
+            return ['ok' => false, 'msg' => 'کمپین یافت نشد.'];
+        }
+
+        $user_id = (string) $user_id;
+        if ($user_id === '' || !ctype_digit($user_id)) {
+            return ['ok' => false, 'msg' => 'آیدی کاربر نامعتبر است.'];
+        }
+
+        if (referral_has_reward($campaign_id, $user_id)) {
+            return ['ok' => false, 'msg' => 'این کاربر قبلاً جایزه این کمپین را دریافت کرده است.'];
+        }
+
+        $invite_count = referral_count_invites($campaign_id, $user_id);
+        $required = max(1, (int) ($campaign['required_invites'] ?? 1));
+        if ($invite_count < $required) {
+            return ['ok' => false, 'msg' => "تعداد دعوت کافی نیست ({$invite_count} / {$required})."];
+        }
+
+        $product = db_fetch($pdo, 'SELECT * FROM product WHERE code_product = ? LIMIT 1', [$campaign['code_product']]);
+        $panel = db_fetch($pdo, 'SELECT * FROM marzban_panel WHERE name_panel = ? LIMIT 1', [$campaign['panel_name']]);
+        if (!$product || !$panel) {
+            return ['ok' => false, 'msg' => 'محصول یا پنل جایزه یافت نشد.'];
+        }
+
+        $user = db_fetch($pdo, 'SELECT * FROM user WHERE id = ?', [$user_id]);
+        if (!$user) {
+            return ['ok' => false, 'msg' => 'کاربر در دیتابیس ربات یافت نشد.'];
+        }
+
+        if (!isset($ManagePanel)) {
+            $ManagePanel = new ManagePanel();
+        }
+
+        $lastError = 'ساخت سرویس ناموفق بود.';
+        $created = null;
+        $username = '';
+        $idInvoice = '';
+
+        for ($attempt = 0; $attempt < 6; $attempt++) {
+            $suffix = bin2hex(random_bytes(3));
+            $base = substr($user_id, -12);
+            $username = strtolower($base . '_' . $suffix);
+            if (!preg_match('/^\w{3,32}$/', $username)) {
+                $username = strtolower('r' . $suffix . substr(md5($user_id), 0, 8));
+            }
+
+            if (db_count($pdo, 'SELECT COUNT(*) FROM invoice WHERE username = ?', [$username]) > 0) {
+                $lastError = 'نام کاربری تکراری در فاکتورها.';
+                continue;
+            }
+
+            $DataUserOut = $ManagePanel->DataUser($panel['name_panel'], $username);
+            if (($DataUserOut['status'] ?? '') !== 'Unsuccessful' && !empty($DataUserOut['username'])) {
+                $lastError = 'نام کاربری روی پنل از قبل وجود دارد.';
+                continue;
+            }
+
+            $serviceTime = (int) ($product['Service_time'] ?? 0);
+            $datetimestep = $serviceTime === 0 ? 0 : strtotime('+' . $serviceTime . ' days');
+            $datac = [
+                'expire' => $datetimestep,
+                'data_limit' => (int) ($product['Volume_constraint'] ?? 0) * pow(1024, 3),
+                'from_id' => $user_id,
+                'username' => (string) ($user['username'] ?? ''),
+                'type' => 'buy',
+            ];
+
+            $DataUserOut = $ManagePanel->createUser(
+                $panel['name_panel'],
+                $product['code_product'],
+                $username,
+                $datac
+            );
+
+            if (empty($DataUserOut['username'])) {
+                $err = $DataUserOut['msg'] ?? 'unknown';
+                if (is_array($err) || is_object($err)) {
+                    $err = json_encode($err, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                }
+                $lastError = (string) $err;
+                continue;
+            }
+
+            $idInvoice = bin2hex(random_bytes(4));
+            $notifctions = json_encode(['volume' => false, 'time' => false]);
+            $note = 'referral_reward_' . ($campaign['code'] ?? $campaign_id);
+
+            db_query(
+                $pdo,
+                'INSERT INTO invoice (id_user, id_invoice, username, time_sell, Service_location, name_product, price_product, Volume, Service_time, Status, notifctions) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                [
+                    $user_id,
+                    $idInvoice,
+                    $DataUserOut['username'],
+                    time(),
+                    $panel['name_panel'],
+                    $product['name_product'],
+                    0,
+                    $product['Volume_constraint'],
+                    $product['Service_time'],
+                    'active',
+                    $notifctions,
+                ]
+            );
+            try {
+                db_query($pdo, 'UPDATE invoice SET note = ? WHERE id_invoice = ?', [$note, $idInvoice]);
+            } catch (Throwable $e) {
+                // note column may be absent on some installs
+            }
+
+            $created = $DataUserOut;
+            $username = (string) $DataUserOut['username'];
+            break;
+        }
+
+        if ($created === null) {
+            return ['ok' => false, 'msg' => 'خطا در ساخت ساب/سرویس: ' . $lastError];
+        }
+
+        try {
+            db_query(
+                $pdo,
+                'INSERT INTO referral_reward (campaign_id, user_id, id_invoice, granted_at) VALUES (?, ?, ?, ?)',
+                [$campaign_id, $user_id, $idInvoice, date('Y/m/d H:i:s')]
+            );
+        } catch (Throwable $e) {
+            return [
+                'ok' => false,
+                'msg' => 'سرویس ساخته شد (' . $username . ') ولی ثبت جایزه ناموفق بود: ' . $e->getMessage(),
+            ];
+        }
+
+        $notifyError = '';
+        try {
+            $output_config_link = ($panel['sublink'] ?? '') === 'onsublink' ? ($created['subscription_url'] ?? '') : '';
+            $config = '';
+            $configs = $created['configs'] ?? ($created['links'] ?? []);
+            if (($panel['config'] ?? '') === 'onconfig' && is_array($configs)) {
+                foreach ($configs as $link) {
+                    $config .= "\n" . $link;
+                }
+            }
+
+            $textTemplate = $datatextbot['textafterpay'] ?? '✅ سرویس {name_service} برای {username} ایجاد شد.';
+            if (($panel['type'] ?? '') === 'Manualsale') {
+                $textTemplate = $datatextbot['textmanual'] ?? $textTemplate;
+            } elseif (in_array($panel['type'] ?? '', ['ibsng', 'mikrotik'], true)) {
+                $textTemplate = $datatextbot['textafterpayibsng'] ?? $textTemplate;
+            }
+
+            $dayLabel = (int) ($product['Service_time'] ?? 0) === 0
+                ? ($textbotlang['users']['stateus']['Unlimited'] ?? 'نامحدود')
+                : $product['Service_time'];
+            $volumeLabel = (int) ($product['Volume_constraint'] ?? 0) === 0
+                ? ($textbotlang['users']['stateus']['Unlimited'] ?? 'نامحدود')
+                : $product['Volume_constraint'];
+
+            $textcreatuser = str_replace(
+                ['{username}', '{name_service}', '{location}', '{day}', '{volume}', '{config}', '{links}', '{links2}'],
+                [
+                    '<code>' . $username . '</code>',
+                    $product['name_product'],
+                    $panel['name_panel'],
+                    $dayLabel,
+                    $volumeLabel,
+                    '<code>' . $output_config_link . '</code>',
+                    $config,
+                    $output_config_link,
+                ],
+                $textTemplate
+            );
+
+            $reward_text = "<b>🎉 تبریک! هدیه دعوت دریافت شد</b>\n\n";
+            $reward_text .= "کمپین: <b>{$campaign['title']}</b>\n";
+            $reward_text .= "سرویس: <b>{$product['name_product']}</b>\n";
+            $reward_text .= "نام کاربری: <code>{$username}</code>";
+
+            if (function_exists('sendmessage')) {
+                sendmessage($user_id, $reward_text, null, 'HTML');
+            }
+
+            if (function_exists('sendMessageService')) {
+                $Shoppinginfo = json_encode([
+                    'inline_keyboard' => [[
+                        ['text' => $textbotlang['users']['help']['btninlinebuy'] ?? 'راهنما', 'callback_data' => 'helpbtn'],
+                    ]],
+                ]);
+                sendMessageService(
+                    $panel,
+                    is_array($configs) ? $configs : [],
+                    $output_config_link,
+                    $username,
+                    $Shoppinginfo,
+                    $textcreatuser,
+                    $idInvoice,
+                    $user_id
+                );
+            } elseif (function_exists('panel_notify_user')) {
+                panel_notify_user($user_id, strip_tags(str_replace(['<code>', '</code>'], '', $textcreatuser)));
+            }
+
+            if (strlen($setting['Channel_Report'] ?? '') > 0 && function_exists('telegram')) {
+                telegram('sendmessage', [
+                    'chat_id' => $setting['Channel_Report'],
+                    'message_thread_id' => $buyreport ?? 0,
+                    'text' => "🎁 هدیه دعوت (پنل)\nکمپین: {$campaign['title']}\nکاربر: {$user_id}\nسرویس: {$product['name_product']}\nیوزرنیم: {$username}",
+                    'parse_mode' => 'HTML',
+                ]);
+            }
+        } catch (Throwable $e) {
+            $notifyError = $e->getMessage();
+            error_log('referral_lib_manual_grant notify: ' . $notifyError);
+        }
+
+        $msg = 'جایزه برای ' . $user_id . ' ثبت و سرویس «' . $username . '» ساخته شد.';
+        if ($notifyError !== '') {
+            $msg .= ' (سرویس ساخته شد؛ ارسال تلگرام خطا داد: ' . $notifyError . ')';
+        }
+
+        return ['ok' => true, 'msg' => $msg];
     } catch (Throwable $e) {
-        return ['ok' => false, 'msg' => 'سرویس ساخته شد ولی ثبت جایزه ناموفق بود: ' . $e->getMessage()];
+        error_log('referral_lib_manual_grant: ' . $e->getMessage());
+        return ['ok' => false, 'msg' => 'خطای سیستمی: ' . $e->getMessage()];
     }
-
-    $serviceUser = $result['username'] ?? '';
-    $reward_text = "<b>🎉 تبریک! هدیه دعوت دریافت شد</b>\n\n";
-    $reward_text .= "کمپین: <b>{$campaign['title']}</b>\n";
-    $reward_text .= "سرویس: <b>{$product['name_product']}</b>\n";
-    $reward_text .= "نام کاربری: <code>{$serviceUser}</code>";
-    if (function_exists('sendmessage')) {
-        sendmessage($user_id, $reward_text, null, 'HTML');
-    }
-
-    if (strlen($setting['Channel_Report'] ?? '') > 0 && function_exists('telegram')) {
-        telegram('sendmessage', [
-            'chat_id' => $setting['Channel_Report'],
-            'message_thread_id' => $buyreport ?? 0,
-            'text' => "🎁 هدیه دعوت (پنل)\nکمپین: {$campaign['title']}\nکاربر: {$user_id}\nسرویس: {$product['name_product']}",
-            'parse_mode' => 'HTML',
-        ]);
-    }
-
-    return [
-        'ok' => true,
-        'msg' => 'جایزه برای ' . $user_id . ' ارسال شد' . ($serviceUser !== '' ? " (سرویس: {$serviceUser})" : '') . '.',
-    ];
 }

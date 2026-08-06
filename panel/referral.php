@@ -61,7 +61,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'grant
     csrf_check_post();
     $grantCampaignId = (int) ($_POST['campaign_id'] ?? 0);
     $grantUserId = trim((string) ($_POST['user_id'] ?? ''));
-    $result = referral_lib_manual_grant($pdo, $grantCampaignId, $grantUserId);
+    try {
+        $result = referral_lib_manual_grant($pdo, $grantCampaignId, $grantUserId);
+    } catch (Throwable $e) {
+        error_log('grant_reward: ' . $e->getMessage());
+        $result = ['ok' => false, 'msg' => 'خطای سیستمی: ' . $e->getMessage()];
+    }
     flash($result['ok'] ? 'success' : 'error', $result['msg']);
     header('Location: referral.php?view=' . $grantCampaignId . '&scan=1#pending');
     exit;
@@ -301,7 +306,7 @@ include __DIR__ . '/inc/layout_head.php';
                       <button
                         type="submit"
                         class="btn btn-primary btn-sm"
-                        onclick="return confirm('ارسال جایزه به <?= htmlspecialchars((string) $row['referrer_id'], ENT_QUOTES) ?>؟ سرویس روی پنل ساخته و در تلگرام ارسال می‌شود.')"
+                        onclick="return confirm('ارسال جایزه برای این کاربر؟');"
                       ><?= icon('check', 13) ?> تأیید و ارسال جایزه</button>
                     </form>
                   </td>

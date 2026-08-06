@@ -72,6 +72,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'grant
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'grant_last_product') {
+    csrf_check_post();
+    $grantCampaignId = (int) ($_POST['campaign_id'] ?? 0);
+    $grantUserId = trim((string) ($_POST['user_id'] ?? ''));
+    try {
+        $result = referral_lib_grant_last_product($pdo, $grantCampaignId, $grantUserId);
+    } catch (Throwable $e) {
+        error_log('grant_last_product: ' . $e->getMessage());
+        $result = ['ok' => false, 'msg' => 'خطای سیستمی: ' . $e->getMessage()];
+    }
+    flash($result['ok'] ? 'success' : 'error', $result['msg']);
+    header('Location: referral.php?view=' . $grantCampaignId . '&scan=1#pending');
+    exit;
+}
+
 $campaigns = referral_lib_list_campaigns($pdo);
 $products = referral_lib_products($pdo);
 $master_status = referral_lib_master_status($pdo);
@@ -298,17 +313,30 @@ include __DIR__ . '/inc/layout_head.php';
                   <td class="cn"><?= (int) $row['invite_count'] ?></td>
                   <td class="cn"><?= (int) $view_campaign['required_invites'] ?></td>
                   <td>
-                    <form method="post" style="margin:0;display:inline">
-                      <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-                      <input type="hidden" name="action" value="grant_reward">
-                      <input type="hidden" name="campaign_id" value="<?= (int) $view_id ?>">
-                      <input type="hidden" name="user_id" value="<?= htmlspecialchars((string) $row['referrer_id']) ?>">
-                      <button
-                        type="submit"
-                        class="btn btn-primary btn-sm"
-                        onclick="return confirm('ارسال جایزه برای این کاربر؟');"
-                      ><?= icon('check', 13) ?> تأیید و ارسال جایزه</button>
-                    </form>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                      <form method="post" style="margin:0">
+                        <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                        <input type="hidden" name="action" value="grant_reward">
+                        <input type="hidden" name="campaign_id" value="<?= (int) $view_id ?>">
+                        <input type="hidden" name="user_id" value="<?= htmlspecialchars((string) $row['referrer_id']) ?>">
+                        <button
+                          type="submit"
+                          class="btn btn-primary btn-sm"
+                          onclick="return confirm('ارسال جایزه برای این کاربر؟');"
+                        ><?= icon('check', 13) ?> تأیید و ارسال جایزه</button>
+                      </form>
+                      <form method="post" style="margin:0">
+                        <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                        <input type="hidden" name="action" value="grant_last_product">
+                        <input type="hidden" name="campaign_id" value="<?= (int) $view_id ?>">
+                        <input type="hidden" name="user_id" value="<?= htmlspecialchars((string) $row['referrer_id']) ?>">
+                        <button
+                          type="submit"
+                          class="btn btn-ghost btn-sm"
+                          onclick="return confirm('آخرین محصول این کاربر به‌عنوان جایزه ثبت شود و از لیست حذف گردد؟');"
+                        >انتخاب آخرین محصول به‌عنوان جایزه</button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               <?php endforeach; ?>

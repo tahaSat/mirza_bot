@@ -433,3 +433,94 @@ function referral_lib_manual_grant(PDO $pdo, int $campaign_id, $user_id): array
         return ['ok' => false, 'msg' => 'خطای سیستمی: ' . $e->getMessage()];
     }
 }
+
+/**
+ * Mark the user's latest existing service/invoice as the campaign prize (no new sub).
+ *
+ * @return array{ok:bool,msg:string}
+ */
+function referral_lib_grant_last_product(PDO $pdo, int $campaign_id, $user_id): array
+{
+    try {
+        if (!function_exists('panel_payment_bootstrap')) {
+            require_once __DIR__ . '/payments_lib.php';
+        }
+        panel_payment_bootstrap();
+
+        $campaign = referral_lib_get_campaign($pdo, $campaign_id);
+        if (!$campaign) {
+            return ['ok' => false, 'msg' => 'کمپین یافت نشد.'];
+        }
+
+        $user_id = (string) $user_id;
+        if ($user_id === '' || !ctype_digit($user_id)) {
+            return ['ok' => false, 'msg' => 'آیدی کاربر نامعتبر است.'];
+        }
+
+        if (referral_has_reward($campaign_id, $user_id)) {
+            return ['ok' => false, 'msg' => 'این کاربر قبلاً جایزه این کمپین را دریافت کرده است.'];
+        }
+
+        $invite_count = referral_count_invites($campaign_id, $user_id);
+        $required = max(1, (int) ($campaign['required_invites'] ?? 1));
+        if ($invite_count < $required) {
+            return ['ok' => false, 'msg' => "تعداد دعوت کافی نیست ({$invite_count} / {$required})."];
+        }
+
+        $last = db_fetch(
+            $pdo,
+            "SELECT id_invoice, username, name_product, Service_location, time_sell, Status
+             FROM invoice
+             WHERE id_user = ?
+               AND Status NOT IN ('removebyadmin', 'disabled', 'deleted', 'Unpaid')
+             ORDER BY CAST(time_sell AS UNSIGNED) DESC, id_invoice DESC
+             LIMIT 1",
+            [$user_id]
+        );
+
+        if (!$last || empty($last['id_invoice'])) {
+            return ['ok' => false, 'msg' => 'آخرین محصولی برای این کاربر یافت نشد.'];
+        }
+
+        $idInvoice = (string) $last['id_invoice'];
+        $serviceName = (string) ($last['name_product'] ?? '—');
+        $serviceUser = (string) ($last['username'] ?? '—');
+        $note = 'referral_reward_' . ($campaign['code'] ?? $campaign_id) . '_last';
+
+        try {
+            db_query(
+                $pdo,
+                'INSERT INTO referral_reward (campaign_id, user_id, id_invoice, granted_at) VALUES (?, ?, ?, ?)',
+                [$campaign_id, $user_id, $idInvoice, date('Y/m/d H:i:s')]
+            );
+        } catch (Throwable $e) {
+            return ['ok' => false, 'msg' => 'ثبت جایزه ناموفق بود: ' . $e->getMessage()];
+        }
+
+        try {
+            db_query($pdo, 'UPDATE invoice SET note = ? WHERE id_invoice = ?', [$note, $idInvoice]);
+        } catch (Throwable $e) {
+            // note column may be absent
+        }
+
+        try {
+            if (function_exists('sendmessage')) {
+                $text = "<b>🎉 تبریک! هدیه دعوت ثبت شد</b>\n\n";
+                $text .= "کمپین: <b>{$campaign['title']}</b>\n";
+                $text .= "جایزه (آخرین سرویس شما): <b>{$serviceName}</b>\n";
+                $text .= "نام کاربری: <code>{$serviceUser}</code>";
+                sendmessage($user_id, $text, null, 'HTML');
+            }
+        } catch (Throwable $e) {
+            error_log('referral_lib_grant_last_product notify: ' . $e->getMessage());
+        }
+
+        return [
+            'ok' => true,
+            'msg' => "آخرین محصول «{$serviceName}» ({$serviceUser}) به‌عنوان جایزه ثبت شد و از لیست حذف گردید.",
+        ];
+    } catch (Throwable $e) {
+        error_log('referral_lib_grant_last_product: ' . $e->getMessage());
+        return ['ok' => false, 'msg' => 'خطای سیستمی: ' . $e->getMessage()];
+    }
+}

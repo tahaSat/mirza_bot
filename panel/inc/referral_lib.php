@@ -157,3 +157,120 @@ function referral_lib_master_status(PDO $pdo): string
     $setting = select('setting', 'referralstatus', null, null, 'select', ['cache' => false]);
     return $setting['referralstatus'] ?? 'offreferral';
 }
+
+/**
+ * Referrers who met required_invites but have no referral_reward row.
+ *
+ * @return list<array{referrer_id:string,invite_count:int,username:?string}>
+ */
+function referral_lib_pending_rewards(PDO $pdo, int $campaign_id): array
+{
+    $campaign = referral_lib_get_campaign($pdo, $campaign_id);
+    if (!$campaign) {
+        return [];
+    }
+
+    $required = max(1, (int) ($campaign['required_invites'] ?? 1));
+
+    return db_fetchAll(
+        $pdo,
+        "SELECT ri.referrer_id,
+                COUNT(*) AS invite_count,
+                u.username AS username
+         FROM referral_invite ri
+         LEFT JOIN user u ON u.id = ri.referrer_id
+         LEFT JOIN referral_reward rr
+           ON rr.campaign_id = ri.campaign_id AND rr.user_id = ri.referrer_id
+         WHERE ri.campaign_id = ?
+           AND rr.id IS NULL
+         GROUP BY ri.referrer_id, u.username
+         HAVING COUNT(*) >= ?
+         ORDER BY invite_count DESC, ri.referrer_id ASC",
+        [$campaign_id, $required]
+    );
+}
+
+/**
+ * Manually provision the campaign prize for a referrer who already qualifies.
+ *
+ * @return array{ok:bool,msg:string}
+ */
+function referral_lib_manual_grant(PDO $pdo, int $campaign_id, $user_id): array
+{
+    if (!function_exists('panel_payment_bootstrap')) {
+        require_once __DIR__ . '/payments_lib.php';
+    }
+    panel_payment_bootstrap();
+
+    global $setting, $buyreport;
+
+    $campaign = referral_lib_get_campaign($pdo, $campaign_id);
+    if (!$campaign) {
+        return ['ok' => false, 'msg' => 'کمپین یافت نشد.'];
+    }
+
+    $user_id = (string) $user_id;
+    if ($user_id === '' || !ctype_digit($user_id)) {
+        return ['ok' => false, 'msg' => 'آیدی کاربر نامعتبر است.'];
+    }
+
+    if (referral_has_reward($campaign_id, $user_id)) {
+        return ['ok' => false, 'msg' => 'این کاربر قبلاً جایزه این کمپین را دریافت کرده است.'];
+    }
+
+    $invite_count = referral_count_invites($campaign_id, $user_id);
+    $required = max(1, (int) ($campaign['required_invites'] ?? 1));
+    if ($invite_count < $required) {
+        return ['ok' => false, 'msg' => "تعداد دعوت کافی نیست ({$invite_count} / {$required})."];
+    }
+
+    $product = select('product', '*', 'code_product', $campaign['code_product'], 'select');
+    $panel = select('marzban_panel', '*', 'name_panel', $campaign['panel_name'], 'select');
+    if (!$product || !$panel) {
+        return ['ok' => false, 'msg' => 'محصول یا پنل جایزه یافت نشد.'];
+    }
+
+    if (!function_exists('provision_free_service')) {
+        return ['ok' => false, 'msg' => 'تابع ساخت سرویس در دسترس نیست.'];
+    }
+
+    $result = provision_free_service($user_id, $product, $panel, 'referral_reward_' . $campaign['code']);
+    if (empty($result['ok'])) {
+        $err = (string) ($result['msg'] ?? 'unknown');
+        return ['ok' => false, 'msg' => 'خطا در ساخت ساب/سرویس: ' . $err];
+    }
+
+    $granted_at = date('Y/m/d H:i:s');
+    try {
+        db_query(
+            $pdo,
+            'INSERT INTO referral_reward (campaign_id, user_id, id_invoice, granted_at) VALUES (?, ?, ?, ?)',
+            [$campaign_id, $user_id, $result['invoice_id'], $granted_at]
+        );
+    } catch (Throwable $e) {
+        return ['ok' => false, 'msg' => 'سرویس ساخته شد ولی ثبت جایزه ناموفق بود: ' . $e->getMessage()];
+    }
+
+    $serviceUser = $result['username'] ?? '';
+    $reward_text = "<b>🎉 تبریک! هدیه دعوت دریافت شد</b>\n\n";
+    $reward_text .= "کمپین: <b>{$campaign['title']}</b>\n";
+    $reward_text .= "سرویس: <b>{$product['name_product']}</b>\n";
+    $reward_text .= "نام کاربری: <code>{$serviceUser}</code>";
+    if (function_exists('sendmessage')) {
+        sendmessage($user_id, $reward_text, null, 'HTML');
+    }
+
+    if (strlen($setting['Channel_Report'] ?? '') > 0 && function_exists('telegram')) {
+        telegram('sendmessage', [
+            'chat_id' => $setting['Channel_Report'],
+            'message_thread_id' => $buyreport ?? 0,
+            'text' => "🎁 هدیه دعوت (پنل)\nکمپین: {$campaign['title']}\nکاربر: {$user_id}\nسرویس: {$product['name_product']}",
+            'parse_mode' => 'HTML',
+        ]);
+    }
+
+    return [
+        'ok' => true,
+        'msg' => 'جایزه برای ' . $user_id . ' ارسال شد' . ($serviceUser !== '' ? " (سرویس: {$serviceUser})" : '') . '.',
+    ];
+}

@@ -57,6 +57,16 @@ if (isset($_GET['delete'])) {
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'grant_reward') {
+    csrf_check_post();
+    $grantCampaignId = (int) ($_POST['campaign_id'] ?? 0);
+    $grantUserId = trim((string) ($_POST['user_id'] ?? ''));
+    $result = referral_lib_manual_grant($pdo, $grantCampaignId, $grantUserId);
+    flash($result['ok'] ? 'success' : 'error', $result['msg']);
+    header('Location: referral.php?view=' . $grantCampaignId . '&scan=1#pending');
+    exit;
+}
+
 $campaigns = referral_lib_list_campaigns($pdo);
 $products = referral_lib_products($pdo);
 $master_status = referral_lib_master_status($pdo);
@@ -64,11 +74,15 @@ $view_id = (int) ($_GET['view'] ?? 0);
 $invite_search = trim($_GET['q'] ?? '');
 $invite_page = max(1, (int) ($_GET['page'] ?? 1));
 $invite_per_page = 25;
+$do_scan = isset($_GET['scan']);
 $view_campaign = $view_id ? referral_lib_get_campaign($pdo, $view_id) : null;
 $recent_invites = [];
 $invite_total = 0;
 $invite_total_pages = 1;
+$view_stats = ['invites' => 0, 'referrers' => 0, 'rewards' => 0];
+$pending_rewards = [];
 if ($view_campaign) {
+    $view_stats = referral_lib_campaign_stats($pdo, $view_id);
     $invite_result = referral_lib_list_invites(
         $pdo,
         $view_id,
@@ -79,6 +93,9 @@ if ($view_campaign) {
     $recent_invites = $invite_result['rows'];
     $invite_total = (int) $invite_result['total'];
     $invite_total_pages = max(1, (int) ceil($invite_total / $invite_per_page));
+    if ($do_scan) {
+        $pending_rewards = referral_lib_pending_rewards($pdo, $view_id);
+    }
 }
 
 $pageTitle = 'کمپین‌های دعوت';
@@ -162,17 +179,30 @@ include __DIR__ . '/inc/layout_head.php';
 
 <?php if ($view_campaign): ?>
   <div class="card fade-up d2" style="margin-top:18px" id="invites">
-    <div class="toolbar">
-      <div class="toolbar-title">دعوت‌ها — <?= htmlspecialchars($view_campaign['title']) ?> <small>(<?= number_format($invite_total) ?>)</small></div>
+    <div class="toolbar" style="flex-wrap:wrap;gap:10px">
+      <div class="toolbar-title">دعوت‌ها — <?= htmlspecialchars($view_campaign['title']) ?></div>
+      <div class="toolbar-end" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="tag"><?= number_format((int) $view_stats['invites']) ?> جوین</span>
+        <span class="tag"><?= number_format((int) $view_stats['referrers']) ?> معرف</span>
+        <span class="tag tag-ok"><?= number_format((int) $view_stats['rewards']) ?> جایزه</span>
+        <span class="tag tag-warn"><?= (int) $view_campaign['required_invites'] ?> دعوت لازم</span>
+        <a href="referral.php?view=<?= (int) $view_id ?>&scan=1#pending" class="btn btn-primary btn-sm">
+          <?= icon('search', 14) ?> اسکن واجدین بدون جایزه
+        </a>
+      </div>
+    </div>
+    <div class="toolbar" style="border-top:1px solid var(--bd,rgba(0,0,0,.06));padding-top:12px">
+      <div class="toolbar-title" style="font-size:.9rem">لیست دعوت‌ها <small>(<?= number_format($invite_total) ?>)</small></div>
       <form method="GET" class="toolbar-end">
         <input type="hidden" name="view" value="<?= (int) $view_id ?>">
+        <?php if ($do_scan): ?><input type="hidden" name="scan" value="1"><?php endif; ?>
         <div class="search-box" style="min-width:240px">
           <?= icon('search', 15) ?>
           <input type="text" name="q" value="<?= htmlspecialchars($invite_search) ?>" placeholder="آیدی یا یوزرنیم..." autocomplete="off">
           <button type="submit" class="search-btn">جستجو</button>
         </div>
         <?php if ($invite_search !== ''): ?>
-          <a href="referral.php?view=<?= (int) $view_id ?>#invites" class="btn-link" style="font-size:.78rem">پاک کردن</a>
+          <a href="referral.php?view=<?= (int) $view_id ?><?= $do_scan ? '&scan=1' : '' ?>#invites" class="btn-link" style="font-size:.78rem">پاک کردن</a>
         <?php endif; ?>
       </form>
     </div>
@@ -212,6 +242,7 @@ include __DIR__ . '/inc/layout_head.php';
             <?php
             $invite_qs = fn($p) => 'referral.php?view=' . (int) $view_id
                 . '&q=' . urlencode($invite_search)
+                . ($do_scan ? '&scan=1' : '')
                 . '&page=' . $p
                 . '#invites';
             ?>
@@ -225,6 +256,63 @@ include __DIR__ . '/inc/layout_head.php';
       <?php endif; ?>
     <?php endif; ?>
   </div>
+
+  <?php if ($do_scan): ?>
+    <div class="card fade-up d3" style="margin-top:18px" id="pending">
+      <div class="toolbar">
+        <div class="toolbar-title">
+          واجدین بدون جایزه
+          <small>(<?= count($pending_rewards) ?> نفر · حداقل <?= (int) $view_campaign['required_invites'] ?> دعوت)</small>
+        </div>
+        <a href="referral.php?view=<?= (int) $view_id ?>#invites" class="btn btn-ghost btn-sm">بستن اسکن</a>
+      </div>
+      <?php if (empty($pending_rewards)): ?>
+        <div class="empty" style="padding:36px">
+          <p>کسی با دعوت کافی و بدون جایزه پیدا نشد.</p>
+        </div>
+      <?php else: ?>
+        <p class="cf" style="padding:0 16px 12px;margin:0">
+          این کاربران به حد نصاب رسیده‌اند ولی رکورد جایزه ندارند (احتمالاً ساخت ساب ناموفق بوده). با تأیید، سرویس ساخته و در تلگرام ارسال می‌شود.
+        </p>
+        <div class="tbl-wrap">
+          <table class="tbl-lg">
+            <thead>
+              <tr>
+                <th>معرف</th>
+                <th>آیدی تلگرام</th>
+                <th>تعداد دعوت</th>
+                <th>لازم</th>
+                <th>عملیات</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($pending_rewards as $row): ?>
+                <tr>
+                  <td><?= !empty($row['username']) ? '@' . htmlspecialchars((string) $row['username']) : '—' ?></td>
+                  <td class="cm"><?= htmlspecialchars((string) $row['referrer_id']) ?></td>
+                  <td class="cn"><?= (int) $row['invite_count'] ?></td>
+                  <td class="cn"><?= (int) $view_campaign['required_invites'] ?></td>
+                  <td>
+                    <form method="post" style="margin:0;display:inline">
+                      <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                      <input type="hidden" name="action" value="grant_reward">
+                      <input type="hidden" name="campaign_id" value="<?= (int) $view_id ?>">
+                      <input type="hidden" name="user_id" value="<?= htmlspecialchars((string) $row['referrer_id']) ?>">
+                      <button
+                        type="submit"
+                        class="btn btn-primary btn-sm"
+                        onclick="return confirm('ارسال جایزه به <?= htmlspecialchars((string) $row['referrer_id'], ENT_QUOTES) ?>؟ سرویس روی پنل ساخته و در تلگرام ارسال می‌شود.')"
+                      ><?= icon('check', 13) ?> تأیید و ارسال جایزه</button>
+                    </form>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      <?php endif; ?>
+    </div>
+  <?php endif; ?>
 <?php endif; ?>
 
 <div class="modal-veil" id="addModal">

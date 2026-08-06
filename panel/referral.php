@@ -61,8 +61,25 @@ $campaigns = referral_lib_list_campaigns($pdo);
 $products = referral_lib_products($pdo);
 $master_status = referral_lib_master_status($pdo);
 $view_id = (int) ($_GET['view'] ?? 0);
+$invite_search = trim($_GET['q'] ?? '');
+$invite_page = max(1, (int) ($_GET['page'] ?? 1));
+$invite_per_page = 25;
 $view_campaign = $view_id ? referral_lib_get_campaign($pdo, $view_id) : null;
-$recent_invites = $view_campaign ? referral_lib_recent_invites($pdo, $view_id) : [];
+$recent_invites = [];
+$invite_total = 0;
+$invite_total_pages = 1;
+if ($view_campaign) {
+    $invite_result = referral_lib_list_invites(
+        $pdo,
+        $view_id,
+        $invite_search,
+        $invite_per_page,
+        ($invite_page - 1) * $invite_per_page
+    );
+    $recent_invites = $invite_result['rows'];
+    $invite_total = (int) $invite_result['total'];
+    $invite_total_pages = max(1, (int) ceil($invite_total / $invite_per_page));
+}
 
 $pageTitle = 'کمپین‌های دعوت';
 $pageLede = 'مدیریت لینک دعوت، تعداد دعوت موردنیاز و جایزه سرویس.';
@@ -129,7 +146,7 @@ include __DIR__ . '/inc/layout_head.php';
               </td>
               <td>
                 <div style="display:flex;gap:5px;flex-wrap:wrap">
-                  <a href="referral.php?view=<?= (int) $c['id'] ?>" class="btn btn-ghost btn-sm">جزئیات</a>
+                  <a href="referral.php?view=<?= (int) $c['id'] ?>#invites" class="btn btn-ghost btn-sm">جزئیات</a>
                   <button class="btn btn-ghost btn-sm" onclick="openEditModal(<?= htmlspecialchars(json_encode($c), ENT_QUOTES) ?>)">ویرایش</button>
                   <a href="referral.php?toggle=<?= (int) $c['id'] ?>&_csrf=<?= csrf_token() ?>" class="btn btn-ghost btn-sm">تغییر وضعیت</a>
                   <a href="referral.php?delete=<?= (int) $c['id'] ?>&_csrf=<?= csrf_token() ?>" class="btn btn-no btn-sm" data-confirm="حذف کمپین «<?= htmlspecialchars($c['title']) ?>»؟">حذف</a>
@@ -144,36 +161,69 @@ include __DIR__ . '/inc/layout_head.php';
 </div>
 
 <?php if ($view_campaign): ?>
-  <div class="card fade-up d2" style="margin-top:18px">
-    <div class="card-head">
-      <h3>دعوت‌های اخیر — <?= htmlspecialchars($view_campaign['title']) ?></h3>
+  <div class="card fade-up d2" style="margin-top:18px" id="invites">
+    <div class="toolbar">
+      <div class="toolbar-title">دعوت‌ها — <?= htmlspecialchars($view_campaign['title']) ?> <small>(<?= number_format($invite_total) ?>)</small></div>
+      <form method="GET" class="toolbar-end">
+        <input type="hidden" name="view" value="<?= (int) $view_id ?>">
+        <div class="search-box" style="min-width:240px">
+          <?= icon('search', 15) ?>
+          <input type="text" name="q" value="<?= htmlspecialchars($invite_search) ?>" placeholder="آیدی یا یوزرنیم..." autocomplete="off">
+          <button type="submit" class="search-btn">جستجو</button>
+        </div>
+        <?php if ($invite_search !== ''): ?>
+          <a href="referral.php?view=<?= (int) $view_id ?>#invites" class="btn-link" style="font-size:.78rem">پاک کردن</a>
+        <?php endif; ?>
+      </form>
     </div>
-    <div class="card-body">
-      <?php if (empty($recent_invites)): ?>
-        <p class="cf">هنوز دعوتی ثبت نشده.</p>
-      <?php else: ?>
-        <div class="tbl-wrap">
-          <table class="tbl-lg">
-            <thead>
+    <?php if (empty($recent_invites)): ?>
+      <div class="empty" style="padding:36px">
+        <p><?= $invite_search !== '' ? 'نتیجه‌ای یافت نشد.' : 'هنوز دعوتی ثبت نشده.' ?></p>
+      </div>
+    <?php else: ?>
+      <div class="tbl-wrap">
+        <table class="tbl-lg">
+          <thead>
+            <tr>
+              <th>معرف</th>
+              <th>آیدی تلگرام معرف</th>
+              <th>دعوت‌شده</th>
+              <th>آیدی تلگرام دعوت‌شده</th>
+              <th>زمان</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($recent_invites as $inv): ?>
               <tr>
-                <th>معرف</th>
-                <th>دعوت‌شده</th>
-                <th>زمان</th>
+                <td><?= !empty($inv['referrer_username']) ? '@' . htmlspecialchars($inv['referrer_username']) : '—' ?></td>
+                <td class="cm"><?= htmlspecialchars((string) $inv['referrer_id']) ?></td>
+                <td><?= !empty($inv['invited_username']) ? '@' . htmlspecialchars($inv['invited_username']) : '—' ?></td>
+                <td class="cm"><?= htmlspecialchars((string) $inv['invited_user_id']) ?></td>
+                <td class="cf"><?= htmlspecialchars($inv['created_at']) ?></td>
               </tr>
-            </thead>
-            <tbody>
-              <?php foreach ($recent_invites as $inv): ?>
-                <tr>
-                  <td>@<?= htmlspecialchars($inv['referrer_username'] ?? $inv['referrer_id']) ?></td>
-                  <td>@<?= htmlspecialchars($inv['invited_username'] ?? $inv['invited_user_id']) ?></td>
-                  <td class="cf"><?= htmlspecialchars($inv['created_at']) ?></td>
-                </tr>
-              <?php endforeach; ?>
-            </tbody>
-          </table>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+      <?php if ($invite_total_pages > 1): ?>
+        <div class="tbl-foot">
+          <span><?= number_format($invite_total) ?> دعوت · صفحه <?= $invite_page ?> از <?= $invite_total_pages ?></span>
+          <div class="pager">
+            <?php
+            $invite_qs = fn($p) => 'referral.php?view=' . (int) $view_id
+                . '&q=' . urlencode($invite_search)
+                . '&page=' . $p
+                . '#invites';
+            ?>
+            <a class="<?= $invite_page <= 1 ? 'dis' : '' ?>" href="<?= $invite_qs(max(1, $invite_page - 1)) ?>">‹</a>
+            <?php for ($p = max(1, $invite_page - 2); $p <= min($invite_total_pages, $invite_page + 2); $p++): ?>
+              <a class="<?= $p === $invite_page ? 'cur' : '' ?>" href="<?= $invite_qs($p) ?>"><?= $p ?></a>
+            <?php endfor; ?>
+            <a class="<?= $invite_page >= $invite_total_pages ? 'dis' : '' ?>" href="<?= $invite_qs(min($invite_total_pages, $invite_page + 1)) ?>">›</a>
+          </div>
         </div>
       <?php endif; ?>
-    </div>
+    <?php endif; ?>
   </div>
 <?php endif; ?>
 

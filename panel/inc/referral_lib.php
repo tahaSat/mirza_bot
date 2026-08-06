@@ -31,19 +31,42 @@ function referral_lib_campaign_stats(PDO $pdo, int $campaign_id): array
     ];
 }
 
-function referral_lib_recent_invites(PDO $pdo, int $campaign_id, int $limit = 20): array
+function referral_lib_list_invites(PDO $pdo, int $campaign_id, string $search = '', int $limit = 25, int $offset = 0): array
 {
-    return db_fetchAll(
+    $where = ['ri.campaign_id = ?'];
+    $params = [$campaign_id];
+
+    if ($search !== '') {
+        $where[] = '(CAST(ri.referrer_id AS CHAR) LIKE ?
+                     OR CAST(ri.invited_user_id AS CHAR) LIKE ?
+                     OR COALESCE(u1.username, \'\') LIKE ?
+                     OR COALESCE(u2.username, \'\') LIKE ?)';
+        $like = '%' . $search . '%';
+        array_push($params, $like, $like, $like, $like);
+    }
+
+    $whereSQL = 'WHERE ' . implode(' AND ', $where);
+    $fromSQL = 'FROM referral_invite ri
+         LEFT JOIN user u1 ON u1.id = ri.referrer_id
+         LEFT JOIN user u2 ON u2.id = ri.invited_user_id';
+
+    $total = db_count($pdo, "SELECT COUNT(*) $fromSQL $whereSQL", $params);
+    $rows = db_fetchAll(
         $pdo,
         "SELECT ri.*, u1.username AS referrer_username, u2.username AS invited_username
-         FROM referral_invite ri
-         LEFT JOIN user u1 ON u1.id = ri.referrer_id
-         LEFT JOIN user u2 ON u2.id = ri.invited_user_id
-         WHERE ri.campaign_id = ?
+         $fromSQL
+         $whereSQL
          ORDER BY ri.id DESC
-         LIMIT " . (int) $limit,
-        [$campaign_id]
+         LIMIT " . (int) $limit . ' OFFSET ' . (int) $offset,
+        $params
     );
+
+    return ['rows' => $rows, 'total' => $total];
+}
+
+function referral_lib_recent_invites(PDO $pdo, int $campaign_id, int $limit = 20): array
+{
+    return referral_lib_list_invites($pdo, $campaign_id, '', $limit, 0)['rows'];
 }
 
 function referral_lib_get_campaign(PDO $pdo, int $id): ?array

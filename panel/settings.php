@@ -63,6 +63,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'move_bot_button') {
+    csrf_check_post();
+    $button_id = trim((string) ($_POST['button_id'] ?? ''));
+    $direction = ($_POST['direction'] ?? '') === 'up' ? 'up' : 'down';
+    $setting_row = select('setting', '*', null, null, 'select');
+    $textbot_rows = db_fetchAll($pdo, "SELECT id_text, text FROM textbot WHERE id_text IN ('" . implode("','", array_keys($bot_button_labels)) . "')");
+    $move_datatextbot = $bot_button_labels;
+    foreach ($textbot_rows as $row) {
+        if (!empty($row['text'])) {
+            $move_datatextbot[$row['id_text']] = $row['text'];
+        }
+    }
+    $new_keyboard = move_main_keyboard_button($setting_row['keyboardmain'], $button_id, $direction, $move_datatextbot);
+    update('setting', 'keyboardmain', $new_keyboard, null, null);
+    clearSelectCache('setting');
+    flash('success', 'ترتیب دکمه‌ها به‌روز شد.');
+    header('Location: settings.php?tab=bot');
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'change_password') {
     csrf_check_post();
     $cur = $_POST['current_password'] ?? '';
@@ -112,14 +132,44 @@ if ($normalized_bot_keyboard !== $bot_keyboardmain) {
     update('setting', 'keyboardmain', $normalized_bot_keyboard, null, null);
     $bot_keyboardmain = $normalized_bot_keyboard;
 }
+$bot_active_ids = get_active_main_keyboard_buttons($bot_keyboardmain, $bot_datatextbot);
+$bot_all_ids = get_main_keyboard_button_ids();
+$bot_ordered_ids = array_values(array_unique(array_merge(
+    $bot_active_ids,
+    array_values(array_diff($bot_all_ids, $bot_active_ids))
+)));
 $bot_menu_buttons = [];
-foreach (get_default_main_keyboard_layout() as $row) {
-    foreach ($row as $btn_id) {
-        $bot_menu_buttons[] = [
-            'id' => $btn_id,
-            'label' => get_main_keyboard_button_label($btn_id, $bot_datatextbot),
-            'active' => check_active_btn($bot_keyboardmain, $btn_id, $bot_datatextbot),
-        ];
+$active_count = count($bot_active_ids);
+foreach ($bot_ordered_ids as $index => $btn_id) {
+    $is_active = in_array($btn_id, $bot_active_ids, true);
+    $active_index = $is_active ? array_search($btn_id, $bot_active_ids, true) : false;
+    $bot_menu_buttons[] = [
+        'id' => $btn_id,
+        'label' => get_main_keyboard_button_label($btn_id, $bot_datatextbot),
+        'active' => $is_active,
+        'can_move_up' => $is_active && $active_index !== false && $active_index > 0,
+        'can_move_down' => $is_active && $active_index !== false && $active_index < ($active_count - 1),
+        'position' => $is_active && $active_index !== false ? ($active_index + 1) : null,
+    ];
+}
+$bot_preview_rows = [];
+$layout_preview = json_decode($bot_keyboardmain, true);
+if (is_array($layout_preview) && !empty($layout_preview['keyboard'])) {
+    foreach ($layout_preview['keyboard'] as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $preview_row = [];
+        foreach ($row as $btn) {
+            $id = $btn['text'] ?? '';
+            if ($id === '') {
+                continue;
+            }
+            $preview_row[] = get_main_keyboard_button_label($id, $bot_datatextbot);
+        }
+        if ($preview_row !== []) {
+            $bot_preview_rows[] = $preview_row;
+        }
     }
 }
 
@@ -244,7 +294,7 @@ include __DIR__ . '/inc/layout_head.php';
         <div class="card-head">
             <div>
                 <div class="card-title">دکمه‌های منوی اصلی ربات</div>
-                <div class="card-subtitle">تغییر عنوان، نمایش یا مخفی کردن دکمه‌هایی که کاربران در تلگرام می‌بینند</div>
+                <div class="card-subtitle">عنوان، ترتیب و نمایش دکمه‌هایی که کاربران در تلگرام می‌بینند</div>
             </div>
             <form method="POST">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
@@ -256,6 +306,7 @@ include __DIR__ . '/inc/layout_head.php';
             <table class="tbl-md">
                 <thead>
                     <tr>
+                        <th style="width:56px">ترتیب</th>
                         <th>عنوان دکمه</th>
                         <th>وضعیت</th>
                         <th></th>
@@ -263,7 +314,36 @@ include __DIR__ . '/inc/layout_head.php';
                 </thead>
                 <tbody>
                     <?php foreach ($bot_menu_buttons as $btn): ?>
-                        <tr>
+                        <tr style="<?= $btn['active'] ? '' : 'opacity:.65' ?>">
+                            <td>
+                                <?php if ($btn['active']): ?>
+                                    <div style="display:flex;flex-direction:column;gap:4px;align-items:center">
+                                        <form method="POST" style="margin:0">
+                                            <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                                            <input type="hidden" name="action" value="move_bot_button">
+                                            <input type="hidden" name="button_id" value="<?= htmlspecialchars($btn['id']) ?>">
+                                            <input type="hidden" name="direction" value="up">
+                                            <button type="submit" class="btn btn-ghost btn-sm" title="بالاتر"
+                                                <?= $btn['can_move_up'] ? '' : 'disabled style="opacity:.35;pointer-events:none"' ?>>
+                                                <?= icon('arrow-up', 14) ?>
+                                            </button>
+                                        </form>
+                                        <span style="font-size:.72rem;color:var(--mute);font-weight:700"><?= (int) $btn['position'] ?></span>
+                                        <form method="POST" style="margin:0">
+                                            <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                                            <input type="hidden" name="action" value="move_bot_button">
+                                            <input type="hidden" name="button_id" value="<?= htmlspecialchars($btn['id']) ?>">
+                                            <input type="hidden" name="direction" value="down">
+                                            <button type="submit" class="btn btn-ghost btn-sm" title="پایین‌تر"
+                                                <?= $btn['can_move_down'] ? '' : 'disabled style="opacity:.35;pointer-events:none"' ?>>
+                                                <?= icon('arrow-down', 14) ?>
+                                            </button>
+                                        </form>
+                                    </div>
+                                <?php else: ?>
+                                    <span style="font-size:.72rem;color:var(--mute)">—</span>
+                                <?php endif; ?>
+                            </td>
                             <td>
                                 <form method="POST" style="display:flex;gap:8px;align-items:center;min-width:220px">
                                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
@@ -299,12 +379,32 @@ include __DIR__ . '/inc/layout_head.php';
         </div>
     </div>
 
-    <div class="card fade-up d1" style="margin-top:14px">
+    <?php if ($bot_preview_rows !== []): ?>
+        <div class="card fade-up d1" style="margin-top:14px">
+            <div class="card-head">
+                <div>
+                    <div class="card-title">پیش‌نمایش منو</div>
+                    <div class="card-subtitle">چیدمان دکمه‌های فعال به همان شکلی که در تلگرام دیده می‌شود</div>
+                </div>
+            </div>
+            <div class="card-body" style="display:flex;flex-direction:column;gap:8px;max-width:420px">
+                <?php foreach ($bot_preview_rows as $preview_row): ?>
+                    <div style="display:grid;grid-template-columns:repeat(<?= count($preview_row) ?>,minmax(0,1fr));gap:8px">
+                        <?php foreach ($preview_row as $preview_label): ?>
+                            <div style="background:var(--sf3);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;text-align:center;font-size:.82rem;font-weight:600">
+                                <?= htmlspecialchars($preview_label) ?>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <div class="card fade-up d2" style="margin-top:14px">
         <div class="card-body" style="font-size:.82rem;color:var(--mute);line-height:1.7">
-            عنوان دکمه حداکثر ۳۲ کاراکتر است. تغییرات عنوان و نمایش بلافاصله برای کاربران جدید اعمال می‌شود؛ کاربران فعلی پس از دریافت مجدد منو عنوان جدید را می‌بینند.
-            همین تنظیمات از طریق
-            <strong>/panel → ⚙️ تنظیمات عمومی → ⌨️ تنظیم دکمه‌های منو</strong>
-            در ربات تلگرام هم قابل مدیریت است.
+            با دکمه‌های بالا/پایین ترتیب دکمه‌های فعال را عوض کنید؛ منو به‌صورت دو ستونه چیده می‌شود.
+            عنوان حداکثر ۳۲ کاراکتر است. کاربران فعلی پس از دریافت مجدد منو تغییرات را می‌بینند.
         </div>
     </div>
 

@@ -2336,6 +2336,108 @@ function pack_main_keyboard_buttons(array $button_ids, $per_row = 2)
     return json_encode($keyboard, JSON_UNESCAPED_UNICODE);
 }
 
+function encode_main_keyboard_rows(array $rows)
+{
+    $keyboard = ['keyboard' => []];
+    foreach ($rows as $row) {
+        if (!is_array($row) || $row === []) {
+            continue;
+        }
+        $encoded_row = [];
+        foreach ($row as $id) {
+            if ($id === '' || $id === null) {
+                continue;
+            }
+            $encoded_row[] = ['text' => $id];
+        }
+        if ($encoded_row !== []) {
+            $keyboard['keyboard'][] = $encoded_row;
+        }
+    }
+    if ($keyboard['keyboard'] === []) {
+        return get_default_main_keyboard_json();
+    }
+    return json_encode($keyboard, JSON_UNESCAPED_UNICODE);
+}
+
+function get_main_keyboard_rows_as_ids($keyboardmain_json, $datatextbot = null)
+{
+    $keyboardmain_json = normalize_keyboardmain_to_ids($keyboardmain_json, $datatextbot);
+    $layout = json_decode($keyboardmain_json, true);
+    $rows = [];
+    if (!is_array($layout) || empty($layout['keyboard']) || !is_array($layout['keyboard'])) {
+        return $rows;
+    }
+    foreach ($layout['keyboard'] as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $ids = [];
+        foreach ($row as $btn) {
+            $id = $btn['text'] ?? '';
+            if ($id !== '') {
+                $ids[] = $id;
+            }
+        }
+        if ($ids !== []) {
+            $rows[] = $ids;
+        }
+    }
+    return $rows;
+}
+
+function get_main_keyboard_solo_button_ids($keyboardmain_json, $datatextbot = null)
+{
+    $solos = [];
+    foreach (get_main_keyboard_rows_as_ids($keyboardmain_json, $datatextbot) as $row) {
+        if (count($row) === 1) {
+            $solos[] = $row[0];
+        }
+    }
+    return $solos;
+}
+
+function rebuild_main_keyboard_layout(array $ordered_ids, array $solo_ids)
+{
+    $allowed = get_main_keyboard_button_ids();
+    $ordered = [];
+    foreach ($ordered_ids as $id) {
+        if (in_array($id, $allowed, true) && !in_array($id, $ordered, true)) {
+            $ordered[] = $id;
+        }
+    }
+    if ($ordered === []) {
+        return get_default_main_keyboard_json();
+    }
+    $solo_map = [];
+    foreach ($solo_ids as $id) {
+        if (in_array($id, $ordered, true)) {
+            $solo_map[$id] = true;
+        }
+    }
+    $rows = [];
+    $pending = [];
+    foreach ($ordered as $id) {
+        if (isset($solo_map[$id])) {
+            if ($pending !== []) {
+                $rows[] = $pending;
+                $pending = [];
+            }
+            $rows[] = [$id];
+            continue;
+        }
+        $pending[] = $id;
+        if (count($pending) >= 2) {
+            $rows[] = $pending;
+            $pending = [];
+        }
+    }
+    if ($pending !== []) {
+        $rows[] = $pending;
+    }
+    return encode_main_keyboard_rows($rows);
+}
+
 function build_keyboardmain_from_active_buttons($active_buttons)
 {
     // Preserve caller order when packing; empty input falls back to default layout.
@@ -2458,8 +2560,11 @@ function attach_main_keyboard_inline_callbacks($keyboard_rows)
     return $rows;
 }
 
-function apply_main_keyboard_button_labels($keyboard_rows, $datatextbot)
+function apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $styles = null)
 {
+    if (!is_array($styles)) {
+        $styles = get_main_keyboard_button_styles();
+    }
     $labeled = [];
     foreach ($keyboard_rows as $row) {
         if (!is_array($row)) {
@@ -2480,6 +2585,10 @@ function apply_main_keyboard_button_labels($keyboard_rows, $datatextbot)
             }
             $new_button = $button;
             $new_button['text'] = $label;
+            unset($new_button['style']);
+            if (!empty($styles[$button_id])) {
+                $new_button['style'] = $styles[$button_id];
+            }
             $labeled_row[] = $new_button;
         }
         if ($labeled_row !== []) {
@@ -2487,6 +2596,80 @@ function apply_main_keyboard_button_labels($keyboard_rows, $datatextbot)
         }
     }
     return $labeled;
+}
+
+function get_main_keyboard_allowed_styles()
+{
+    return [
+        'primary' => 'آبی',
+        'success' => 'سبز',
+        'danger' => 'قرمز',
+    ];
+}
+
+function ensure_main_keyboard_styles_column()
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    addFieldToTable('setting', 'keyboardmain_styles', '{}', 'TEXT');
+}
+
+function get_main_keyboard_button_styles($styles_json = null)
+{
+    ensure_main_keyboard_styles_column();
+    if ($styles_json === null) {
+        $row = select('setting', 'keyboardmain_styles', null, null, 'select', ['cache' => false]);
+        $styles_json = is_array($row) ? ($row['keyboardmain_styles'] ?? '{}') : '{}';
+    }
+    $styles = json_decode((string) $styles_json, true);
+    if (!is_array($styles)) {
+        return [];
+    }
+    $allowed = array_keys(get_main_keyboard_allowed_styles());
+    $button_ids = get_main_keyboard_button_ids();
+    $out = [];
+    foreach ($styles as $id => $style) {
+        $style = (string) $style;
+        if (in_array($id, $button_ids, true) && in_array($style, $allowed, true)) {
+            $out[$id] = $style;
+        }
+    }
+    return $out;
+}
+
+function set_main_keyboard_button_style($button_id, $style)
+{
+    $allowed_ids = get_main_keyboard_button_ids();
+    if (!in_array($button_id, $allowed_ids, true)) {
+        return false;
+    }
+    $allowed_styles = array_keys(get_main_keyboard_allowed_styles());
+    $style = trim((string) $style);
+    if ($style === '' || $style === 'default') {
+        $style = '';
+    } elseif (!in_array($style, $allowed_styles, true)) {
+        return false;
+    }
+    ensure_main_keyboard_styles_column();
+    $styles = get_main_keyboard_button_styles();
+    if ($style === '') {
+        unset($styles[$button_id]);
+    } else {
+        $styles[$button_id] = $style;
+    }
+    update('setting', 'keyboardmain_styles', json_encode($styles, JSON_UNESCAPED_UNICODE), null, null);
+    clearSelectCache('setting');
+    return true;
+}
+
+function reset_main_keyboard_button_styles()
+{
+    ensure_main_keyboard_styles_column();
+    update('setting', 'keyboardmain_styles', '{}', null, null);
+    clearSelectCache('setting');
 }
 
 function build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $from_id, array $options = [])
@@ -2516,6 +2699,8 @@ function build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $
         $keyboard_rows = json_decode(get_default_main_keyboard_json(), true)['keyboard'] ?? [];
     }
 
+    $button_styles = get_main_keyboard_button_styles($setting['keyboardmain_styles'] ?? null);
+
     $inline = ($setting['inlinebtnmain'] ?? '') === 'oninline';
     $extra_row = [];
     if (intval($admin_idss) !== 0) {
@@ -2542,11 +2727,11 @@ function build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $
 
     if ($inline) {
         $keyboard_rows = attach_main_keyboard_inline_callbacks($keyboard_rows);
-        $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot);
+        $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $button_styles);
         if ($keyboardcustom === []) {
             $keyboard_rows = json_decode(get_default_main_keyboard_json(), true)['keyboard'] ?? [];
             $keyboard_rows = attach_main_keyboard_inline_callbacks($keyboard_rows);
-            $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot);
+            $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $button_styles);
         }
         if ($extra_row !== []) {
             $keyboardcustom[] = $extra_row;
@@ -2554,10 +2739,10 @@ function build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $
         return json_encode(['inline_keyboard' => $keyboardcustom], JSON_UNESCAPED_UNICODE);
     }
 
-    $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot);
+    $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $button_styles);
     if ($keyboardcustom === []) {
         $keyboard_rows = json_decode(get_default_main_keyboard_json(), true)['keyboard'] ?? [];
-        $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot);
+        $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $button_styles);
     }
     if ($extra_row !== []) {
         $keyboardcustom[] = $extra_row;
@@ -2576,41 +2761,19 @@ function toggle_main_keyboard_button($keyboardmain_json, $button_id, $datatextbo
         return $keyboardmain_json;
     }
     $keyboardmain_json = normalize_keyboardmain_to_ids($keyboardmain_json, $datatextbot);
-    $layout = json_decode($keyboardmain_json, true);
-    $rows = (is_array($layout) && !empty($layout['keyboard']) && is_array($layout['keyboard']))
-        ? $layout['keyboard']
-        : [];
     $active = get_active_main_keyboard_buttons($keyboardmain_json, $datatextbot);
+    $solos = get_main_keyboard_solo_button_ids($keyboardmain_json, $datatextbot);
 
     if (in_array($button_id, $active, true)) {
-        $new_rows = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $new_row = [];
-            foreach ($row as $btn) {
-                if (($btn['text'] ?? '') !== $button_id) {
-                    $new_row[] = ['text' => $btn['text']];
-                }
-            }
-            if ($new_row !== []) {
-                $new_rows[] = $new_row;
-            }
-        }
-        if ($new_rows === []) {
-            return get_default_main_keyboard_json();
-        }
-        return json_encode(['keyboard' => $new_rows], JSON_UNESCAPED_UNICODE);
-    }
-
-    $n = count($rows);
-    if ($n > 0 && count($rows[$n - 1]) < 2) {
-        $rows[$n - 1][] = ['text' => $button_id];
+        $active = array_values(array_diff($active, [$button_id]));
+        $solos = array_values(array_diff($solos, [$button_id]));
     } else {
-        $rows[] = [['text' => $button_id]];
+        $active[] = $button_id;
     }
-    return json_encode(['keyboard' => $rows], JSON_UNESCAPED_UNICODE);
+    if ($active === []) {
+        return get_default_main_keyboard_json();
+    }
+    return rebuild_main_keyboard_layout($active, $solos);
 }
 
 function move_main_keyboard_button($keyboardmain_json, $button_id, $direction, $datatextbot = null)
@@ -2622,6 +2785,7 @@ function move_main_keyboard_button($keyboardmain_json, $button_id, $direction, $
     $direction = $direction === 'up' ? 'up' : 'down';
     $keyboardmain_json = normalize_keyboardmain_to_ids($keyboardmain_json, $datatextbot);
     $active = get_active_main_keyboard_buttons($keyboardmain_json, $datatextbot);
+    $solos = get_main_keyboard_solo_button_ids($keyboardmain_json, $datatextbot);
     $idx = array_search($button_id, $active, true);
     if ($idx === false) {
         return $keyboardmain_json;
@@ -2633,7 +2797,30 @@ function move_main_keyboard_button($keyboardmain_json, $button_id, $direction, $
     $tmp = $active[$idx];
     $active[$idx] = $active[$swap_with];
     $active[$swap_with] = $tmp;
-    return pack_main_keyboard_buttons($active, 2);
+    return rebuild_main_keyboard_layout($active, $solos);
+}
+
+function set_main_keyboard_button_width($keyboardmain_json, $button_id, $width, $datatextbot = null)
+{
+    $allowed = get_main_keyboard_button_ids();
+    if (!in_array($button_id, $allowed, true)) {
+        return $keyboardmain_json;
+    }
+    $width = $width === 'full' ? 'full' : 'half';
+    $keyboardmain_json = normalize_keyboardmain_to_ids($keyboardmain_json, $datatextbot);
+    $active = get_active_main_keyboard_buttons($keyboardmain_json, $datatextbot);
+    if (!in_array($button_id, $active, true)) {
+        return $keyboardmain_json;
+    }
+    $solos = get_main_keyboard_solo_button_ids($keyboardmain_json, $datatextbot);
+    if ($width === 'full') {
+        if (!in_array($button_id, $solos, true)) {
+            $solos[] = $button_id;
+        }
+    } else {
+        $solos = array_values(array_diff($solos, [$button_id]));
+    }
+    return rebuild_main_keyboard_layout($active, $solos);
 }
 
 function build_main_keyboard_admin_markup($datatextbot, $keyboardmain_json)

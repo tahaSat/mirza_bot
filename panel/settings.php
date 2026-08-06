@@ -29,6 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset
     csrf_check_post();
     $default_keyboard = get_default_main_keyboard_json();
     update('setting', 'keyboardmain', $default_keyboard, null, null);
+    reset_main_keyboard_button_styles();
     clearSelectCache('setting');
     flash('success', 'دکمه‌های منو به حالت پیش‌فرض بازگردانده شد.');
     header('Location: settings.php?tab=bot');
@@ -83,6 +84,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'move_
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'set_bot_button_width') {
+    csrf_check_post();
+    $button_id = trim((string) ($_POST['button_id'] ?? ''));
+    $width = ($_POST['width'] ?? '') === 'full' ? 'full' : 'half';
+    $setting_row = select('setting', '*', null, null, 'select');
+    $textbot_rows = db_fetchAll($pdo, "SELECT id_text, text FROM textbot WHERE id_text IN ('" . implode("','", array_keys($bot_button_labels)) . "')");
+    $width_datatextbot = $bot_button_labels;
+    foreach ($textbot_rows as $row) {
+        if (!empty($row['text'])) {
+            $width_datatextbot[$row['id_text']] = $row['text'];
+        }
+    }
+    $new_keyboard = set_main_keyboard_button_width($setting_row['keyboardmain'], $button_id, $width, $width_datatextbot);
+    update('setting', 'keyboardmain', $new_keyboard, null, null);
+    clearSelectCache('setting');
+    flash('success', $width === 'full' ? 'دکمه در سطر کامل قرار گرفت.' : 'دکمه به حالت دو ستونه درآمد.');
+    header('Location: settings.php?tab=bot');
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'set_bot_button_style') {
+    csrf_check_post();
+    $button_id = trim((string) ($_POST['button_id'] ?? ''));
+    $style = trim((string) ($_POST['style'] ?? ''));
+    if (set_main_keyboard_button_style($button_id, $style)) {
+        flash('success', 'رنگ دکمه ذخیره شد.');
+    } else {
+        flash('error', 'رنگ دکمه نامعتبر است.');
+    }
+    header('Location: settings.php?tab=bot');
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'change_password') {
     csrf_check_post();
     $cur = $_POST['current_password'] ?? '';
@@ -133,6 +167,9 @@ if ($normalized_bot_keyboard !== $bot_keyboardmain) {
     $bot_keyboardmain = $normalized_bot_keyboard;
 }
 $bot_active_ids = get_active_main_keyboard_buttons($bot_keyboardmain, $bot_datatextbot);
+$bot_solo_ids = get_main_keyboard_solo_button_ids($bot_keyboardmain, $bot_datatextbot);
+$bot_button_styles = get_main_keyboard_button_styles();
+$bot_style_options = get_main_keyboard_allowed_styles();
 $bot_all_ids = get_main_keyboard_button_ids();
 $bot_ordered_ids = array_values(array_unique(array_merge(
     $bot_active_ids,
@@ -143,15 +180,24 @@ $active_count = count($bot_active_ids);
 foreach ($bot_ordered_ids as $index => $btn_id) {
     $is_active = in_array($btn_id, $bot_active_ids, true);
     $active_index = $is_active ? array_search($btn_id, $bot_active_ids, true) : false;
+    $is_full = $is_active && in_array($btn_id, $bot_solo_ids, true);
     $bot_menu_buttons[] = [
         'id' => $btn_id,
         'label' => get_main_keyboard_button_label($btn_id, $bot_datatextbot),
         'active' => $is_active,
+        'full_width' => $is_full,
+        'style' => $bot_button_styles[$btn_id] ?? '',
         'can_move_up' => $is_active && $active_index !== false && $active_index > 0,
         'can_move_down' => $is_active && $active_index !== false && $active_index < ($active_count - 1),
         'position' => $is_active && $active_index !== false ? ($active_index + 1) : null,
     ];
 }
+$bot_style_preview_colors = [
+    '' => ['bg' => 'var(--sf3)', 'fg' => 'var(--tx)', 'bd' => 'var(--bd)'],
+    'primary' => ['bg' => '#1B6AC9', 'fg' => '#fff', 'bd' => '#1B6AC9'],
+    'success' => ['bg' => '#31B545', 'fg' => '#fff', 'bd' => '#31B545'],
+    'danger' => ['bg' => '#E44C4C', 'fg' => '#fff', 'bd' => '#E44C4C'],
+];
 $bot_preview_rows = [];
 $layout_preview = json_decode($bot_keyboardmain, true);
 if (is_array($layout_preview) && !empty($layout_preview['keyboard'])) {
@@ -165,7 +211,12 @@ if (is_array($layout_preview) && !empty($layout_preview['keyboard'])) {
             if ($id === '') {
                 continue;
             }
-            $preview_row[] = get_main_keyboard_button_label($id, $bot_datatextbot);
+            $style = $bot_button_styles[$id] ?? '';
+            $preview_row[] = [
+                'label' => get_main_keyboard_button_label($id, $bot_datatextbot),
+                'style' => $style,
+                'colors' => $bot_style_preview_colors[$style] ?? $bot_style_preview_colors[''],
+            ];
         }
         if ($preview_row !== []) {
             $bot_preview_rows[] = $preview_row;
@@ -308,6 +359,8 @@ include __DIR__ . '/inc/layout_head.php';
                     <tr>
                         <th style="width:56px">ترتیب</th>
                         <th>عنوان دکمه</th>
+                        <th>عرض</th>
+                        <th>رنگ</th>
                         <th>وضعیت</th>
                         <th></th>
                     </tr>
@@ -357,6 +410,40 @@ include __DIR__ . '/inc/layout_head.php';
                                     </button>
                                 </form>
                             </td>
+                            <td style="white-space:nowrap">
+                                <?php if ($btn['active']): ?>
+                                    <form method="POST" style="display:inline">
+                                        <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                                        <input type="hidden" name="action" value="set_bot_button_width">
+                                        <input type="hidden" name="button_id" value="<?= htmlspecialchars($btn['id']) ?>">
+                                        <input type="hidden" name="width" value="<?= $btn['full_width'] ? 'half' : 'full' ?>">
+                                        <button type="submit" class="btn btn-ghost btn-sm"
+                                            title="<?= $btn['full_width'] ? 'تبدیل به دو ستونه (نیمه‌عرض)' : 'سطر کامل (تمام‌عرض)' ?>">
+                                            <span class="tag <?= $btn['full_width'] ? 'tag-ok' : 'tag-plain' ?>">
+                                                <?= $btn['full_width'] ? 'کامل' : 'نیمه' ?>
+                                            </span>
+                                        </button>
+                                    </form>
+                                <?php else: ?>
+                                    <span style="font-size:.72rem;color:var(--mute)">—</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <form method="POST" style="display:flex;align-items:center;gap:6px;min-width:120px">
+                                    <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                                    <input type="hidden" name="action" value="set_bot_button_style">
+                                    <input type="hidden" name="button_id" value="<?= htmlspecialchars($btn['id']) ?>">
+                                    <select name="style" class="input" style="padding:6px 8px;font-size:.8rem;min-width:100px"
+                                        onchange="this.form.submit()">
+                                        <option value="default" <?= $btn['style'] === '' ? 'selected' : '' ?>>پیش‌فرض</option>
+                                        <?php foreach ($bot_style_options as $style_key => $style_label): ?>
+                                            <option value="<?= htmlspecialchars($style_key) ?>" <?= $btn['style'] === $style_key ? 'selected' : '' ?>>
+                                                <?= htmlspecialchars($style_label) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </form>
+                            </td>
                             <td>
                                 <span class="tag <?= $btn['active'] ? 'tag-ok' : 'tag-plain' ?>">
                                     <?= $btn['active'] ? 'نمایش' : 'مخفی' ?>
@@ -390,9 +477,9 @@ include __DIR__ . '/inc/layout_head.php';
             <div class="card-body" style="display:flex;flex-direction:column;gap:8px;max-width:420px">
                 <?php foreach ($bot_preview_rows as $preview_row): ?>
                     <div style="display:grid;grid-template-columns:repeat(<?= count($preview_row) ?>,minmax(0,1fr));gap:8px">
-                        <?php foreach ($preview_row as $preview_label): ?>
-                            <div style="background:var(--sf3);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;text-align:center;font-size:.82rem;font-weight:600">
-                                <?= htmlspecialchars($preview_label) ?>
+                        <?php foreach ($preview_row as $preview_btn): ?>
+                            <div style="background:<?= htmlspecialchars($preview_btn['colors']['bg']) ?>;color:<?= htmlspecialchars($preview_btn['colors']['fg']) ?>;border:1px solid <?= htmlspecialchars($preview_btn['colors']['bd']) ?>;border-radius:8px;padding:10px 12px;text-align:center;font-size:.82rem;font-weight:600">
+                                <?= htmlspecialchars($preview_btn['label']) ?>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -403,7 +490,9 @@ include __DIR__ . '/inc/layout_head.php';
 
     <div class="card fade-up d2" style="margin-top:14px">
         <div class="card-body" style="font-size:.82rem;color:var(--mute);line-height:1.7">
-            با دکمه‌های بالا/پایین ترتیب دکمه‌های فعال را عوض کنید؛ منو به‌صورت دو ستونه چیده می‌شود.
+            با دکمه‌های بالا/پایین ترتیب را عوض کنید.
+            ستون <strong>عرض</strong>: <strong>کامل</strong> یعنی دکمه تنها در یک سطر (تمام‌عرض در تلگرام)، <strong>نیمه</strong> یعنی دو دکمه در یک سطر.
+            ستون <strong>رنگ</strong>: آبی، سبز یا قرمز (قابلیت رسمی تلگرام؛ در نسخه‌های قدیمی اپ ممکن است دیده نشود).
             عنوان حداکثر ۳۲ کاراکتر است. کاربران فعلی پس از دریافت مجدد منو تغییرات را می‌بینند.
         </div>
     </div>

@@ -229,6 +229,7 @@ timeauto_not_verify,status_keyboard_config,cron_status
         addFieldToTable("setting", "statuscopycart", "0", "varchar(20)");
         addFieldToTable("setting", "keyboardmain", $keyboardmain, "TEXT");
         addFieldToTable("setting", "keyboardmain_styles", "{}", "TEXT");
+        addFieldToTable("setting", "keyboardmain_icons", "{}", "TEXT");
         addFieldToTable("setting", "Dice", '0', "varchar(45)");
         addFieldToTable("setting", "Debtsettlement", '1', "varchar(45)");
         addFieldToTable("setting", "limitnumber", $limitlist, "varchar(200)");

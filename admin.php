@@ -3970,20 +3970,102 @@ $caption";
     sendmessage($from_id, $textbotlang['users']['selectoption'], $setting_panel, 'HTML');
 } elseif ($text == "⌨️ تنظیم دکمه‌های منو" && $adminrulecheck['rule'] == "administrator") {
     $markup = build_main_keyboard_admin_markup($datatextbot, $setting['keyboardmain']);
-    sendmessage($from_id, "⌨️ دکمه‌های منوی اصلی ربات\n\nبرای نمایش یا مخفی کردن هر دکمه روی آن کلیک کنید.", $markup, 'HTML');
+    sendmessage($from_id, "⌨️ دکمه‌های منوی اصلی ربات\n\nروی هر دکمه بزنید تا وضعیت نمایش یا ایموجی پرمیوم آن را مدیریت کنید.\n✦ یعنی ایموجی پرمیوم برای آن دکمه تنظیم شده است.", $markup, 'HTML');
+} elseif ($datain == "listmainbtn" && $adminrulecheck['rule'] == "administrator") {
+    step('home', $from_id);
+    $markup = build_main_keyboard_admin_markup($datatextbot, $setting['keyboardmain']);
+    Editmessagetext($from_id, $message_id, "⌨️ دکمه‌های منوی اصلی ربات\n\nروی هر دکمه بزنید تا وضعیت نمایش یا ایموجی پرمیوم آن را مدیریت کنید.\n✦ یعنی ایموجی پرمیوم برای آن دکمه تنظیم شده است.", $markup);
 } elseif ($datain == "resetmainbtn" && $adminrulecheck['rule'] == "administrator") {
     $default = get_default_main_keyboard_json();
     update("setting", "keyboardmain", $default, null, null);
+    reset_main_keyboard_button_styles();
+    reset_main_keyboard_button_icons();
     $setting['keyboardmain'] = $default;
+    step('home', $from_id);
     $markup = build_main_keyboard_admin_markup($datatextbot, $setting['keyboardmain']);
-    Editmessagetext($from_id, $message_id, "⌨️ دکمه‌های منوی اصلی ربات\n\nبرای نمایش یا مخفی کردن هر دکمه روی آن کلیک کنید.", $markup);
-} elseif (preg_match('/^togglemainbtn-(.*)/', $datain, $dataget) && $adminrulecheck['rule'] == "administrator") {
+    Editmessagetext($from_id, $message_id, "⌨️ دکمه‌های منوی اصلی ربات\n\nروی هر دکمه بزنید تا وضعیت نمایش یا ایموجی پرمیوم آن را مدیریت کنید.\n✦ یعنی ایموجی پرمیوم برای آن دکمه تنظیم شده است.", $markup);
+} elseif (preg_match('/^editmainbtn-(.+)$/', $datain, $dataget) && $adminrulecheck['rule'] == "administrator") {
     $button_id = $dataget[1];
+    if (!in_array($button_id, get_main_keyboard_button_ids(), true)) {
+        return;
+    }
+    step('home', $from_id);
+    $edit_text = build_main_keyboard_button_edit_text($button_id, $datatextbot, $setting['keyboardmain']);
+    $markup = build_main_keyboard_button_edit_markup($button_id, $datatextbot, $setting['keyboardmain']);
+    Editmessagetext($from_id, $message_id, $edit_text, $markup);
+} elseif (preg_match('/^togglemainbtn-(.+)$/', $datain, $dataget) && $adminrulecheck['rule'] == "administrator") {
+    $button_id = $dataget[1];
+    if (!in_array($button_id, get_main_keyboard_button_ids(), true)) {
+        return;
+    }
     $new_keyboard = toggle_main_keyboard_button($setting['keyboardmain'], $button_id);
     update("setting", "keyboardmain", $new_keyboard, null, null);
     $setting['keyboardmain'] = $new_keyboard;
-    $markup = build_main_keyboard_admin_markup($datatextbot, $setting['keyboardmain']);
-    Editmessagetext($from_id, $message_id, "⌨️ دکمه‌های منوی اصلی ربات\n\nبرای نمایش یا مخفی کردن هر دکمه روی آن کلیک کنید.", $markup);
+    $edit_text = build_main_keyboard_button_edit_text($button_id, $datatextbot, $setting['keyboardmain']);
+    $markup = build_main_keyboard_button_edit_markup($button_id, $datatextbot, $setting['keyboardmain']);
+    Editmessagetext($from_id, $message_id, $edit_text, $markup);
+} elseif (preg_match('/^setmainbtnemoji-(.+)$/', $datain, $dataget) && $adminrulecheck['rule'] == "administrator") {
+    $button_id = $dataget[1];
+    if (!in_array($button_id, get_main_keyboard_button_ids(), true)) {
+        return;
+    }
+    $label = get_main_keyboard_button_label($button_id, $datatextbot);
+    $parts = split_main_keyboard_button_label($label);
+    $title = $parts['title'] !== '' ? $parts['title'] : $label;
+    $title_esc = htmlspecialchars($title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    update("user", "Processing_value", $button_id, "id", $from_id);
+    step('setmainbtnemoji', $from_id);
+    sendmessage(
+        $from_id,
+        "✨ تنظیم ایموجی پرمیوم برای دکمه <b>{$title_esc}</b>\n\nیک پیام بفرستید که داخلش <b>ایموجی پرمیوم</b> تلگرام باشد (همان ایموجی سفارشی که با اکانت پرمیوم می‌فرستید).\n\nربات شناسه ایموجی را از پیام شما می‌گیرد و روی دکمه منو اعمال می‌کند.\n\nبرای لغو، دکمه بازگشت را بزنید.",
+        $backadmin,
+        'HTML'
+    );
+} elseif (preg_match('/^clearmainbtnemoji-(.+)$/', $datain, $dataget) && $adminrulecheck['rule'] == "administrator") {
+    $button_id = $dataget[1];
+    if (!in_array($button_id, get_main_keyboard_button_ids(), true)) {
+        return;
+    }
+    set_main_keyboard_button_icon($button_id, '');
+    $edit_text = build_main_keyboard_button_edit_text($button_id, $datatextbot, $setting['keyboardmain']);
+    $markup = build_main_keyboard_button_edit_markup($button_id, $datatextbot, $setting['keyboardmain']);
+    Editmessagetext($from_id, $message_id, $edit_text . "\n\n✅ ایموجی پرمیوم حذف شد.", $markup);
+} elseif ($user['step'] == "setmainbtnemoji" && $adminrulecheck['rule'] == "administrator" && $datain === '') {
+    $button_id = trim((string) ($user['Processing_value'] ?? ''));
+    if (!in_array($button_id, get_main_keyboard_button_ids(), true)) {
+        step('home', $from_id);
+        sendmessage($from_id, "❌ دکمه نامعتبر است.", $setting_panel, 'HTML');
+        return;
+    }
+    $emoji_id = extract_custom_emoji_id_from_update($update);
+    if ($emoji_id === '') {
+        $normalized_text_id = normalize_main_keyboard_custom_emoji_id($text);
+        $emoji_id = ($normalized_text_id !== null && $normalized_text_id !== '') ? $normalized_text_id : '';
+    }
+    if ($emoji_id === '') {
+        sendmessage(
+            $from_id,
+            "❌ ایموجی پرمیوم در پیام پیدا نشد.\n\nیک پیام بفرستید که شامل ایموجی پرمیوم (سفارشی) باشد، یا شناسه عددی آن را ارسال کنید.",
+            $backadmin,
+            'HTML'
+        );
+        return;
+    }
+    if (!set_main_keyboard_button_icon($button_id, $emoji_id)) {
+        sendmessage($from_id, "❌ ذخیره ایموجی ناموفق بود. شناسه را بررسی کنید.", $backadmin, 'HTML');
+        return;
+    }
+    strip_unicode_emoji_from_main_keyboard_button_title($button_id, $datatextbot);
+    $fresh_text = select('textbot', 'text', 'id_text', $button_id, 'select');
+    if (is_array($fresh_text) && !empty($fresh_text['text'])) {
+        $datatextbot[$button_id] = $fresh_text['text'];
+    }
+    step('home', $from_id);
+    update("user", "Processing_value", "0", "id", $from_id);
+    $edit_text = build_main_keyboard_button_edit_text($button_id, $datatextbot, $setting['keyboardmain']);
+    $markup = build_main_keyboard_button_edit_markup($button_id, $datatextbot, $setting['keyboardmain']);
+    sendmessage($from_id, "✅ ایموجی پرمیوم ذخیره شد.\n\n" . $edit_text, $markup, 'HTML');
+    sendmessage($from_id, $textbotlang['users']['selectoption'], $setting_panel, 'HTML');
 } elseif ($text == "🤙 بخش پشتیبانی" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['users']['selectoption'], $supportcenter, 'HTML');
 } elseif (preg_match('/Confirm_pay_(\w+)/', $datain, $dataget) && ($adminrulecheck['rule'] == "administrator" || $adminrulecheck['rule'] == "Seller")) {

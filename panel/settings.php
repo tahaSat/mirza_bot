@@ -30,6 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset
     $default_keyboard = get_default_main_keyboard_json();
     update('setting', 'keyboardmain', $default_keyboard, null, null);
     reset_main_keyboard_button_styles();
+    reset_main_keyboard_button_icons();
     clearSelectCache('setting');
     flash('success', 'دکمه‌های منو به حالت پیش‌فرض بازگردانده شد.');
     header('Location: settings.php?tab=bot');
@@ -40,25 +41,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
     csrf_check_post();
     $button_id = trim((string) ($_POST['button_id'] ?? ''));
     $title = trim((string) ($_POST['title'] ?? ''));
+    $emoji_input = trim((string) ($_POST['emoji'] ?? ''));
     $allowed_ids = get_main_keyboard_button_ids();
+    $custom_emoji_id = normalize_main_keyboard_custom_emoji_id($emoji_input);
+
+    $flash_error = null;
+    $stored_title = $title;
+    $stored_icon = '';
 
     if (!in_array($button_id, $allowed_ids, true)) {
-        flash('error', 'دکمه نامعتبر است.');
+        $flash_error = 'دکمه نامعتبر است.';
     } elseif ($title === '') {
-        flash('error', 'عنوان دکمه نمی‌تواند خالی باشد.');
-    } elseif (str_contains($title, "\n") || mb_strlen($title) > 32) {
-        flash('error', 'عنوان دکمه باید حداکثر ۳۲ کاراکتر و بدون خط جدید باشد.');
-    } elseif (is_main_keyboard_internal_id($title)) {
-        flash('error', 'این عنوان مجاز نیست.');
+        $flash_error = 'عنوان دکمه نمی‌تواند خالی باشد.';
+    } elseif ($emoji_input !== '' && $custom_emoji_id === null && mb_strlen($emoji_input) > 8) {
+        $flash_error = 'شناسه ایموجی پرمیوم باید فقط عدد باشد (مثلاً 5368324170671202286).';
+    } elseif ($custom_emoji_id !== null && $custom_emoji_id !== '') {
+        $stored_title = $title;
+        $stored_icon = $custom_emoji_id;
+    } elseif ($emoji_input !== '') {
+        $stored_title = trim($emoji_input . ' ' . $title);
+        $stored_icon = '';
+    }
+
+    if ($flash_error === null) {
+        if (str_contains($stored_title, "\n") || mb_strlen($stored_title) > 32) {
+            $flash_error = 'عنوان دکمه باید حداکثر ۳۲ کاراکتر و بدون خط جدید باشد.';
+        } elseif (is_main_keyboard_internal_id($stored_title)) {
+            $flash_error = 'این عنوان مجاز نیست.';
+        }
+    }
+
+    if ($flash_error !== null) {
+        flash('error', $flash_error);
     } else {
         $exists = db_fetch($pdo, "SELECT id_text FROM textbot WHERE id_text = ?", [$button_id]);
         if ($exists) {
-            db_query($pdo, "UPDATE textbot SET text = ? WHERE id_text = ?", [$title, $button_id]);
+            db_query($pdo, "UPDATE textbot SET text = ? WHERE id_text = ?", [$stored_title, $button_id]);
         } else {
-            db_query($pdo, "INSERT INTO textbot (id_text, text) VALUES (?, ?)", [$button_id, $title]);
+            db_query($pdo, "INSERT INTO textbot (id_text, text) VALUES (?, ?)", [$button_id, $stored_title]);
         }
+        set_main_keyboard_button_icon($button_id, $stored_icon);
         clearSelectCache('textbot');
-        flash('success', 'عنوان دکمه ذخیره شد.');
+        flash('success', $stored_icon !== '' ? 'عنوان و ایموجی پرمیوم دکمه ذخیره شد.' : 'عنوان دکمه ذخیره شد.');
     }
     header('Location: settings.php?tab=bot');
     exit;
@@ -169,6 +193,7 @@ if ($normalized_bot_keyboard !== $bot_keyboardmain) {
 $bot_active_ids = get_active_main_keyboard_buttons($bot_keyboardmain, $bot_datatextbot);
 $bot_solo_ids = get_main_keyboard_solo_button_ids($bot_keyboardmain, $bot_datatextbot);
 $bot_button_styles = get_main_keyboard_button_styles();
+$bot_button_icons = get_main_keyboard_button_icons();
 $bot_style_options = get_main_keyboard_allowed_styles();
 $bot_all_ids = get_main_keyboard_button_ids();
 $bot_ordered_ids = array_values(array_unique(array_merge(
@@ -181,9 +206,15 @@ foreach ($bot_ordered_ids as $index => $btn_id) {
     $is_active = in_array($btn_id, $bot_active_ids, true);
     $active_index = $is_active ? array_search($btn_id, $bot_active_ids, true) : false;
     $is_full = $is_active && in_array($btn_id, $bot_solo_ids, true);
+    $full_label = get_main_keyboard_button_label($btn_id, $bot_datatextbot);
+    $label_parts = split_main_keyboard_button_label($full_label);
+    $icon_id = $bot_button_icons[$btn_id] ?? '';
     $bot_menu_buttons[] = [
         'id' => $btn_id,
-        'label' => get_main_keyboard_button_label($btn_id, $bot_datatextbot),
+        'label' => $full_label,
+        'emoji' => $icon_id !== '' ? $icon_id : $label_parts['emoji'],
+        'title' => $label_parts['title'] !== '' ? $label_parts['title'] : $full_label,
+        'has_premium_emoji' => $icon_id !== '',
         'active' => $is_active,
         'full_width' => $is_full,
         'style' => $bot_button_styles[$btn_id] ?? '',
@@ -212,8 +243,14 @@ if (is_array($layout_preview) && !empty($layout_preview['keyboard'])) {
                 continue;
             }
             $style = $bot_button_styles[$id] ?? '';
+            $full_label = get_main_keyboard_button_label($id, $bot_datatextbot);
+            $label_parts = split_main_keyboard_button_label($full_label);
+            $icon_id = $bot_button_icons[$id] ?? '';
             $preview_row[] = [
-                'label' => get_main_keyboard_button_label($id, $bot_datatextbot),
+                'label' => $full_label,
+                'title' => $label_parts['title'] !== '' ? $label_parts['title'] : $full_label,
+                'emoji' => $icon_id !== '' ? '' : $label_parts['emoji'],
+                'has_premium_emoji' => $icon_id !== '',
                 'style' => $style,
                 'colors' => $bot_style_preview_colors[$style] ?? $bot_style_preview_colors[''],
             ];
@@ -358,7 +395,7 @@ include __DIR__ . '/inc/layout_head.php';
                 <thead>
                     <tr>
                         <th style="width:56px">ترتیب</th>
-                        <th>عنوان دکمه</th>
+                        <th colspan="2">ایموجی و عنوان</th>
                         <th>عرض</th>
                         <th>رنگ</th>
                         <th>وضعیت</th>
@@ -397,18 +434,27 @@ include __DIR__ . '/inc/layout_head.php';
                                     <span style="font-size:.72rem;color:var(--mute)">—</span>
                                 <?php endif; ?>
                             </td>
-                            <td>
-                                <form method="POST" style="display:flex;gap:8px;align-items:center;min-width:220px">
+                            <td colspan="2">
+                                <form method="POST" style="display:flex;gap:8px;align-items:center;min-width:280px">
                                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                                     <input type="hidden" name="action" value="save_bot_button_title">
                                     <input type="hidden" name="button_id" value="<?= htmlspecialchars($btn['id']) ?>">
+                                    <input type="text" name="emoji" class="input" maxlength="64"
+                                        value="<?= htmlspecialchars($btn['emoji']) ?>"
+                                        placeholder="<?= $btn['has_premium_emoji'] ? 'شناسه پرمیوم' : '🔐 یا ID' ?>"
+                                        title="ایموجی معمولی یا شناسه عددی ایموجی پرمیوم تلگرام"
+                                        style="width:110px;flex:0 0 110px;padding:7px 8px;font-size:.8rem;text-align:center<?= $btn['has_premium_emoji'] ? ';font-family:ui-monospace,monospace;font-size:.72rem' : '' ?>">
                                     <input type="text" name="title" class="input" maxlength="32" required
-                                        value="<?= htmlspecialchars($btn['label']) ?>"
+                                        value="<?= htmlspecialchars($btn['title']) ?>"
+                                        placeholder="عنوان بدون ایموجی"
                                         style="flex:1;min-width:0;padding:7px 10px;font-size:.85rem">
-                                    <button type="submit" class="btn btn-primary btn-sm" title="ذخیره عنوان">
+                                    <button type="submit" class="btn btn-primary btn-sm" title="ذخیره">
                                         <?= icon('check', 14) ?>
                                     </button>
                                 </form>
+                                <?php if ($btn['has_premium_emoji']): ?>
+                                    <div style="margin-top:4px;font-size:.68rem;color:var(--mute)">ایموجی پرمیوم فعال</div>
+                                <?php endif; ?>
                             </td>
                             <td style="white-space:nowrap">
                                 <?php if ($btn['active']): ?>
@@ -479,7 +525,12 @@ include __DIR__ . '/inc/layout_head.php';
                     <div style="display:grid;grid-template-columns:repeat(<?= count($preview_row) ?>,minmax(0,1fr));gap:8px">
                         <?php foreach ($preview_row as $preview_btn): ?>
                             <div style="background:<?= htmlspecialchars($preview_btn['colors']['bg']) ?>;color:<?= htmlspecialchars($preview_btn['colors']['fg']) ?>;border:1px solid <?= htmlspecialchars($preview_btn['colors']['bd']) ?>;border-radius:8px;padding:10px 12px;text-align:center;font-size:.82rem;font-weight:600">
-                                <?= htmlspecialchars($preview_btn['label']) ?>
+                                <?php if ($preview_btn['has_premium_emoji']): ?>
+                                    <span style="opacity:.85;margin-inline-end:4px" title="ایموجی پرمیوم">✦</span>
+                                <?php elseif ($preview_btn['emoji'] !== ''): ?>
+                                    <span style="margin-inline-end:4px"><?= htmlspecialchars($preview_btn['emoji']) ?></span>
+                                <?php endif; ?>
+                                <?= htmlspecialchars($preview_btn['title']) ?>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -491,6 +542,8 @@ include __DIR__ . '/inc/layout_head.php';
     <div class="card fade-up d2" style="margin-top:14px">
         <div class="card-body" style="font-size:.82rem;color:var(--mute);line-height:1.7">
             با دکمه‌های بالا/پایین ترتیب را عوض کنید.
+            ستون <strong>ایموجی</strong>: ایموجی معمولی (مثل 🔐) را اینجا می‌توانید بگذارید.
+            برای <strong>ایموجی پرمیوم</strong> از داخل ربات بروید: تنظیمات عمومی ← تنظیم دکمه‌های منو ← دکمه موردنظر ← تنظیم ایموجی پرمیوم (با اکانت پرمیوم مالک ربات یک ایموجی سفارشی بفرستید).
             ستون <strong>عرض</strong>: <strong>کامل</strong> یعنی دکمه تنها در یک سطر (تمام‌عرض در تلگرام)، <strong>نیمه</strong> یعنی دو دکمه در یک سطر.
             ستون <strong>رنگ</strong>: آبی، سبز یا قرمز (قابلیت رسمی تلگرام؛ در نسخه‌های قدیمی اپ ممکن است دیده نشود).
             عنوان حداکثر ۳۲ کاراکتر است. کاربران فعلی پس از دریافت مجدد منو تغییرات را می‌بینند.

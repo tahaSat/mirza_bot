@@ -2585,10 +2585,13 @@ function attach_main_keyboard_inline_callbacks($keyboard_rows)
     return $rows;
 }
 
-function apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $styles = null)
+function apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $styles = null, $icons = null)
 {
     if (!is_array($styles)) {
         $styles = get_main_keyboard_button_styles();
+    }
+    if (!is_array($icons)) {
+        $icons = get_main_keyboard_button_icons();
     }
     $labeled = [];
     foreach ($keyboard_rows as $row) {
@@ -2610,9 +2613,12 @@ function apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $styles
             }
             $new_button = $button;
             $new_button['text'] = $label;
-            unset($new_button['style']);
+            unset($new_button['style'], $new_button['icon_custom_emoji_id']);
             if (!empty($styles[$button_id])) {
                 $new_button['style'] = $styles[$button_id];
+            }
+            if (!empty($icons[$button_id])) {
+                $new_button['icon_custom_emoji_id'] = $icons[$button_id];
             }
             $labeled_row[] = $new_button;
         }
@@ -2697,6 +2703,114 @@ function reset_main_keyboard_button_styles()
     clearSelectCache('setting');
 }
 
+function ensure_main_keyboard_icons_column()
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    addFieldToTable('setting', 'keyboardmain_icons', '{}', 'TEXT');
+}
+
+function normalize_main_keyboard_custom_emoji_id($emoji_id)
+{
+    $emoji_id = trim((string) $emoji_id);
+    if ($emoji_id === '') {
+        return '';
+    }
+    // Telegram custom emoji IDs are numeric strings (often 16+ digits).
+    if (!preg_match('/^\d{1,64}$/', $emoji_id)) {
+        return null;
+    }
+    return $emoji_id;
+}
+
+function get_main_keyboard_button_icons($icons_json = null)
+{
+    ensure_main_keyboard_icons_column();
+    if ($icons_json === null) {
+        $row = select('setting', 'keyboardmain_icons', null, null, 'select', ['cache' => false]);
+        $icons_json = is_array($row) ? ($row['keyboardmain_icons'] ?? '{}') : '{}';
+    }
+    $icons = json_decode((string) $icons_json, true);
+    if (!is_array($icons)) {
+        return [];
+    }
+    $button_ids = get_main_keyboard_button_ids();
+    $out = [];
+    foreach ($icons as $id => $emoji_id) {
+        $normalized = normalize_main_keyboard_custom_emoji_id($emoji_id);
+        if (in_array($id, $button_ids, true) && $normalized !== null && $normalized !== '') {
+            $out[$id] = $normalized;
+        }
+    }
+    return $out;
+}
+
+function set_main_keyboard_button_icon($button_id, $emoji_id)
+{
+    $allowed_ids = get_main_keyboard_button_ids();
+    if (!in_array($button_id, $allowed_ids, true)) {
+        return false;
+    }
+    $normalized = normalize_main_keyboard_custom_emoji_id($emoji_id);
+    if ($normalized === null) {
+        return false;
+    }
+    ensure_main_keyboard_icons_column();
+    $icons = get_main_keyboard_button_icons();
+    if ($normalized === '') {
+        unset($icons[$button_id]);
+    } else {
+        $icons[$button_id] = $normalized;
+    }
+    update('setting', 'keyboardmain_icons', json_encode($icons, JSON_UNESCAPED_UNICODE), null, null);
+    clearSelectCache('setting');
+    return true;
+}
+
+function reset_main_keyboard_button_icons()
+{
+    ensure_main_keyboard_icons_column();
+    update('setting', 'keyboardmain_icons', '{}', null, null);
+    clearSelectCache('setting');
+}
+
+/**
+ * Split a button label into leading unicode emoji(s) and remaining title text.
+ * Used by the panel so emoji can be edited separately from title.
+ *
+ * @return array{emoji: string, title: string}
+ */
+function split_main_keyboard_button_label($label)
+{
+    $label = trim((string) $label);
+    if ($label === '') {
+        return ['emoji' => '', 'title' => ''];
+    }
+
+    // Leading emoji / pictograph sequences (including ZWJ and variation selectors).
+    $pattern = '/^((?:' .
+        '[\x{1F1E0}-\x{1F1FF}]{2}' .
+        '|[\x{2600}-\x{27BF}\x{1F300}-\x{1F9FF}\x{1FA00}-\x{1FAFF}\x{2300}-\x{23FF}\x{2B50}\x{2B55}\x{231A}\x{231B}\x{23E9}-\x{23FA}\x{25AA}-\x{25FE}\x{2934}\x{2935}\x{2B05}-\x{2B07}\x{2B1B}\x{2B1C}]' .
+        '[\x{FE0E}\x{FE0F}]?' .
+        '(?:\x{200D}[\x{2600}-\x{27BF}\x{1F300}-\x{1F9FF}\x{1FA00}-\x{1FAFF}\x{2300}-\x{23FF}][\x{FE0E}\x{FE0F}]?)*' .
+        '(?:\x{20E3})?' .
+        '\s*' .
+        ')+)/u';
+
+    if (preg_match($pattern, $label, $m)) {
+        $emoji = trim($m[1]);
+        $title = trim(mb_substr($label, mb_strlen($m[1])));
+        if ($emoji !== '' && $title !== '') {
+            return ['emoji' => $emoji, 'title' => $title];
+        }
+    }
+
+    return ['emoji' => '', 'title' => $label];
+}
+
 function build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $from_id, array $options = [])
 {
     $persist = $options['persist'] ?? true;
@@ -2725,6 +2839,7 @@ function build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $
     }
 
     $button_styles = get_main_keyboard_button_styles($setting['keyboardmain_styles'] ?? null);
+    $button_icons = get_main_keyboard_button_icons($setting['keyboardmain_icons'] ?? null);
 
     $inline = ($setting['inlinebtnmain'] ?? '') === 'oninline';
     $extra_row = [];
@@ -2752,11 +2867,11 @@ function build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $
 
     if ($inline) {
         $keyboard_rows = attach_main_keyboard_inline_callbacks($keyboard_rows);
-        $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $button_styles);
+        $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $button_styles, $button_icons);
         if ($keyboardcustom === []) {
             $keyboard_rows = json_decode(get_default_main_keyboard_json(), true)['keyboard'] ?? [];
             $keyboard_rows = attach_main_keyboard_inline_callbacks($keyboard_rows);
-            $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $button_styles);
+            $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $button_styles, $button_icons);
         }
         if ($extra_row !== []) {
             $keyboardcustom[] = $extra_row;
@@ -2764,10 +2879,10 @@ function build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $
         return json_encode(['inline_keyboard' => $keyboardcustom], JSON_UNESCAPED_UNICODE);
     }
 
-    $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $button_styles);
+    $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $button_styles, $button_icons);
     if ($keyboardcustom === []) {
         $keyboard_rows = json_decode(get_default_main_keyboard_json(), true)['keyboard'] ?? [];
-        $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $button_styles);
+        $keyboardcustom = apply_main_keyboard_button_labels($keyboard_rows, $datatextbot, $button_styles, $button_icons);
     }
     if ($extra_row !== []) {
         $keyboardcustom[] = $extra_row;
@@ -2851,17 +2966,19 @@ function set_main_keyboard_button_width($keyboardmain_json, $button_id, $width, 
 function build_main_keyboard_admin_markup($datatextbot, $keyboardmain_json)
 {
     global $textbotlang;
+    $icons = get_main_keyboard_button_icons();
     $rows = [];
     foreach (get_default_main_keyboard_layout() as $row) {
         $inline_row = [];
         foreach ($row as $btn_id) {
-            $label = $datatextbot[$btn_id] ?? $btn_id;
+            $label = get_main_keyboard_button_label($btn_id, $datatextbot);
             $status = check_active_btn($keyboardmain_json, $btn_id, $datatextbot)
                 ? $textbotlang['Admin']['Status']['statuson']
                 : $textbotlang['Admin']['Status']['statusoff'];
+            $premium = !empty($icons[$btn_id]) ? '✦ ' : '';
             $inline_row[] = [
-                'text' => "$status $label",
-                'callback_data' => "togglemainbtn-$btn_id",
+                'text' => "$status $premium$label",
+                'callback_data' => "editmainbtn-$btn_id",
             ];
         }
         if (!empty($inline_row)) {
@@ -2871,8 +2988,121 @@ function build_main_keyboard_admin_markup($datatextbot, $keyboardmain_json)
     $rows[] = [
         ['text' => "♻️ بازنشانی پیش‌فرض", 'callback_data' => 'resetmainbtn'],
     ];
-    return json_encode(['inline_keyboard' => $rows]);
+    return json_encode(['inline_keyboard' => $rows], JSON_UNESCAPED_UNICODE);
 }
+
+function build_main_keyboard_button_edit_text($button_id, $datatextbot, $keyboardmain_json)
+{
+    $label = get_main_keyboard_button_label($button_id, $datatextbot);
+    $parts = split_main_keyboard_button_label($label);
+    $title = $parts['title'] !== '' ? $parts['title'] : $label;
+    $active = check_active_btn($keyboardmain_json, $button_id, $datatextbot) ? 'نمایش ✅' : 'مخفی ❌';
+    $icons = get_main_keyboard_button_icons();
+    $icon = $icons[$button_id] ?? '';
+    if ($icon !== '') {
+        $emoji_line = "✨ ایموجی پرمیوم: <tg-emoji emoji-id=\"{$icon}\">⭐</tg-emoji>\n🆔 <code>{$icon}</code>";
+    } else {
+        $emoji_line = '✨ ایموجی پرمیوم: تنظیم نشده';
+    }
+    $title_esc = htmlspecialchars($title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    return "⌨️ تنظیم دکمه منو\n\n📌 عنوان: <b>{$title_esc}</b>\n👁 وضعیت: {$active}\n{$emoji_line}\n\nاز دکمه‌های زیر برای مدیریت استفاده کنید.";
+}
+
+function build_main_keyboard_button_edit_markup($button_id, $datatextbot, $keyboardmain_json)
+{
+    $active = check_active_btn($keyboardmain_json, $button_id, $datatextbot);
+    $icons = get_main_keyboard_button_icons();
+    $has_icon = !empty($icons[$button_id]);
+    $rows = [
+        [
+            [
+                'text' => $active ? '🔴 مخفی کردن دکمه' : '🟢 نمایش دادن دکمه',
+                'callback_data' => "togglemainbtn-$button_id",
+            ],
+        ],
+        [
+            [
+                'text' => '✨ تنظیم ایموجی پرمیوم',
+                'callback_data' => "setmainbtnemoji-$button_id",
+            ],
+        ],
+    ];
+    if ($has_icon) {
+        $rows[] = [
+            [
+                'text' => '🗑 حذف ایموجی پرمیوم',
+                'callback_data' => "clearmainbtnemoji-$button_id",
+            ],
+        ];
+    }
+    $rows[] = [
+        ['text' => '🔙 بازگشت به لیست', 'callback_data' => 'listmainbtn'],
+    ];
+    return json_encode(['inline_keyboard' => $rows], JSON_UNESCAPED_UNICODE);
+}
+
+function extract_custom_emoji_id_from_update($update)
+{
+    if (!is_array($update)) {
+        return '';
+    }
+    $message = $update['message'] ?? null;
+    if (!is_array($message)) {
+        return '';
+    }
+    $entity_groups = [];
+    if (!empty($message['entities']) && is_array($message['entities'])) {
+        $entity_groups[] = $message['entities'];
+    }
+    if (!empty($message['caption_entities']) && is_array($message['caption_entities'])) {
+        $entity_groups[] = $message['caption_entities'];
+    }
+    foreach ($entity_groups as $entities) {
+        foreach ($entities as $entity) {
+            if (!is_array($entity)) {
+                continue;
+            }
+            if (($entity['type'] ?? '') !== 'custom_emoji') {
+                continue;
+            }
+            $normalized = normalize_main_keyboard_custom_emoji_id($entity['custom_emoji_id'] ?? '');
+            if ($normalized !== null && $normalized !== '') {
+                return $normalized;
+            }
+        }
+    }
+    return '';
+}
+
+/**
+ * When a premium icon is set, keep only the plain title text (no leading unicode emoji).
+ */
+function strip_unicode_emoji_from_main_keyboard_button_title($button_id, $datatextbot = null)
+{
+    if (!in_array($button_id, get_main_keyboard_button_ids(), true)) {
+        return false;
+    }
+    if (!is_array($datatextbot)) {
+        $datatextbot = [];
+    }
+    $label = get_main_keyboard_button_label($button_id, $datatextbot);
+    $parts = split_main_keyboard_button_label($label);
+    if ($parts['emoji'] === '' || $parts['title'] === '') {
+        return false;
+    }
+    $title = $parts['title'];
+    $exists = select('textbot', 'id_text', 'id_text', $button_id, 'select');
+    if ($exists) {
+        update('textbot', 'text', $title, 'id_text', $button_id);
+    } else {
+        global $pdo;
+        $stmt = $pdo->prepare('INSERT INTO textbot (id_text, text) VALUES (?, ?)');
+        $stmt->execute([$button_id, $title]);
+    }
+    clearSelectCache('textbot');
+    return true;
+}
+
 function deleteFolder($folderPath)
 {
     if (!is_dir($folderPath))

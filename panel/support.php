@@ -333,7 +333,7 @@ include __DIR__ . '/inc/layout_head.php';
                 <div class="support-head-actions">
                     <div class="support-status-menu">
                         <button type="button" class="tag <?= $tagClass ?> support-status-trigger" aria-haspopup="listbox" aria-expanded="false">
-                            <?= htmlspecialchars($statusLabel) ?>
+                            <span class="support-status-label"><?= htmlspecialchars($statusLabel) ?></span>
                             <span class="support-status-caret">▾</span>
                         </button>
                         <form method="POST" class="support-status-dropdown" hidden>
@@ -355,10 +355,10 @@ include __DIR__ . '/inc/layout_head.php';
                             <input type="hidden" name="action" value="close">
                             <input type="hidden" name="user_id" value="<?= htmlspecialchars($ticket['iduser']) ?>">
                             <input type="hidden" name="tracking" value="<?= htmlspecialchars($replyTicket['Tracking']) ?>">
-                            <button class="btn btn-ghost btn-sm" type="submit">بستن گفتگو</button>
+                            <button class="btn btn-ghost btn-sm" type="submit"><span class="support-close-full">بستن گفتگو</span><span class="support-close-short">بستن</span></button>
                         </form>
                     <?php endif; ?>
-                    <a class="support-back" href="<?= support_inbox_url(['user_id' => null]) ?>"><?= icon('arrow-left', 15) ?> بازگشت</a>
+                    <a class="support-back" href="<?= support_inbox_url(['user_id' => null]) ?>" title="بازگشت" aria-label="بازگشت"><?= icon('arrow-left', 16) ?><span class="support-back-label">بازگشت</span></a>
                 </div>
             </div>
             <div class="support-meta">

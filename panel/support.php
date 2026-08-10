@@ -60,8 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $reply = trim($_POST['reply'] ?? '');
         $uploadResult = panel_support_prepare_upload($_FILES['attachment'] ?? []);
         $upload = $uploadResult['upload'] ?? null;
-        $canReply = in_array($ticket['status'], array_merge(panel_support_unanswered_statuses(), ['Answered']), true);
-        $isFollowUp = $ticket['status'] === 'Answered';
+        $canReply = ($ticket['status'] ?? '') !== 'close';
         if (!$uploadResult['ok']) {
             flash('error', $uploadResult['msg']);
         } elseif ($reply === '' && !$upload) {
@@ -71,49 +70,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!$canReply) {
             flash('warning', 'این گفتگو بسته شده و امکان ارسال پاسخ وجود ندارد.');
         } else {
+            // Always append a new admin message at the end of the thread.
+            // Do not attach replies onto older unanswered user rows (that reorders the chat).
             $sendTicket = $ticket;
-            if ($isFollowUp) {
-                $sendTicket['Tracking'] = bin2hex(random_bytes(4));
-            }
+            $sendTicket['Tracking'] = bin2hex(random_bytes(4));
             $result = panel_support_send_reply($sendTicket, $reply, $upload);
             if ($result['ok']) {
                 $answeredAt = date('Y/m/d H:i:s');
                 $adminId = $currentAdmin['id_admin'] ?? '';
                 $adminUsername = $currentAdmin['username'] ?? '';
-                if ($isFollowUp) {
-                    db_query(
-                        $pdo,
-                        "INSERT INTO support_message
-                         (Tracking, idsupport, iduser, user_name, name_departman, text, time, status, result,
-                          answered_by_admin_id, answered_by_admin_username, answered_at)
-                         VALUES (?, ?, ?, ?, ?, '', ?, 'Answered', ?, ?, ?, ?)",
-                        [
-                            $sendTicket['Tracking'],
-                            $ticket['idsupport'],
-                            $ticket['iduser'],
-                            $ticket['user_name'] ?? '',
-                            $ticket['name_departman'],
-                            $answeredAt,
-                            $reply,
-                            $adminId,
-                            $adminUsername,
-                            $answeredAt,
-                        ]
-                    );
-                    $messageId = (int) $pdo->lastInsertId();
-                    if ($messageId > 0) {
-                        support_store_media($pdo, $messageId, 'out', $result['media'] ?? []);
-                    }
-                } else {
-                    db_query(
-                        $pdo,
-                        "UPDATE support_message
-                         SET status = 'Answered', result = ?, answered_by_admin_id = ?,
-                             answered_by_admin_username = ?, answered_at = ?
-                         WHERE id = ?",
-                        [$reply, $adminId, $adminUsername, $answeredAt, $ticket['id']]
-                    );
-                    support_store_media($pdo, (int) $ticket['id'], 'out', $result['media'] ?? []);
+                $unanswered = panel_support_unanswered_statuses();
+                $placeholders = implode(',', array_fill(0, count($unanswered), '?'));
+                db_query(
+                    $pdo,
+                    "UPDATE support_message
+                     SET status = 'Answered',
+                         answered_by_admin_id = CASE
+                             WHEN answered_by_admin_id IS NULL OR answered_by_admin_id = '' THEN ?
+                             ELSE answered_by_admin_id
+                         END,
+                         answered_by_admin_username = CASE
+                             WHEN answered_by_admin_username IS NULL OR answered_by_admin_username = '' THEN ?
+                             ELSE answered_by_admin_username
+                         END,
+                         answered_at = CASE
+                             WHEN answered_at IS NULL OR answered_at = '' THEN ?
+                             ELSE answered_at
+                         END
+                     WHERE iduser = ? AND status IN ($placeholders)",
+                    array_merge([$adminId, $adminUsername, $answeredAt, $ticket['iduser']], $unanswered)
+                );
+                db_query(
+                    $pdo,
+                    "INSERT INTO support_message
+                     (Tracking, idsupport, iduser, user_name, name_departman, text, time, status, result,
+                      answered_by_admin_id, answered_by_admin_username, answered_at)
+                     VALUES (?, ?, ?, ?, ?, '', ?, 'Answered', ?, ?, ?, ?)",
+                    [
+                        $sendTicket['Tracking'],
+                        $ticket['idsupport'],
+                        $ticket['iduser'],
+                        $ticket['user_name'] ?? '',
+                        $ticket['name_departman'],
+                        $answeredAt,
+                        $reply,
+                        $adminId,
+                        $adminUsername,
+                        $answeredAt,
+                    ]
+                );
+                $messageId = (int) $pdo->lastInsertId();
+                if ($messageId > 0) {
+                    support_store_media($pdo, $messageId, 'out', $result['media'] ?? []);
                 }
                 flash('success', $result['msg']);
             } else {
@@ -121,8 +129,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } elseif ($action === 'close') {
-        db_query($pdo, "UPDATE support_message SET status = 'close' WHERE id = ?", [$ticket['id']]);
+        db_query(
+            $pdo,
+            "UPDATE support_message SET status = 'close' WHERE iduser = ? AND status <> 'close'",
+            [$ticket['iduser']]
+        );
         flash('success', 'پیام پشتیبانی بسته شد.');
+        header('Location: ' . support_inbox_url(['user_id' => null, 'page' => null]));
+        exit;
     }
 
     header('Location: ' . support_inbox_url(['user_id' => $ticket['iduser'] ?? null, 'page' => null]));
@@ -197,17 +211,9 @@ if ($conversation && support_ensure_media_table($pdo)) {
 $ticket = $conversation[0] ?? null;
 $replyTicket = null;
 foreach (array_reverse($conversation) as $message) {
-    if (in_array($message['status'], panel_support_unanswered_statuses(), true)) {
+    if (($message['status'] ?? '') !== 'close') {
         $replyTicket = $message;
         break;
-    }
-}
-if (!$replyTicket) {
-    foreach (array_reverse($conversation) as $message) {
-        if (($message['status'] ?? '') !== 'close') {
-            $replyTicket = $message;
-            break;
-        }
     }
 }
 

@@ -41,8 +41,8 @@ function panel_support_telegram_direct(string $url, array $postFields = [], bool
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 12);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 60);
     curl_setopt($ch, CURLOPT_PROXY, '');
     curl_setopt($ch, CURLOPT_NOPROXY, '*');
     if ($postFields) {
@@ -84,10 +84,27 @@ if (empty($fileLookup['ok']) || $filePath === '') {
 }
 
 $url = 'https://api.telegram.org/file/bot' . $APIKEY . '/' . ltrim($filePath, '/');
-$mime = preg_match('#^[a-z0-9.+-]+/[a-z0-9.+-]+$#i', (string) $media['mime_type'])
-    ? $media['mime_type']
-    : 'application/octet-stream';
+$mimeDefaults = [
+    'photo' => 'image/jpeg',
+    'video' => 'video/mp4',
+    'audio' => 'audio/mpeg',
+    'voice' => 'audio/ogg',
+    'document' => 'application/octet-stream',
+];
+$storedMime = (string) ($media['mime_type'] ?? '');
+$mime = preg_match('#^[a-z0-9.+-]+/[a-z0-9.+-]+$#i', $storedMime)
+    ? $storedMime
+    : ($mimeDefaults[$media['media_type']] ?? 'application/octet-stream');
 $filename = trim((string) ($media['file_name'] ?: 'attachment'));
+if ($filename === '' || $filename === 'attachment') {
+    $filename = match ((string) $media['media_type']) {
+        'photo' => 'photo.jpg',
+        'video' => 'video.mp4',
+        'audio' => 'audio.mp3',
+        'voice' => 'voice.ogg',
+        default => 'attachment',
+    };
+}
 $filename = preg_replace('/[^A-Za-z0-9._-]+/', '_', $filename) ?: 'attachment';
 $disposition = in_array($media['media_type'], ['photo', 'video', 'audio', 'voice'], true) ? 'inline' : 'attachment';
 

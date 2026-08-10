@@ -60,26 +60,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $reply = trim($_POST['reply'] ?? '');
         $uploadResult = panel_support_prepare_upload($_FILES['attachment'] ?? []);
         $upload = $uploadResult['upload'] ?? null;
+        $canReply = in_array($ticket['status'], array_merge(panel_support_unanswered_statuses(), ['Answered']), true);
+        $isFollowUp = $ticket['status'] === 'Answered';
         if (!$uploadResult['ok']) {
             flash('error', $uploadResult['msg']);
         } elseif ($reply === '' && !$upload) {
             flash('error', 'متن پاسخ یا فایل را وارد کنید.');
         } elseif (mb_strlen($reply, 'UTF-8') > 3500) {
             flash('error', 'متن پاسخ نباید بیشتر از ۳۵۰۰ کاراکتر باشد.');
-        } elseif (!in_array($ticket['status'], panel_support_unanswered_statuses(), true)) {
-            flash('warning', 'این پیام پیش‌تر پاسخ داده یا بسته شده است.');
+        } elseif (!$canReply) {
+            flash('warning', 'این گفتگو بسته شده و امکان ارسال پاسخ وجود ندارد.');
         } else {
-            $result = panel_support_send_reply($ticket, $reply, $upload);
+            $sendTicket = $ticket;
+            if ($isFollowUp) {
+                $sendTicket['Tracking'] = bin2hex(random_bytes(4));
+            }
+            $result = panel_support_send_reply($sendTicket, $reply, $upload);
             if ($result['ok']) {
-                db_query(
-                    $pdo,
-                    "UPDATE support_message
-                     SET status = 'Answered', result = ?, answered_by_admin_id = ?,
-                         answered_by_admin_username = ?, answered_at = ?
-                     WHERE id = ?",
-                    [$reply, $currentAdmin['id_admin'] ?? '', $currentAdmin['username'] ?? '', date('Y/m/d H:i:s'), $ticket['id']]
-                );
-                support_store_media($pdo, (int) $ticket['id'], 'out', $result['media'] ?? []);
+                $answeredAt = date('Y/m/d H:i:s');
+                $adminId = $currentAdmin['id_admin'] ?? '';
+                $adminUsername = $currentAdmin['username'] ?? '';
+                if ($isFollowUp) {
+                    db_query(
+                        $pdo,
+                        "INSERT INTO support_message
+                         (Tracking, idsupport, iduser, user_name, name_departman, text, time, status, result,
+                          answered_by_admin_id, answered_by_admin_username, answered_at)
+                         VALUES (?, ?, ?, ?, ?, '', ?, 'Answered', ?, ?, ?, ?)",
+                        [
+                            $sendTicket['Tracking'],
+                            $ticket['idsupport'],
+                            $ticket['iduser'],
+                            $ticket['user_name'] ?? '',
+                            $ticket['name_departman'],
+                            $answeredAt,
+                            $reply,
+                            $adminId,
+                            $adminUsername,
+                            $answeredAt,
+                        ]
+                    );
+                    $messageId = (int) $pdo->lastInsertId();
+                    if ($messageId > 0) {
+                        support_store_media($pdo, $messageId, 'out', $result['media'] ?? []);
+                    }
+                } else {
+                    db_query(
+                        $pdo,
+                        "UPDATE support_message
+                         SET status = 'Answered', result = ?, answered_by_admin_id = ?,
+                             answered_by_admin_username = ?, answered_at = ?
+                         WHERE id = ?",
+                        [$reply, $adminId, $adminUsername, $answeredAt, $ticket['id']]
+                    );
+                    support_store_media($pdo, (int) $ticket['id'], 'out', $result['media'] ?? []);
+                }
                 flash('success', $result['msg']);
             } else {
                 flash('error', $result['msg']);
@@ -165,6 +200,14 @@ foreach (array_reverse($conversation) as $message) {
     if (in_array($message['status'], panel_support_unanswered_statuses(), true)) {
         $replyTicket = $message;
         break;
+    }
+}
+if (!$replyTicket) {
+    foreach (array_reverse($conversation) as $message) {
+        if (($message['status'] ?? '') !== 'close') {
+            $replyTicket = $message;
+            break;
+        }
     }
 }
 
@@ -264,13 +307,22 @@ include __DIR__ . '/inc/layout_head.php';
                 <span><small>شناسه ادمین دپارتمان</small><b><?= htmlspecialchars($adminId) ?></b></span>
             </div>
             <div class="support-messages">
-                <?php foreach ($conversation as $message): ?>
-                    <div class="support-bubble from-user">
-                        <small>کاربر · <?= htmlspecialchars($message['time']) ?> · <?= htmlspecialchars($message['name_departman']) ?></small>
-                        <div><?= nl2br(htmlspecialchars($message['text'])) ?></div>
-                        <?= support_media_markup($mediaByMessage[(int) $message['id']]['in'] ?? []) ?>
-                    </div>
-                    <?php if (trim((string) $message['result']) !== '' || !empty($mediaByMessage[(int) $message['id']]['out'])): ?>
+                <?php foreach ($conversation as $message):
+                    $userText = trim((string) $message['text']);
+                    $adminText = trim((string) $message['result']);
+                    $inMedia = $mediaByMessage[(int) $message['id']]['in'] ?? [];
+                    $outMedia = $mediaByMessage[(int) $message['id']]['out'] ?? [];
+                    $showUser = $userText !== '' || $inMedia;
+                    $showAdmin = $adminText !== '' || $outMedia;
+                    ?>
+                    <?php if ($showUser): ?>
+                        <div class="support-bubble from-user">
+                            <small>کاربر · <?= htmlspecialchars($message['time']) ?> · <?= htmlspecialchars($message['name_departman']) ?></small>
+                            <?php if ($userText !== ''): ?><div><?= nl2br(htmlspecialchars($userText)) ?></div><?php endif; ?>
+                            <?= support_media_markup($inMedia) ?>
+                        </div>
+                    <?php endif; ?>
+                    <?php if ($showAdmin): ?>
                         <div class="support-bubble from-admin">
                             <?php
                             $replyAdminName = $message['answered_by_admin_username'] ?? '';
@@ -279,9 +331,10 @@ include __DIR__ . '/inc/layout_head.php';
                             <small>
                                 <?= $replyAdminName !== '' ? 'ادمین ' . htmlspecialchars($replyAdminName) : 'پاسخ ادمین (قدیمی)' ?>
                                 <?= $replyAdminId !== '' ? ' · ' . htmlspecialchars($replyAdminId) : '' ?>
+                                <?php if (!empty($message['answered_at'])): ?> · <?= htmlspecialchars($message['answered_at']) ?><?php endif; ?>
                             </small>
-                            <?php if (trim((string) $message['result']) !== ''): ?><div><?= nl2br(htmlspecialchars($message['result'])) ?></div><?php endif; ?>
-                            <?= support_media_markup($mediaByMessage[(int) $message['id']]['out'] ?? []) ?>
+                            <?php if ($adminText !== ''): ?><div><?= nl2br(htmlspecialchars($adminText)) ?></div><?php endif; ?>
+                            <?= support_media_markup($outMedia) ?>
                         </div>
                     <?php endif; ?>
                 <?php endforeach; ?>
@@ -302,51 +355,129 @@ include __DIR__ . '/inc/layout_head.php';
                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                     <input type="hidden" name="action" value="close">
                     <input type="hidden" name="tracking" value="<?= htmlspecialchars($replyTicket['Tracking']) ?>">
-                    <button class="btn btn-ghost btn-sm" type="submit">بستن بدون پاسخ</button>
+                    <button class="btn btn-ghost btn-sm" type="submit">بستن گفتگو</button>
                 </form>
             <?php endif; ?>
         <?php endif; ?>
     </section>
 </div>
 
+<div class="support-media-viewer" id="support-media-viewer" hidden>
+  <button type="button" class="support-media-viewer-close" id="support-media-viewer-close" aria-label="بستن">×</button>
+  <div class="support-media-viewer-body" id="support-media-viewer-body"></div>
+</div>
+
 <script>
-document.addEventListener('click', function (event) {
-  var btn = event.target.closest('.support-media-load');
-  if (!btn || btn.dataset.loading === '1') return;
-  var url = btn.dataset.mediaUrl;
-  var type = btn.dataset.mediaType;
-  var name = btn.dataset.mediaName || 'attachment';
-  var wrap = document.createElement('div');
-  wrap.className = 'support-media-ready';
-  btn.dataset.loading = '1';
-  btn.textContent = 'در حال دریافت...';
-  btn.disabled = true;
+(function () {
+  var viewer = document.getElementById('support-media-viewer');
+  var viewerBody = document.getElementById('support-media-viewer-body');
+  var viewerClose = document.getElementById('support-media-viewer-close');
 
-  if (type === 'photo') {
-    var img = document.createElement('img');
-    img.alt = name;
-    img.loading = 'lazy';
-    img.onload = function () { btn.replaceWith(wrap); };
-    img.onerror = function () {
-      btn.dataset.loading = '0';
-      btn.disabled = false;
-      btn.textContent = 'خطا در دریافت تصویر · تلاش مجدد';
-    };
-    wrap.innerHTML = '<a class="support-media-photo" href="' + url + '" target="_blank" rel="noopener"></a>';
-    wrap.querySelector('a').appendChild(img);
-    img.src = url;
-    return;
+  function closeViewer() {
+    if (!viewer) return;
+    viewer.hidden = true;
+    viewerBody.innerHTML = '';
+    document.body.classList.remove('support-media-viewer-open');
   }
 
-  if (type === 'video') {
-    wrap.innerHTML = '<video class="support-media-video" controls preload="metadata"><source src="' + url + '"></video>';
-  } else if (type === 'audio' || type === 'voice') {
-    wrap.innerHTML = '<audio class="support-media-audio" controls preload="none"><source src="' + url + '"></audio>';
-  } else {
-    wrap.innerHTML = '<a class="support-media-file" href="' + url + '" target="_blank" rel="noopener">📎 ' + name + '</a>';
+  function openViewer(node) {
+    if (!viewer || !viewerBody) return;
+    viewerBody.innerHTML = '';
+    viewerBody.appendChild(node);
+    viewer.hidden = false;
+    document.body.classList.add('support-media-viewer-open');
   }
-  btn.replaceWith(wrap);
-});
+
+  if (viewerClose) viewerClose.addEventListener('click', closeViewer);
+  if (viewer) {
+    viewer.addEventListener('click', function (event) {
+      if (event.target === viewer) closeViewer();
+    });
+  }
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') closeViewer();
+  });
+
+  document.addEventListener('click', function (event) {
+    var btn = event.target.closest('.support-media-load');
+    if (!btn || btn.dataset.loading === '1') return;
+    event.preventDefault();
+
+    var url = btn.dataset.mediaUrl;
+    var type = btn.dataset.mediaType;
+    var name = btn.dataset.mediaName || 'attachment';
+    btn.dataset.loading = '1';
+    btn.disabled = true;
+    btn.textContent = 'در حال دریافت...';
+
+    fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (response) {
+        if (!response.ok) throw new Error('http ' + response.status);
+        return response.blob();
+      })
+      .then(function (blob) {
+        var objectUrl = URL.createObjectURL(blob);
+        var wrap = document.createElement('div');
+        wrap.className = 'support-media-ready';
+
+        if (type === 'photo') {
+          var thumbLink = document.createElement('button');
+          thumbLink.type = 'button';
+          thumbLink.className = 'support-media-photo';
+          var img = document.createElement('img');
+          img.alt = name;
+          img.src = objectUrl;
+          thumbLink.appendChild(img);
+          thumbLink.addEventListener('click', function () {
+            var full = document.createElement('img');
+            full.alt = name;
+            full.src = objectUrl;
+            full.className = 'support-media-viewer-img';
+            openViewer(full);
+          });
+          wrap.appendChild(thumbLink);
+          btn.replaceWith(wrap);
+          return;
+        }
+
+        if (type === 'video') {
+          var video = document.createElement('video');
+          video.className = 'support-media-video';
+          video.controls = true;
+          video.setAttribute('playsinline', '');
+          video.preload = 'metadata';
+          video.src = objectUrl;
+          wrap.appendChild(video);
+          btn.replaceWith(wrap);
+          return;
+        }
+
+        if (type === 'audio' || type === 'voice') {
+          var audio = document.createElement('audio');
+          audio.className = 'support-media-audio';
+          audio.controls = true;
+          audio.preload = 'metadata';
+          audio.src = objectUrl;
+          wrap.appendChild(audio);
+          btn.replaceWith(wrap);
+          return;
+        }
+
+        var fileLink = document.createElement('a');
+        fileLink.className = 'support-media-file';
+        fileLink.href = objectUrl;
+        fileLink.download = name;
+        fileLink.textContent = '📎 ' + name;
+        wrap.appendChild(fileLink);
+        btn.replaceWith(wrap);
+      })
+      .catch(function () {
+        btn.dataset.loading = '0';
+        btn.disabled = false;
+        btn.textContent = 'خطا در دریافت فایل · تلاش مجدد';
+      });
+  });
+}());
 </script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

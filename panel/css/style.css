@@ -370,7 +370,7 @@
 .support-bubble small{display:block;margin-bottom:4px;opacity:.7;font-size:.67rem}
 .from-user{align-self:flex-start;background:var(--sf);border:1px solid var(--bd);border-top-right-radius:3px}
 .from-admin{align-self:flex-end;background:var(--ac);color:var(--btn-ac-text,#fff);border-top-left-radius:3px}
-.support-media-photo{display:inline-block;margin-top:8px;width:160px;height:160px;border-radius:10px;overflow:hidden;background:rgba(0,0,0,.08);border:1px solid var(--bd);vertical-align:top}
+.support-media-photo{display:inline-block;margin-top:8px;padding:0;width:160px;height:160px;border-radius:10px;overflow:hidden;background:rgba(0,0,0,.08);border:1px solid var(--bd);vertical-align:top;cursor:zoom-in}
 .support-media-photo img{display:block;width:160px;height:160px;object-fit:cover}
 .support-media-video{display:block;width:220px;height:160px;max-width:100%;margin-top:8px;border-radius:10px;background:#000;object-fit:contain}
 .support-media-audio{display:block;width:min(100%,240px);margin-top:8px}
@@ -378,6 +378,12 @@
 .support-media-load{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:8px 10px;border:1px dashed var(--bd);border-radius:8px;background:transparent;color:inherit;font:inherit;cursor:pointer;max-width:100%}
 .support-media-load:disabled{opacity:.7;cursor:wait}
 .support-media-ready{margin-top:8px}
+.support-media-viewer{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(0,0,0,.82);backdrop-filter:blur(4px)}
+.support-media-viewer[hidden]{display:none!important}
+.support-media-viewer-body{max-width:min(960px,100%);max-height:90vh;display:flex;align-items:center;justify-content:center}
+.support-media-viewer-img{display:block;max-width:100%;max-height:90vh;border-radius:12px;object-fit:contain;box-shadow:0 12px 40px rgba(0,0,0,.45)}
+.support-media-viewer-close{position:absolute;top:14px;left:14px;width:40px;height:40px;border:0;border-radius:999px;background:rgba(255,255,255,.14);color:#fff;font-size:24px;line-height:1;cursor:pointer}
+body.support-media-viewer-open{overflow:hidden}
 .support-attachment-picker{display:inline-flex;align-self:flex-start;position:relative;overflow:hidden;cursor:pointer;color:var(--ac);font-size:.78rem}.support-attachment-picker input{position:absolute;inset:0;opacity:0;cursor:pointer}.support-attachment-picker span{padding:7px 9px;border:1px dashed var(--bd);border-radius:7px}
 .support-reply{padding:14px;display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--bd)}
 .support-reply .textarea{min-height:110px}

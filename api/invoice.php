@@ -409,11 +409,12 @@ switch ($action) {
             }
             sendJsonResponse(false, "Error in extend service", [[json_decode($extend["msg"], true)]], 200);
         }
-        $stmt = $pdo->prepare("INSERT IGNORE INTO service_other (id_user, username, value, type, time, price, output) VALUES (:id_user, :username, :value, :type, :time, :price, :output)");
+        $stmt = $pdo->prepare("INSERT IGNORE INTO service_other (id_user, username, value, type, time, price, output, status) VALUES (:id_user, :username, :value, :type, :time, :price, :output, :status)");
         $date = date('Y/m/d H:i:s');
         $value = $data['volume_service'] . "_" . $data['time_service'];
         $type = "extend_user_by_admin";
         $price = 0;
+        $status = "paid";
         $stmt->bindParam(':id_user', $invoice['id_user'], PDO::PARAM_STR);
         $stmt->bindParam(':username', $invoice['username'], PDO::PARAM_STR);
         $stmt->bindParam(':value', $value, PDO::PARAM_STR);
@@ -423,6 +424,7 @@ switch ($action) {
         $output_json = json_encode($extend);
         $output_json_var = $output_json;
         $stmt->bindParam(':output', $output_json_var, PDO::PARAM_STR);
+        $stmt->bindParam(':status', $status, PDO::PARAM_STR);
         $stmt->execute();
         update("invoice", "Status", "active", "id_invoice", $data['id_invoice']);
         sendJsonResponse(true, "Successful");

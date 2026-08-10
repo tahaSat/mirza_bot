@@ -1888,7 +1888,7 @@ $textconnect
             $type = "extend_user";
             $status = "unpaid";
             $extend = '';
-            $stmt->bind_param("ssssssss", $from_id, $nameloc['username'], $value, $type, $dateacc, $prodcut['price_product'], $extend, $status);
+            $stmt->bind_param("ssssssss", $from_id, $nameloc['username'], $value, $type, $dateacc, $pricelastextend, $extend, $status);
             $stmt->execute();
             $stmt->close();
             update("user", "Processing_value_one", "{$nameloc['username']}%$randomString", "id", $from_id);
@@ -1976,7 +1976,7 @@ $textconnect
     $type = "extend_user";
     $status = "paid";
     $extend_json = json_encode($extend);
-    $stmt->bind_param("ssssssss", $from_id, $nameloc['username'], $value, $type, $dateacc, $prodcut['price_product'], $extend_json, $status);
+    $stmt->bind_param("ssssssss", $from_id, $nameloc['username'], $value, $type, $dateacc, $pricelastextend, $extend_json, $status);
     $stmt->execute();
     $stmt->close();
     update("invoice", "Status", "active", "id_invoice", $id_invoice);
@@ -7748,7 +7748,7 @@ if (isset($update['message']['successful_payment'])) {
             ]);
         }
     }
-    $stmt = $pdo->prepare("INSERT IGNORE INTO service_other (id_user, username, value, type, time, price,output) VALUES (:id_user, :username, :value, :type, :time, :price,:output)");
+    $stmt = $pdo->prepare("INSERT IGNORE INTO service_other (id_user, username, value, type, time, price,output,status) VALUES (:id_user, :username, :value, :type, :time, :price,:output,:status)");
     $value = json_encode(array(
         "volumebuy" => $prodcut['Volume_constraint'],
         "Service_time" => $prodcut['Service_time'],
@@ -7758,6 +7758,7 @@ if (isset($update['message']['successful_payment'])) {
     ));
     $dateacc = date('Y/m/d H:i:s');
     $type = "extends_not_user";
+    $status = "paid";
     $stmt->execute([
         ':id_user' => $from_id,
         ':username' => $usernamePanelExtends,
@@ -7765,7 +7766,8 @@ if (isset($update['message']['successful_payment'])) {
         ':type' => $type,
         ':time' => $dateacc,
         ':price' => $prodcut['price_product'],
-        ':output' => json_encode($extend)
+        ':output' => json_encode($extend),
+        ':status' => $status,
     ]);
     $prodcut['price_product'] = number_format($prodcut['price_product']);
     $balanceformatsell = number_format(select("user", "Balance", "id", $from_id, "select")['Balance'], 0);

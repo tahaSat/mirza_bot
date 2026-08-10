@@ -53,15 +53,15 @@ $sqlNewUsers = "SELECT COUNT(*) AS count
 $stmt = executeQuery($pdo, $sqlNewUsers, $params);
 $usernew = $stmt->fetchColumn() ?? 0;
 
-// Fetch extension data
+// Fetch extension data (only explicitly paid extend records)
 $datefirstextend = date("Y/m/d") . " 00:00:00";
 $dateendextend = date("Y/m/d") . " 23:59:59";
 
-$sqlExtensions = "SELECT COUNT(*) AS count, SUM(price) AS total_price 
+$sqlExtensions = "SELECT COUNT(*) AS count, COALESCE(SUM(CAST(price AS DECIMAL(20,0))), 0) AS total_price 
                   FROM service_other 
                   WHERE (time BETWEEN :startDate AND :endDate) 
-                  AND type = 'extend_user'
-                  AND status != 'unpaid'";
+                  AND type IN ('extend_user', 'extends_not_user', 'extend_user_by_admin')
+                  AND status = 'paid'";
 $params = [':startDate' => $datefirstextend, ':endDate' => $dateendextend];
 $stmt = executeQuery($pdo, $sqlExtensions, $params);
 $result = $stmt->fetch(PDO::FETCH_ASSOC);

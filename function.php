@@ -1136,6 +1136,7 @@ $textonebuy
 
         update("service_other", "output", json_encode($extend), "id", $data_order['id']);
         update("service_other", "status", "paid", "id", $data_order['id']);
+        update("service_other", "time", $dateacc, "id", $data_order['id']);
         $partsdic = explode("_", $Balance_id['Processing_value_four']);
         if ($partsdic[0] == "dis") {
             discount_sell_record_usage([

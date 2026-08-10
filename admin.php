@@ -238,7 +238,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $invoiceSumRow = $sql33->fetch(PDO::FETCH_ASSOC);
     $invoiceTotal = isset($invoiceSumRow['total_price']) ? (float) $invoiceSumRow['total_price'] : 0;
     $invoicesumall = number_format($invoiceTotal, 0);
-    $sql3 = "SELECT SUM(price) AS total_extend FROM service_other WHERE type = 'extend_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
+    $sql3 = "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_extend FROM service_other WHERE type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'";
     $stmt3 = $pdo->query($sql3);
     $extendSumRow = $stmt3->fetch(PDO::FETCH_ASSOC);
     $extendsum = isset($extendSumRow['total_extend']) ? (float) $extendSumRow['total_extend'] : 0;
@@ -354,8 +354,12 @@ $paycount
     $stmt->bindParam(':requestedDateend', $time_current);
     $stmt->execute();
     $count_test = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  time  >= NOW() - INTERVAL 1 HOUR AND type = 'extend_user' AND status != 'unpaid'";
+    $extend_hour_start = date('Y/m/d H:i:s', time() - 3600);
+    $extend_hour_end = date('Y/m/d H:i:s');
+    $sql = "SELECT COUNT(*) AS count, COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'";
     $stmt = $pdo->prepare($sql);
+    $stmt->bindParam(':requestedDate', $extend_hour_start);
+    $stmt->bindParam(':requestedDateend', $extend_hour_end);
     $stmt->execute();
     $extend_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extend = $extend_stat['count'];
@@ -425,7 +429,7 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $count_test = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extend_user' AND status != 'unpaid'";
+    $sql = "SELECT COUNT(*) AS count, COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -505,7 +509,7 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $count_test = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extend_user' AND status != 'unpaid'";
+    $sql = "SELECT COUNT(*) AS count, COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -569,10 +573,10 @@ $paycount
 } elseif ($datain == "month_old_stat") {
     $firstDayLastMonth = new DateTime('first day of last month');
     $lastDayLastMonth = new DateTime('last day of last month');
-    $start_time = $firstDayLastMonth->format('Y/m/d');
-    $end_time = $lastDayLastMonth->format('Y/m/d');
-    $start_time_timestamp = strtotime($start_time);
-    $end_time_timestamp = strtotime($end_time);
+    $start_time = $firstDayLastMonth->format('Y/m/d') . ' 00:00:00';
+    $end_time = $lastDayLastMonth->format('Y/m/d') . ' 23:59:59';
+    $start_time_timestamp = strtotime($firstDayLastMonth->format('Y/m/d') . ' 00:00:00');
+    $end_time_timestamp = strtotime($lastDayLastMonth->format('Y/m/d') . ' 23:59:59');
     $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')  AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
@@ -587,7 +591,7 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $count_test = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extend_user' AND status != 'unpaid'";
+    $sql = "SELECT COUNT(*) AS count, COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -651,10 +655,10 @@ $paycount
 } elseif ($datain == "month_current_stat") {
     $firstDayLastMonth = new DateTime('first day of this month');
     $lastDayLastMonth = new DateTime('last day of this month');
-    $start_time = $firstDayLastMonth->format('Y/m/d');
-    $end_time = $lastDayLastMonth->format('Y/m/d');
-    $start_time_timestamp = strtotime($start_time);
-    $end_time_timestamp = strtotime($end_time);
+    $start_time = $firstDayLastMonth->format('Y/m/d') . ' 00:00:00';
+    $end_time = $lastDayLastMonth->format('Y/m/d') . ' 23:59:59';
+    $start_time_timestamp = strtotime($firstDayLastMonth->format('Y/m/d') . ' 00:00:00');
+    $end_time_timestamp = strtotime($lastDayLastMonth->format('Y/m/d') . ' 23:59:59');
     $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')  AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
@@ -669,7 +673,7 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $count_test = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extend_user' AND status != 'unpaid'";
+    $sql = "SELECT COUNT(*) AS count, COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -747,8 +751,8 @@ $paycount
         return;
     }
     $userdata = json_decode($user['Processing_value'], true);
-    $start_time = $userdata['start_time'] . "00:00:00";
-    $end_time = $text . "23:59:00";
+    $start_time = $userdata['start_time'] . " 00:00:00";
+    $end_time = $text . " 23:59:59";
     $start_time_timestamp = strtotime($start_time);
     $end_time_timestamp = strtotime($end_time);
     $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend)  AND  Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin') AND name_product != 'سرویس تست'";
@@ -765,7 +769,7 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $count_test = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extend_user' AND status != 'unpaid'";
+    $sql = "SELECT COUNT(*) AS count, COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -11152,10 +11156,11 @@ elseif ($text == "🫣 مخفی کردن پنل برای یک کاربر" && $ad
         }
         return;
     }
-    $stmt = $pdo->prepare("INSERT IGNORE INTO service_other (id_user, username, value, type, time, price, output) VALUES (:id_user, :username, :value, :type, :time, :price, :output)");
+    $stmt = $pdo->prepare("INSERT IGNORE INTO service_other (id_user, username, value, type, time, price, output, status) VALUES (:id_user, :username, :value, :type, :time, :price, :output, :status)");
     $dateacc = date('Y/m/d H:i:s');
     $value = $prodcut['Volume_constraint'] . "_" . $prodcut['Service_time'];
     $type = "extend_user_by_admin";
+    $status = "paid";
     $stmt->bindParam(':id_user', $from_id, PDO::PARAM_STR);
     $stmt->bindParam(':username', $nameloc['username'], PDO::PARAM_STR);
     $stmt->bindParam(':value', $value, PDO::PARAM_STR);
@@ -11164,6 +11169,7 @@ elseif ($text == "🫣 مخفی کردن پنل برای یک کاربر" && $ad
     $stmt->bindParam(':price', $prodcut['price_product'], PDO::PARAM_STR);
     $output_json = json_encode($extend);
     $stmt->bindParam(':output', $output_json, PDO::PARAM_STR);
+    $stmt->bindParam(':status', $status, PDO::PARAM_STR);
     $stmt->execute();
     update("invoice", "Status", "active", "id_invoice", $id_invoice);
     sendmessage($from_id, $textbotlang['users']['extend']['thanks'], null, 'HTML');

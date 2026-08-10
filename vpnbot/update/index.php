@@ -1888,7 +1888,7 @@ $output
         }
         return;
     }
-    $stmt = $connect->prepare("INSERT IGNORE INTO service_other (id_user, username,value,type,time,price,output) VALUES (?, ?, ?, ?,?,?,?)");
+    $stmt = $connect->prepare("INSERT IGNORE INTO service_other (id_user, username,value,type,time,price,output,status) VALUES (?, ?, ?, ?,?,?,?,?)");
     $dateacc = date('Y/m/d H:i:s');
     $value = $datafactor['Volume_constraint'] . "_" . $datafactor['Service_time'];
     $value = json_encode(array(
@@ -1900,7 +1900,8 @@ $output
         'id_order' => $nameloc['id_invoice']
     ));
     $type = "extend_user";
-    $stmt->bind_param("sssssss", $from_id, $nameloc['username'], $value, $type, $dateacc, $datafactor['price_product'], json_encode($extend));
+    $status = "paid";
+    $stmt->bind_param("ssssssss", $from_id, $nameloc['username'], $value, $type, $dateacc, $datafactor['price_product'], json_encode($extend), $status);
     $stmt->execute();
     $stmt->close();
     update("invoice", "Status", "active", "id_invoice", $id_invoice);

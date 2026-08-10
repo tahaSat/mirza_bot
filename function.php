@@ -3831,10 +3831,210 @@ function support_ensure_schema(PDO $pdo): bool
         support_add_column_if_missing($pdo, 'support_message', 'answered_by_admin_username', 'VARCHAR(1000) NULL');
         support_add_column_if_missing($pdo, 'support_message', 'answered_at', 'VARCHAR(200) NULL');
         support_ensure_media_table($pdo);
+        support_ensure_conversation_table($pdo);
         return $ready = true;
     } catch (Throwable $e) {
         error_log('Unable to ensure support schema: ' . $e->getMessage());
         return $ready = false;
+    }
+}
+
+function support_conversation_statuses(): array
+{
+    return ['Unseen', 'Answered', 'close', 'flagged'];
+}
+
+function support_ensure_conversation_table(PDO $pdo): bool
+{
+    static $ready = null;
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS support_conversation (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            iduser VARCHAR(100) NOT NULL,
+            idsupport VARCHAR(100) NULL,
+            name_departman VARCHAR(600) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+            user_name VARCHAR(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+            status ENUM('Unseen','Answered','close','flagged') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Unseen',
+            last_message_id INT UNSIGNED NULL,
+            last_message_at VARCHAR(200) NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_support_conversation_user (iduser),
+            INDEX idx_support_conversation_status (status),
+            INDEX idx_support_conversation_updated (updated_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        support_backfill_conversations($pdo);
+        return $ready = true;
+    } catch (Throwable $e) {
+        error_log('Unable to create support_conversation table: ' . $e->getMessage());
+        return $ready = false;
+    }
+}
+
+function support_conversation_status_from_messages(array $messages): string
+{
+    if (!$messages) {
+        return 'Unseen';
+    }
+
+    $unanswered = ['Unseen', 'Customerresponse', 'Pending'];
+    $hasOpen = false;
+    foreach ($messages as $message) {
+        if (($message['status'] ?? '') !== 'close') {
+            $hasOpen = true;
+        }
+    }
+    foreach (array_reverse($messages) as $message) {
+        $status = (string) ($message['status'] ?? '');
+        if (in_array($status, $unanswered, true)) {
+            return 'Unseen';
+        }
+    }
+
+    return $hasOpen ? 'Answered' : 'close';
+}
+
+function support_backfill_conversations(PDO $pdo): void
+{
+    try {
+        $users = $pdo->query(
+            "SELECT s.iduser
+             FROM support_message s
+             LEFT JOIN support_conversation c ON c.iduser = s.iduser
+             WHERE c.id IS NULL
+             GROUP BY s.iduser"
+        )->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($users as $iduser) {
+            $messages = $pdo->prepare('SELECT * FROM support_message WHERE iduser = ? ORDER BY id ASC');
+            $messages->execute([(string) $iduser]);
+            $rows = $messages->fetchAll(PDO::FETCH_ASSOC);
+            if (!$rows) {
+                continue;
+            }
+            $latest = $rows[count($rows) - 1];
+            $status = support_conversation_status_from_messages($rows);
+            $stmt = $pdo->prepare(
+                'INSERT IGNORE INTO support_conversation
+                 (iduser, idsupport, name_departman, user_name, status, last_message_id, last_message_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([
+                (string) $iduser,
+                $latest['idsupport'] ?? null,
+                $latest['name_departman'] ?? null,
+                $latest['user_name'] ?? null,
+                $status,
+                (int) ($latest['id'] ?? 0) ?: null,
+                $latest['time'] ?? null,
+            ]);
+        }
+    } catch (Throwable $e) {
+        error_log('support_backfill_conversations: ' . $e->getMessage());
+    }
+}
+
+/**
+ * @param array{idsupport?:mixed,name_departman?:mixed,user_name?:mixed} $meta
+ */
+function support_conversation_touch(PDO $pdo, string $iduser, array $meta = [], ?string $status = null, ?int $lastMessageId = null, ?string $lastMessageAt = null): void
+{
+    if ($iduser === '' || !support_ensure_conversation_table($pdo)) {
+        return;
+    }
+    if ($status !== null && !in_array($status, support_conversation_statuses(), true)) {
+        $status = 'Unseen';
+    }
+
+    try {
+        $current = $pdo->prepare('SELECT id, status FROM support_conversation WHERE iduser = ? LIMIT 1');
+        $current->execute([$iduser]);
+        $row = $current->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row) {
+            $stmt = $pdo->prepare(
+                'INSERT INTO support_conversation
+                 (iduser, idsupport, name_departman, user_name, status, last_message_id, last_message_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([
+                $iduser,
+                $meta['idsupport'] ?? null,
+                $meta['name_departman'] ?? null,
+                $meta['user_name'] ?? null,
+                $status ?? 'Unseen',
+                $lastMessageId,
+                $lastMessageAt,
+            ]);
+            return;
+        }
+
+        $fields = [];
+        $params = [];
+        foreach (['idsupport', 'name_departman', 'user_name'] as $key) {
+            if (array_key_exists($key, $meta) && $meta[$key] !== null && $meta[$key] !== '') {
+                $fields[] = "$key = ?";
+                $params[] = $meta[$key];
+            }
+        }
+        if ($status !== null) {
+            $fields[] = 'status = ?';
+            $params[] = $status;
+        }
+        if ($lastMessageId !== null) {
+            $fields[] = 'last_message_id = ?';
+            $params[] = $lastMessageId;
+        }
+        if ($lastMessageAt !== null) {
+            $fields[] = 'last_message_at = ?';
+            $params[] = $lastMessageAt;
+        }
+        if (!$fields) {
+            return;
+        }
+        $params[] = $iduser;
+        $pdo->prepare('UPDATE support_conversation SET ' . implode(', ', $fields) . ' WHERE iduser = ?')->execute($params);
+    } catch (Throwable $e) {
+        error_log('support_conversation_touch: ' . $e->getMessage());
+    }
+}
+
+function support_conversation_set_status(PDO $pdo, string $iduser, string $status): bool
+{
+    if ($iduser === '' || !in_array($status, support_conversation_statuses(), true)) {
+        return false;
+    }
+    if (!support_ensure_conversation_table($pdo)) {
+        return false;
+    }
+    try {
+        $stmt = $pdo->prepare('UPDATE support_conversation SET status = ? WHERE iduser = ?');
+        $stmt->execute([$status, $iduser]);
+        if ($stmt->rowCount() > 0) {
+            return true;
+        }
+        support_conversation_touch($pdo, $iduser, [], $status);
+        return true;
+    } catch (Throwable $e) {
+        error_log('support_conversation_set_status: ' . $e->getMessage());
+        return false;
+    }
+}
+
+function support_conversation_get(PDO $pdo, string $iduser): ?array
+{
+    if ($iduser === '' || !support_ensure_conversation_table($pdo)) {
+        return null;
+    }
+    try {
+        $stmt = $pdo->prepare('SELECT * FROM support_conversation WHERE iduser = ? LIMIT 1');
+        $stmt->execute([$iduser]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    } catch (Throwable $e) {
+        return null;
     }
 }
 

@@ -10557,6 +10557,7 @@ f,n.n2", $backadmin, 'HTML');
     update("Payment_report", "id_user", $text, "id_user", $user['Processing_value']);
     update("invoice", "id_user", $text, "id_user", $user['Processing_value']);
     update("support_message", "iduser", $text, "iduser", $user['Processing_value']);
+    update("support_conversation", "iduser", $text, "iduser", $user['Processing_value']);
     update("service_other", "id_user", $text, "id_user", $user['Processing_value']);
     update("Giftcodeconsumed", "id_user", $text, "id_user", $user['Processing_value']);
     step("home", $from_id);

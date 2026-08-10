@@ -5,6 +5,11 @@ function panel_support_unanswered_statuses(): array
     return ['Unseen', 'Customerresponse', 'Pending'];
 }
 
+function panel_support_conversation_statuses(): array
+{
+    return support_conversation_statuses();
+}
+
 function panel_support_status_map(): array
 {
     return [
@@ -13,12 +18,18 @@ function panel_support_status_map(): array
         'Pending' => ['tag-warn', 'در انتظار'],
         'Answered' => ['tag-ok', 'پاسخ داده شده'],
         'close' => ['tag-plain', 'بسته شده'],
+        'flagged' => ['tag-flag', 'نشانه گذاری شده'],
     ];
 }
 
 function panel_support_status_info(string $status): array
 {
     return panel_support_status_map()[$status] ?? ['tag-plain', $status ?: 'نامشخص'];
+}
+
+function panel_support_chat_status_from_messages(array $messages): string
+{
+    return support_conversation_status_from_messages($messages);
 }
 
 /**
@@ -67,9 +78,22 @@ function panel_support_preview_message(array $item): array
 function panel_support_unanswered_count(PDO $pdo): int
 {
     try {
-        $statuses = panel_support_unanswered_statuses();
-        $placeholders = implode(',', array_fill(0, count($statuses), '?'));
-        return db_count($pdo, "SELECT COUNT(*) FROM support_message WHERE status IN ($placeholders)", $statuses);
+        if (!support_ensure_conversation_table($pdo)) {
+            return 0;
+        }
+        return db_count($pdo, "SELECT COUNT(*) FROM support_conversation WHERE status = 'Unseen'");
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
+function panel_support_status_count(PDO $pdo, string $status): int
+{
+    try {
+        if (!support_ensure_conversation_table($pdo)) {
+            return 0;
+        }
+        return db_count($pdo, 'SELECT COUNT(*) FROM support_conversation WHERE status = ?', [$status]);
     } catch (Throwable $e) {
         return 0;
     }

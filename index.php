@@ -3522,6 +3522,18 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
         if ($messageId > 0) {
             support_store_media($pdo, $messageId, 'in', $incomingMedia);
         }
+        support_conversation_touch(
+            $pdo,
+            (string) $from_id,
+            [
+                'idsupport' => $departeman['idsupport'] ?? null,
+                'name_departman' => $departeman['name_departman'] ?? null,
+                'user_name' => $first_name ?? null,
+            ],
+            'Unseen',
+            $messageId > 0 ? $messageId : null,
+            $time
+        );
         $textsuppoer = "
     📣 پشتیبان عزیز یک پیام از سمت کاربر برای شما ارسال گردید.
 
@@ -3589,6 +3601,18 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
             ':answered_at' => $time,
             ':tracking' => $user['Processing_value'],
         ]);
+        support_conversation_touch(
+            $pdo,
+            (string) ($trakingdetail['iduser'] ?? ''),
+            [
+                'idsupport' => $trakingdetail['idsupport'] ?? null,
+                'name_departman' => $trakingdetail['name_departman'] ?? null,
+                'user_name' => $trakingdetail['user_name'] ?? null,
+            ],
+            'Answered',
+            (int) ($trakingdetail['id'] ?? 0) ?: null,
+            $time
+        );
         $textSendAdminToUser = "
 📩 یک پیام از سمت مدیریت برای شما ارسال گردید.
                     
@@ -3648,6 +3672,18 @@ $text";
         if ($messageId > 0) {
             support_store_media($pdo, $messageId, 'in', $incomingMedia);
         }
+        support_conversation_touch(
+            $pdo,
+            (string) ($trakingdetail['iduser'] ?? $from_id),
+            [
+                'idsupport' => $trakingdetail['idsupport'] ?? null,
+                'name_departman' => $trakingdetail['name_departman'] ?? null,
+                'user_name' => $first_name ?? null,
+            ],
+            'Unseen',
+            $messageId > 0 ? $messageId : null,
+            $time
+        );
         $textsuppoer = "
     📣 پشتیبان عزیز یک پیام از سمت کاربر برای شما ارسال گردید.
 

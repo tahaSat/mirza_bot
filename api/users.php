@@ -501,6 +501,7 @@ switch ($data['actions'] ?? '') {
         update("Payment_report", "id_user", $data["new_userid"], "id_user", $data['chat_id']);
         update("invoice", "id_user", $data["new_userid"], "id_user", $data['chat_id']);
         update("support_message", "iduser", $data["new_userid"], "iduser", $data['chat_id']);
+        update("support_conversation", "iduser", $data["new_userid"], "iduser", $data['chat_id']);
         update("service_other", "id_user", $data["new_userid"], "id_user", $data['chat_id']);
         update("Giftcodeconsumed", "id_user", $data["new_userid"], "id_user", $data['chat_id']);
         update("botsaz", "id_user", $data["new_userid"], "id_user", $data['chat_id']);

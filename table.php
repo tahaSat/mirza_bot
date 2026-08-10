@@ -1446,6 +1446,29 @@ try {
     file_put_contents('error_log suppeor_message', $e->getMessage());
 }
 try {
+    $tableName = 'support_conversation';
+    $stmt = $pdo->prepare("SELECT 1 FROM information_schema.tables WHERE table_name = :tableName");
+    $stmt->execute([':tableName' => $tableName]);
+    if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
+        $pdo->exec("CREATE TABLE support_conversation (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            iduser VARCHAR(100) NOT NULL,
+            idsupport VARCHAR(100) NULL,
+            name_departman VARCHAR(600) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+            user_name VARCHAR(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+            status ENUM('Unseen','Answered','close','flagged') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Unseen',
+            last_message_id INT UNSIGNED NULL,
+            last_message_at VARCHAR(200) NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_support_conversation_user (iduser),
+            INDEX idx_support_conversation_status (status),
+            INDEX idx_support_conversation_updated (updated_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    }
+} catch (PDOException $e) {
+    file_put_contents('error_log support_conversation', $e->getMessage());
+}
+try {
     $tableName = 'support_media';
     $stmt = $pdo->prepare("SELECT 1 FROM information_schema.tables WHERE table_name = :tableName");
     $stmt->execute([':tableName' => $tableName]);

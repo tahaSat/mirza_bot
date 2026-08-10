@@ -229,25 +229,46 @@ if ($tab === 'payments') {
     FROM Payment_report
   ";
 } else {
+  // Normalize string collations — invoice vs service_other (and string literals) often differ.
   $recordsSQL = "
-    SELECT id_invoice AS record_id, id_user, username, name_product AS product_name, price_product AS price,
-           time_sell AS transaction_time, CAST(time_sell AS UNSIGNED) AS transaction_epoch,
-           Status AS transaction_status, 'order' AS service_type, 'invoice' AS record_source,
-           COALESCE(Volume,'') AS volume, COALESCE(Service_time,'') AS service_time,
-           COALESCE(note,'') AS note, COALESCE(Service_location,'') AS service_location
+    SELECT
+      CONVERT(id_invoice USING utf8mb4) COLLATE utf8mb4_unicode_ci AS record_id,
+      CONVERT(id_user USING utf8mb4) COLLATE utf8mb4_unicode_ci AS id_user,
+      CONVERT(username USING utf8mb4) COLLATE utf8mb4_unicode_ci AS username,
+      CONVERT(name_product USING utf8mb4) COLLATE utf8mb4_unicode_ci AS product_name,
+      CONVERT(price_product USING utf8mb4) COLLATE utf8mb4_unicode_ci AS price,
+      CONVERT(time_sell USING utf8mb4) COLLATE utf8mb4_unicode_ci AS transaction_time,
+      CAST(time_sell AS UNSIGNED) AS transaction_epoch,
+      CONVERT(Status USING utf8mb4) COLLATE utf8mb4_unicode_ci AS transaction_status,
+      CONVERT('order' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS service_type,
+      CONVERT('invoice' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS record_source,
+      CONVERT(COALESCE(Volume,'') USING utf8mb4) COLLATE utf8mb4_unicode_ci AS volume,
+      CONVERT(COALESCE(Service_time,'') USING utf8mb4) COLLATE utf8mb4_unicode_ci AS service_time,
+      CONVERT(COALESCE(note,'') USING utf8mb4) COLLATE utf8mb4_unicode_ci AS note,
+      CONVERT(COALESCE(Service_location,'') USING utf8mb4) COLLATE utf8mb4_unicode_ci AS service_location
     FROM invoice
     UNION ALL
-    SELECT CAST(id AS CHAR) AS record_id, id_user, username, value AS product_name, price,
-           time AS transaction_time,
-           CASE
-             WHEN time REGEXP '^[0-9]{9,}$' THEN CAST(time AS UNSIGNED)
-             ELSE COALESCE(
-               UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s')),
-               UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
-             )
-           END AS transaction_epoch,
-           status AS transaction_status, type AS service_type, 'service_other' AS record_source,
-           '' AS volume, '' AS service_time, '' AS note, '' AS service_location
+    SELECT
+      CONVERT(CAST(id AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS record_id,
+      CONVERT(id_user USING utf8mb4) COLLATE utf8mb4_unicode_ci AS id_user,
+      CONVERT(username USING utf8mb4) COLLATE utf8mb4_unicode_ci AS username,
+      CONVERT(value USING utf8mb4) COLLATE utf8mb4_unicode_ci AS product_name,
+      CONVERT(price USING utf8mb4) COLLATE utf8mb4_unicode_ci AS price,
+      CONVERT(time USING utf8mb4) COLLATE utf8mb4_unicode_ci AS transaction_time,
+      CASE
+        WHEN time REGEXP '^[0-9]{9,}$' THEN CAST(time AS UNSIGNED)
+        ELSE COALESCE(
+          UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s')),
+          UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
+        )
+      END AS transaction_epoch,
+      CONVERT(status USING utf8mb4) COLLATE utf8mb4_unicode_ci AS transaction_status,
+      CONVERT(type USING utf8mb4) COLLATE utf8mb4_unicode_ci AS service_type,
+      CONVERT('service_other' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS record_source,
+      CONVERT('' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS volume,
+      CONVERT('' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS service_time,
+      CONVERT('' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS note,
+      CONVERT('' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS service_location
     FROM service_other
   ";
 }

@@ -242,11 +242,13 @@ include __DIR__ . '/inc/layout_head.php';
             <?php endif; ?>
             <?php foreach ($tickets as $item):
                 [$tagClass, $statusLabel] = panel_support_status_info($item['status']);
+                $preview = panel_support_preview_message($item);
                 $displayName = !empty($item['user_name']) ? $item['user_name'] : (($item['namecustom'] && $item['namecustom'] !== 'none') ? $item['namecustom'] : (($item['username'] && $item['username'] !== 'none') ? '@' . $item['username'] : 'کاربر ناشناس'));
                 $userHandle = ($item['username'] && $item['username'] !== 'none') ? '@' . $item['username'] : '';
                 if ($userHandle === $displayName) {
                     $userHandle = '';
                 }
+                $previewText = $preview['from'] === 'admin' ? ('شما: ' . $preview['text']) : $preview['text'];
                 ?>
                 <a class="support-ticket <?= $userId === (string) $item['iduser'] ? 'selected' : '' ?>" href="<?= support_inbox_url(['user_id' => $item['iduser']]) ?>">
                     <div class="support-ticket-head">
@@ -256,8 +258,8 @@ include __DIR__ . '/inc/layout_head.php';
                         </div>
                         <span class="tag <?= $tagClass ?>"><?= htmlspecialchars($statusLabel) ?></span>
                     </div>
-                    <p><?= htmlspecialchars(trunc($item['text'], 80)) ?></p>
-                    <small><?= htmlspecialchars($item['name_departman']) ?> · <?= htmlspecialchars($item['time']) ?></small>
+                    <p><?= htmlspecialchars(trunc($previewText, 80)) ?></p>
+                    <small><?= htmlspecialchars($item['name_departman']) ?> · <?= htmlspecialchars($preview['time']) ?></small>
                 </a>
             <?php endforeach; ?>
         </div>
@@ -355,11 +357,11 @@ include __DIR__ . '/inc/layout_head.php';
                     <div class="support-reply-box">
                         <button class="support-send-btn" type="submit" title="ارسال پاسخ" aria-label="ارسال پاسخ"><?= icon('send', 18) ?></button>
                         <textarea class="textarea" name="reply" maxlength="3500" rows="1" placeholder="پیام خود را بنویسید..."></textarea>
+                        <label class="support-attachment-btn">
+                            <input type="file" name="attachment" onchange="var s=this.nextElementSibling.querySelector('em'); this.parentElement.classList.toggle('has-file', !!this.files[0]); s.textContent = this.files[0] ? this.files[0].name : 'افزودن فایل'">
+                            <span><?= icon('paperclip', 15) ?> <em>افزودن فایل</em></span>
+                        </label>
                     </div>
-                    <label class="support-attachment-btn">
-                        <input type="file" name="attachment" onchange="var s=this.nextElementSibling.querySelector('em'); this.parentElement.classList.toggle('has-file', !!this.files[0]); s.textContent = this.files[0] ? this.files[0].name : 'افزودن فایل'">
-                        <span><?= icon('paperclip', 15) ?> <em>افزودن فایل</em></span>
-                    </label>
                 </form>
                 <form method="POST" class="support-close-form support-close-form-foot">
                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
@@ -487,6 +489,97 @@ include __DIR__ . '/inc/layout_head.php';
         btn.textContent = 'خطا در دریافت فایل · تلاش مجدد';
       });
   });
+}());
+
+(function () {
+  var shell = document.querySelector('.support-shell.support-chat-open');
+  if (!shell) return;
+
+  if ('scrollRestoration' in history) {
+    history.scrollRestoration = 'manual';
+  }
+
+  var root = document.documentElement;
+  var sheet = shell.querySelector('.support-conversation');
+  var messages = shell.querySelector('.support-messages');
+  var replyInput = shell.querySelector('.support-reply textarea');
+  var pinnedToEnd = true;
+
+  function scrollMessagesToEnd(force) {
+    if (!messages) return;
+    if (!force && !pinnedToEnd) return;
+    var last = messages.lastElementChild;
+    messages.scrollTop = messages.scrollHeight;
+    if (last && typeof last.scrollIntoView === 'function') {
+      try { last.scrollIntoView({ block: 'end', inline: 'nearest' }); } catch (e) {}
+    }
+    messages.scrollTop = messages.scrollHeight;
+    if (sheet) sheet.scrollTop = sheet.scrollHeight;
+  }
+
+  function scheduleScrollToEnd(force) {
+    scrollMessagesToEnd(force);
+    requestAnimationFrame(function () {
+      scrollMessagesToEnd(force);
+      requestAnimationFrame(function () { scrollMessagesToEnd(force); });
+    });
+    [50, 150, 300, 600].forEach(function (ms) {
+      setTimeout(function () { scrollMessagesToEnd(force); }, ms);
+    });
+  }
+
+  function syncSupportSheetViewport() {
+    if (!document.body.classList.contains('support-sheet-open')) return;
+    var vv = window.visualViewport;
+    var layoutH = window.innerHeight || document.documentElement.clientHeight || 0;
+    var visibleH = vv ? vv.height : layoutH;
+    var offsetTop = vv ? vv.offsetTop : 0;
+    var keyboard = Math.max(0, Math.round(layoutH - visibleH - offsetTop));
+    var sheetH;
+
+    if (keyboard > 40) {
+      sheetH = Math.max(220, Math.round(visibleH));
+    } else {
+      sheetH = Math.max(280, Math.round(Math.min(layoutH * 0.88, visibleH - 8)));
+    }
+
+    root.style.setProperty('--support-kb', keyboard + 'px');
+    root.style.setProperty('--support-sheet-h', sheetH + 'px');
+    if (pinnedToEnd) scrollMessagesToEnd(true);
+  }
+
+  if (messages) {
+    messages.addEventListener('scroll', function () {
+      pinnedToEnd = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
+    }, { passive: true });
+  }
+
+  syncSupportSheetViewport();
+  scheduleScrollToEnd(true);
+  window.addEventListener('load', function () { scheduleScrollToEnd(true); });
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncSupportSheetViewport);
+    window.visualViewport.addEventListener('scroll', syncSupportSheetViewport);
+  }
+  window.addEventListener('resize', syncSupportSheetViewport);
+  window.addEventListener('orientationchange', function () {
+    setTimeout(syncSupportSheetViewport, 150);
+  });
+
+  if (replyInput) {
+    replyInput.addEventListener('focus', function () {
+      pinnedToEnd = true;
+      setTimeout(function () {
+        syncSupportSheetViewport();
+        scheduleScrollToEnd(true);
+      }, 50);
+      setTimeout(syncSupportSheetViewport, 300);
+    });
+    replyInput.addEventListener('blur', function () {
+      setTimeout(syncSupportSheetViewport, 100);
+    });
+  }
 }());
 </script>
 

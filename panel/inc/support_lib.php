@@ -21,6 +21,49 @@ function panel_support_status_info(string $status): array
     return panel_support_status_map()[$status] ?? ['tag-plain', $status ?: 'نامشخص'];
 }
 
+/**
+ * Latest visible preview for a support inbox row (admin reply wins when it is the last activity).
+ * @return array{text:string,from:string,time:string}
+ */
+function panel_support_preview_message(array $item): array
+{
+    $userText = trim((string) ($item['text'] ?? ''));
+    $adminText = trim((string) ($item['result'] ?? ''));
+    $status = (string) ($item['status'] ?? '');
+    $answeredAt = trim((string) ($item['answered_at'] ?? ''));
+    $time = (string) ($item['time'] ?? '');
+
+    if ($adminText !== '' && ($userText === '' || in_array($status, ['Answered', 'close'], true))) {
+        return [
+            'text' => $adminText,
+            'from' => 'admin',
+            'time' => $answeredAt !== '' ? $answeredAt : $time,
+        ];
+    }
+
+    if ($userText !== '') {
+        return [
+            'text' => $userText,
+            'from' => 'user',
+            'time' => $time,
+        ];
+    }
+
+    if ($adminText !== '') {
+        return [
+            'text' => $adminText,
+            'from' => 'admin',
+            'time' => $answeredAt !== '' ? $answeredAt : $time,
+        ];
+    }
+
+    return [
+        'text' => '📎 فایل پیوست',
+        'from' => 'user',
+        'time' => $time,
+    ];
+}
+
 function panel_support_unanswered_count(PDO $pdo): int
 {
     try {

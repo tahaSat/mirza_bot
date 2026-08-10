@@ -1,4 +1,4 @@
-const CACHE_NAME = 'picha-panel-static-v4';
+const CACHE_NAME = 'picha-panel-static-v6';
 const STATIC_ASSETS = [
   '/panel/css/style.css',
   '/panel/css/login.css',

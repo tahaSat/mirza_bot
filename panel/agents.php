@@ -6,6 +6,30 @@ require_auth();
 $pdo = panel_ensure_pdo();
 agent_ensure_volume_columns();
 
+$defaultAgentRequestMessage = '📌 توضیحات خود را برای ثبت درخواست نمایندگی ارسال نمایید.';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_agent_request_message') {
+    csrf_check_post();
+    $message = trim((string) ($_POST['agent_request_message'] ?? ''));
+    if ($message === '') {
+        flash('error', 'متن پیام نمی‌تواند خالی باشد.');
+    } else {
+        $exists = db_fetch($pdo, "SELECT id_text FROM textbot WHERE id_text = ?", ['text_request_agent_dec']);
+        if ($exists) {
+            db_query($pdo, "UPDATE textbot SET text = ? WHERE id_text = ?", [$message, 'text_request_agent_dec']);
+        } else {
+            db_query($pdo, "INSERT INTO textbot (id_text, text) VALUES (?, ?)", ['text_request_agent_dec', $message]);
+        }
+        clearSelectCache('textbot');
+        flash('success', 'متن پیام درخواست نمایندگی ذخیره شد.');
+    }
+    header('Location: agents.php');
+    exit;
+}
+
+$agentRequestMessageRow = db_fetch($pdo, "SELECT text FROM textbot WHERE id_text = ?", ['text_request_agent_dec']);
+$agentRequestMessage = $agentRequestMessageRow['text'] ?? $defaultAgentRequestMessage;
+
 $search = trim($_GET['q'] ?? '');
 $role = $_GET['role'] ?? '';
 $page = max(1, (int) ($_GET['page'] ?? 1));
@@ -60,6 +84,25 @@ $pageLede = 'مدیریت نمایندگان، سهمیه حجم و ربات ف�
 $activeNav = 'agents';
 include __DIR__ . '/inc/layout_head.php';
 ?>
+
+<div class="card fade-up" style="margin-bottom:14px">
+    <div class="card-head">
+        <div>
+            <div class="card-title">پیام دکمه درخواست نمایندگی</div>
+            <div class="card-subtitle">متنی که بعد از کلیک روی «درخواست نمایندگی» برای کاربر ارسال می‌شود</div>
+        </div>
+    </div>
+    <form method="POST" class="card-body">
+        <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+        <input type="hidden" name="action" value="save_agent_request_message">
+        <div class="field">
+            <label>متن پیام</label>
+            <textarea name="agent_request_message" class="input" rows="4" required
+                placeholder="<?= htmlspecialchars($defaultAgentRequestMessage) ?>"><?= htmlspecialchars($agentRequestMessage) ?></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm"><?= icon('check', 13) ?> ذخیره</button>
+    </form>
+</div>
 
 <div class="card fade-up">
     <div class="toolbar">

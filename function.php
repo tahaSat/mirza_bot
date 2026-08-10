@@ -4222,6 +4222,7 @@ function agent_ensure_volume_columns(): void
     }
     addFieldToTable('user', 'agent_volume_remaining', '0', 'VARCHAR(100)');
     addFieldToTable('user', 'agent_price_per_gb', '0', 'VARCHAR(100)');
+    addFieldToTable('user', 'agent_price_tiers', '[]', 'TEXT');
     $ensured = true;
 }
 
@@ -4597,18 +4598,178 @@ function agent_category_purchase_allowed($agentUserId, $codeProduct, $categoryRe
 }
 
 /**
- * Wholesale cost for group-n pay-as-you-go: volume_GB × agent_price_per_gb.
+ * GB per TB for agent step pricing (binary TB).
+ */
+function agent_gb_per_tb(): float
+{
+    return 1024.0;
+}
+
+/**
+ * Normalize / decode agent_price_tiers JSON.
+ * Each tier: ['upto_tb' => float|null, 'price_per_gb' => int]
+ * upto_tb = cumulative lifetime ceiling in TB (null = unlimited / open-ended last tier).
+ * Sorted ascending by upto_tb; nulls last.
+ */
+function agent_decode_price_tiers($userOrJson): array
+{
+    if (is_array($userOrJson) && array_key_exists('agent_price_tiers', $userOrJson)) {
+        $raw = $userOrJson['agent_price_tiers'];
+    } else {
+        $raw = $userOrJson;
+    }
+    $tiers = [];
+    if (is_string($raw) && $raw !== '') {
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            $tiers = $decoded;
+        }
+    } elseif (is_array($raw)) {
+        $tiers = $raw;
+    }
+    $out = [];
+    foreach ($tiers as $t) {
+        if (!is_array($t)) {
+            continue;
+        }
+        $price = (int) ($t['price_per_gb'] ?? -1);
+        if ($price < 0) {
+            continue;
+        }
+        $upto = $t['upto_tb'] ?? null;
+        if ($upto === '' || $upto === null) {
+            $uptoTb = null;
+        } else {
+            $uptoTb = (float) $upto;
+            if ($uptoTb <= 0) {
+                continue;
+            }
+        }
+        $out[] = ['upto_tb' => $uptoTb, 'price_per_gb' => $price];
+    }
+    usort($out, static function ($a, $b) {
+        if ($a['upto_tb'] === null && $b['upto_tb'] === null) {
+            return 0;
+        }
+        if ($a['upto_tb'] === null) {
+            return 1;
+        }
+        if ($b['upto_tb'] === null) {
+            return -1;
+        }
+        return $a['upto_tb'] <=> $b['upto_tb'];
+    });
+    return $out;
+}
+
+/**
+ * Encode tiers for storage. Ensures one open-ended last tier when possible.
+ */
+function agent_encode_price_tiers(array $tiers): string
+{
+    $normalized = agent_decode_price_tiers($tiers);
+    return json_encode($normalized, JSON_UNESCAPED_UNICODE);
+}
+
+/**
+ * Progressive step cost for purchasing $volumeGb given prior lifetime consumption.
+ * Tiers are cumulative ceilings in TB. Falls back to flat agent_price_per_gb if no tiers.
+ */
+function agent_wholesale_cost_from_consumed($user, $volumeGb, $consumedGb = null): int
+{
+    agent_ensure_volume_columns();
+    $volumeGb = max(0, (float) $volumeGb);
+    if ($volumeGb <= 0) {
+        return 0;
+    }
+    if ($consumedGb === null) {
+        $consumedGb = agent_sum_volume_consumed($user['id'] ?? 0, $user['agent'] ?? 'n');
+    }
+    $consumedGb = max(0.0, (float) $consumedGb);
+    $tiers = agent_decode_price_tiers($user);
+    if (empty($tiers)) {
+        $pricePerGb = (int) ($user['agent_price_per_gb'] ?? 0);
+        return (int) round($volumeGb * max(0, $pricePerGb));
+    }
+
+    $gbPerTb = agent_gb_per_tb();
+    $remaining = $volumeGb;
+    $cursor = $consumedGb;
+    $cost = 0.0;
+    $prevCeilingGb = 0.0;
+
+    foreach ($tiers as $tier) {
+        $ceilingGb = $tier['upto_tb'] === null
+            ? INF
+            : ((float) $tier['upto_tb'] * $gbPerTb);
+        if ($ceilingGb <= $prevCeilingGb && $tier['upto_tb'] !== null) {
+            continue;
+        }
+        if ($cursor >= $ceilingGb) {
+            $prevCeilingGb = $ceilingGb;
+            continue;
+        }
+        $room = $ceilingGb - $cursor;
+        $take = min($remaining, $room);
+        if ($take > 0) {
+            $cost += $take * (int) $tier['price_per_gb'];
+            $remaining -= $take;
+            $cursor += $take;
+        }
+        $prevCeilingGb = $ceilingGb;
+        if ($remaining <= 0.0000001) {
+            break;
+        }
+    }
+
+    // If tiers ended without open-ended last tier, bill leftover at last tier price or flat fallback
+    if ($remaining > 0.0000001) {
+        $lastPrice = (int) (end($tiers)['price_per_gb'] ?? ($user['agent_price_per_gb'] ?? 0));
+        $cost += $remaining * max(0, $lastPrice);
+    }
+
+    return (int) round($cost);
+}
+
+/**
+ * Wholesale cost for group-n pay-as-you-go (step tiers or flat price/GB).
  */
 function agent_wholesale_cost($user, $volumeGb): int
 {
-    $volumeGb = (int) $volumeGb;
-    $pricePerGb = (int) ($user['agent_price_per_gb'] ?? 0);
-    return max(0, $volumeGb) * max(0, $pricePerGb);
+    return agent_wholesale_cost_from_consumed($user, $volumeGb, null);
+}
+
+/**
+ * Marginal price/GB for the next GB at current lifetime consumption (for UI labels).
+ */
+function agent_current_price_per_gb($user, $consumedGb = null): int
+{
+    agent_ensure_volume_columns();
+    $tiers = agent_decode_price_tiers($user);
+    if (empty($tiers)) {
+        return (int) ($user['agent_price_per_gb'] ?? 0);
+    }
+    if ($consumedGb === null) {
+        $consumedGb = agent_sum_volume_consumed($user['id'] ?? 0, $user['agent'] ?? 'n');
+    }
+    $consumedGb = max(0.0, (float) $consumedGb);
+    $gbPerTb = agent_gb_per_tb();
+    $prevCeilingGb = 0.0;
+    foreach ($tiers as $tier) {
+        $ceilingGb = $tier['upto_tb'] === null
+            ? INF
+            : ((float) $tier['upto_tb'] * $gbPerTb);
+        if ($consumedGb < $ceilingGb || $tier['upto_tb'] === null) {
+            return (int) $tier['price_per_gb'];
+        }
+        $prevCeilingGb = $ceilingGb;
+    }
+    return (int) (end($tiers)['price_per_gb'] ?? ($user['agent_price_per_gb'] ?? 0));
 }
 
 /**
  * Pre-check whether an agent can create the given GB volume.
- * n: pay-as-you-go — Balance >= GB × agent_price_per_gb (no volume quota).
+ * n: pay-as-you-go — Balance >= step wholesale cost (no volume quota).
  * n2: skips billing (category whitelist enforced separately).
  * Returns ['ok' => bool, 'msg' => string, 'cost' => int, 'user' => array|null]
  */

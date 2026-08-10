@@ -59,6 +59,16 @@ $usesCategoryWhitelist = function_exists('agent_uses_category_whitelist')
     ? agent_uses_category_whitelist($agent)
     : in_array($agent, ['n', 'n2'], true);
 $volumeConsumed = agent_is_reseller($agent) ? agent_sum_volume_consumed($id, $agent) : 0.0;
+$priceTiers = (!$isN2 && function_exists('agent_decode_price_tiers'))
+    ? agent_decode_price_tiers($user)
+    : [];
+if (!$isN2 && empty($priceTiers) && $pricePerGb > 0) {
+    $priceTiers = [['upto_tb' => null, 'price_per_gb' => $pricePerGb]];
+}
+$currentPricePerGb = (!$isN2 && function_exists('agent_current_price_per_gb'))
+    ? agent_current_price_per_gb($user, $volumeConsumed)
+    : $pricePerGb;
+$consumedTb = $volumeConsumed / (function_exists('agent_gb_per_tb') ? agent_gb_per_tb() : 1024);
 $allCategories = [];
 $enabledCategories = [];
 $n2Purchases = [];
@@ -113,8 +123,12 @@ include __DIR__ . '/inc/layout_head.php';
         <div class="stat-num"><?= number_format($balance) ?><small>ت</small></div>
     </div>
     <div class="stat">
-        <div class="stat-label">قیمت هر گیگ</div>
-        <div class="stat-num"><?= number_format($pricePerGb) ?><small>ت</small></div>
+        <div class="stat-label">قیمت فعلی هر گیگ</div>
+        <div class="stat-num"><?= number_format($currentPricePerGb) ?><small>ت</small></div>
+    </div>
+    <div class="stat">
+        <div class="stat-label">مصرف تجمعی</div>
+        <div class="stat-num"><?= number_format($consumedTb, 2) ?><small>TB</small></div>
     </div>
     <div class="stat">
         <div class="stat-label">دسته‌های فعال</div>
@@ -171,20 +185,70 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
 
     <?php if (!$isN2): ?>
-    <div class="card">
-        <div class="card-head"><strong>قیمت هر گیگ (پرداخت به‌ازای مصرف)</strong></div>
+    <div class="card" style="grid-column:1/-1">
+        <div class="card-head"><strong>پله‌های قیمتی (پرداخت به‌ازای مصرف)</strong></div>
         <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
-            <p class="cf" style="margin:0">هزینه خرید = حجم سرویس (GB) × قیمت هر گیگ؛ از کیف پول کسر می‌شود.</p>
-            <form method="POST" action="agent_action.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+            <p class="cf" style="margin:0">
+                هزینه بر اساس حجم تجمعی خریداری‌شده محاسبه می‌شود (۱ ترابایت = ۱۰۲۴ گیگ).
+                مثلاً تا ۱۰ TB یک قیمت، از ۱۰ تا ۳۰ TB قیمت دیگر، و بالاتر از ۳۰ TB قیمت نهایی.
+                اگر خریدی از مرز پله رد شود، همان خرید به‌صورت پلکانی حساب می‌شود.
+                سقف ترابایت هر پله قابل ویرایش است؛ آخرین پله را بدون سقف بگذارید (خالی = نامحدود).
+            </p>
+            <p class="cf" style="margin:0">مصرف فعلی: <strong><?= number_format($volumeConsumed, 2) ?> GB</strong> (≈ <?= number_format($consumedTb, 3) ?> TB) · قیمت جاری هر گیگ: <strong><?= number_format($currentPricePerGb) ?></strong> تومان</p>
+            <form method="POST" action="agent_action.php" id="tiersForm">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-                <input type="hidden" name="action" value="set_price_per_gb">
+                <input type="hidden" name="action" value="set_price_tiers">
                 <input type="hidden" name="id" value="<?= $id ?>">
                 <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
-                <div class="field" style="flex:1;margin:0">
-                    <label>قیمت هر گیگ (تومان)</label>
-                    <input type="number" name="price" class="input" min="0" value="<?= $pricePerGb ?>" required>
+                <div style="overflow:auto">
+                    <table class="table" style="width:100%;border-collapse:collapse" id="tiersTable">
+                        <thead>
+                            <tr>
+                                <th style="text-align:right;padding:8px">از (تجمعی)</th>
+                                <th style="text-align:right;padding:8px">تا سقف (TB)</th>
+                                <th style="text-align:right;padding:8px">قیمت هر گیگ (تومان)</th>
+                                <th style="text-align:right;padding:8px"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $tierRows = $priceTiers;
+                            if (empty($tierRows)) {
+                                $tierRows = [
+                                    ['upto_tb' => 10, 'price_per_gb' => $pricePerGb ?: 0],
+                                    ['upto_tb' => 30, 'price_per_gb' => $pricePerGb ?: 0],
+                                    ['upto_tb' => null, 'price_per_gb' => $pricePerGb ?: 0],
+                                ];
+                            }
+                            $prevLabel = '۰';
+                            foreach ($tierRows as $ti => $tier):
+                                $uptoVal = $tier['upto_tb'];
+                                $uptoAttr = $uptoVal === null ? '' : htmlspecialchars((string) $uptoVal);
+                                $toLabel = $uptoVal === null ? '∞' : (string) $uptoVal . ' TB';
+                                ?>
+                                <tr class="tier-row">
+                                    <td style="padding:8px" class="tier-from cf"><?= htmlspecialchars($prevLabel) ?></td>
+                                    <td style="padding:8px">
+                                        <input type="number" name="upto_tb[]" class="input tier-upto" min="0" step="0.01" value="<?= $uptoAttr ?>" placeholder="خالی = نامحدود" style="min-width:120px">
+                                    </td>
+                                    <td style="padding:8px">
+                                        <input type="number" name="price_per_gb[]" class="input" min="0" step="1" value="<?= (int) ($tier['price_per_gb'] ?? 0) ?>" required style="min-width:140px">
+                                    </td>
+                                    <td style="padding:8px">
+                                        <button type="button" class="btn btn-ghost btn-sm" onclick="removeTierRow(this)">حذف</button>
+                                    </td>
+                                </tr>
+                                <?php
+                                $prevLabel = $uptoVal === null ? '—' : ((string) $uptoVal . ' TB');
+                            endforeach;
+                            ?>
+                        </tbody>
+                    </table>
                 </div>
-                <button type="submit" class="btn btn-primary btn-sm">ذخیره</button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="addTierRow()">افزودن پله</button>
+                    <button type="submit" class="btn btn-primary btn-sm">ذخیره پله‌ها</button>
+                </div>
             </form>
         </div>
     </div>
@@ -223,7 +287,7 @@ include __DIR__ . '/inc/layout_head.php';
         <div style="padding:16px">
             <p class="cf" style="margin-bottom:12px"><?= $isN2
                 ? 'دسته‌هایی که این نماینده می‌تواند ببیند و از محصولات داخلشان (بدون اعتبار) بخرد را فعال کنید. در ربات، اول دسته و بعد محصولات همان دسته نمایش داده می‌شود.'
-                : 'دسته‌هایی که این نماینده می‌تواند ببیند و از محصولات داخلشان بخرد را فعال کنید. هزینه هر خرید از کیف پول با قیمت هر گیگ محاسبه می‌شود.' ?></p>
+                : 'دسته‌هایی که این نماینده می‌تواند ببیند و از محصولات داخلشان بخرد را فعال کنید. هزینه هر خرید از کیف پول با پله‌های قیمتی (هر گیگ) محاسبه می‌شود.' ?></p>
             <form method="POST" action="agent_action.php">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                 <input type="hidden" name="action" value="set_n2_categories">
@@ -492,5 +556,52 @@ include __DIR__ . '/inc/layout_head.php';
         </form>
     </div>
 </div>
+
+<?php if (!$isN2): ?>
+<script>
+function refreshTierFromLabels() {
+    const rows = document.querySelectorAll('#tiersTable tbody .tier-row');
+    let prev = '۰';
+    rows.forEach((row) => {
+        const fromCell = row.querySelector('.tier-from');
+        if (fromCell) fromCell.textContent = prev;
+        const upto = row.querySelector('.tier-upto');
+        const v = upto ? String(upto.value || '').trim() : '';
+        prev = v === '' ? '—' : (v + ' TB');
+    });
+}
+function addTierRow() {
+    const tbody = document.querySelector('#tiersTable tbody');
+    if (!tbody) return;
+    const tr = document.createElement('tr');
+    tr.className = 'tier-row';
+    tr.innerHTML = `
+        <td style="padding:8px" class="tier-from cf">—</td>
+        <td style="padding:8px">
+            <input type="number" name="upto_tb[]" class="input tier-upto" min="0" step="0.01" value="" placeholder="خالی = نامحدود" style="min-width:120px">
+        </td>
+        <td style="padding:8px">
+            <input type="number" name="price_per_gb[]" class="input" min="0" step="1" value="0" required style="min-width:140px">
+        </td>
+        <td style="padding:8px">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="removeTierRow(this)">حذف</button>
+        </td>`;
+    tbody.appendChild(tr);
+    const upto = tr.querySelector('.tier-upto');
+    if (upto) upto.addEventListener('input', refreshTierFromLabels);
+    refreshTierFromLabels();
+}
+function removeTierRow(btn) {
+    const tbody = document.querySelector('#tiersTable tbody');
+    if (!tbody || tbody.querySelectorAll('.tier-row').length <= 1) return;
+    const row = btn.closest('tr');
+    if (row) row.remove();
+    refreshTierFromLabels();
+}
+document.querySelectorAll('#tiersTable .tier-upto').forEach((el) => {
+    el.addEventListener('input', refreshTierFromLabels);
+});
+</script>
+<?php endif; ?>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

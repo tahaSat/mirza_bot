@@ -178,7 +178,11 @@ include __DIR__ . '/inc/layout_head.php';
                             <td><?= $uname ? '@' . htmlspecialchars($uname) : '—' ?></td>
                             <td><span class="tag <?= user_role_tag($roleAgent) ?>"><?= user_role_label($roleAgent) ?></span></td>
                             <td><?= number_format((int) ($a['Balance'] ?? 0)) ?></td>
-                            <td><?= $roleAgent === 'n2' ? '—' : number_format($ppg) ?></td>
+                            <td><?= $roleAgent === 'n2' ? '—' : number_format((int) (
+                                ($roleAgent === 'n' && function_exists('agent_current_price_per_gb'))
+                                    ? agent_current_price_per_gb($a)
+                                    : ($a['agent_price_per_gb'] ?? 0)
+                            )) ?></td>
                             <td>
                                 <?php if ($hasBot): ?>
                                     <span class="tag tag-ok">@<?= htmlspecialchars($a['bot_username']) ?></span>

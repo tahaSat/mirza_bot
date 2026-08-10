@@ -4070,7 +4070,7 @@ $textinvite
     }
     $custompricevalue = category_agent_field($category, 'pricecustomvolume', $user['agent'], '4000');
     if (($user['agent'] ?? '') === 'n') {
-        $custompricevalue = (int) ($user['agent_price_per_gb'] ?? 0);
+        $custompricevalue = agent_current_price_per_gb($user);
     }
     $mainvolume = category_agent_field($category, 'mainvolume', $user['agent'], '1');
     $maxvolume = category_agent_field($category, 'maxvolume', $user['agent'], '1000');

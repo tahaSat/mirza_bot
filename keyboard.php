@@ -1410,7 +1410,6 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
         $valuetow = "";
     }
     $isAgentN = (($user['agent'] ?? '') === 'n');
-    $agentPricePerGb = $isAgentN ? (int) ($user['agent_price_per_gb'] ?? 0) : 0;
     foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
         $hide_panel = json_decode($result['hide_panel'], true);
         if (in_array($location, $hide_panel))
@@ -1422,7 +1421,7 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
         if ($result['one_buy_status'] == "1" && $countorder != 0)
             continue;
         if ($isAgentN) {
-            $result['price_product'] = max(0, (int) ($result['Volume_constraint'] ?? 0)) * $agentPricePerGb;
+            $result['price_product'] = agent_wholesale_cost($user, (int) ($result['Volume_constraint'] ?? 0));
         } elseif (intval($pricediscount) != 0) {
             $resultper = ($result['price_product'] * $pricediscount) / 100;
             $result['price_product'] = $result['price_product'] - $resultper;

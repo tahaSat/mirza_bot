@@ -124,6 +124,54 @@ switch ($action) {
         flash('success', 'قیمت هر گیگ به ' . number_format($price) . ' تومان تنظیم شد.');
         break;
 
+    case 'set_price_tiers':
+        agent_ensure_volume_columns();
+        $uptoList = $_POST['upto_tb'] ?? [];
+        $priceList = $_POST['price_per_gb'] ?? [];
+        if (!is_array($uptoList)) {
+            $uptoList = [];
+        }
+        if (!is_array($priceList)) {
+            $priceList = [];
+        }
+        $tiers = [];
+        $count = max(count($uptoList), count($priceList));
+        for ($i = 0; $i < $count; $i++) {
+            $price = (int) ($priceList[$i] ?? -1);
+            if ($price < 0) {
+                continue;
+            }
+            $uptoRaw = trim((string) ($uptoList[$i] ?? ''));
+            $tiers[] = [
+                'upto_tb' => $uptoRaw === '' ? null : $uptoRaw,
+                'price_per_gb' => $price,
+            ];
+        }
+        $tiers = agent_decode_price_tiers($tiers);
+        // Validate strictly increasing finite ceilings
+        $prev = 0.0;
+        $tiersValid = true;
+        foreach ($tiers as $t) {
+            if ($t['upto_tb'] === null) {
+                continue;
+            }
+            if ((float) $t['upto_tb'] <= $prev) {
+                flash('error', 'سقف‌های ترابایت باید صعودی باشند (مثلاً ۱۰ سپس ۳۰).');
+                $tiersValid = false;
+                break;
+            }
+            $prev = (float) $t['upto_tb'];
+        }
+        if (!$tiersValid) {
+            break;
+        }
+        $json = agent_encode_price_tiers($tiers);
+        // Keep flat fallback in sync with first tier / current marginal for list views
+        $fallback = !empty($tiers) ? (int) $tiers[0]['price_per_gb'] : 0;
+        db_query($pdo, 'UPDATE user SET agent_price_tiers = ?, agent_price_per_gb = ? WHERE id = ?', [$json, (string) $fallback, $id]);
+        flash('success', 'پله‌های قیمتی ذخیره شد (' . count($tiers) . ' پله).');
+        break;
+
     case 'set_max_buy':
         $max = (int) ($_POST['max'] ?? -1);
         if ($max < 0) {

@@ -2,3 +2,6 @@
 **/.DS_Store
 config.php
 android-sms-forwarder/
+storage/sessions/panel/*
+!storage/sessions/panel/.htaccess
+!storage/sessions/panel/.gitkeep

@@ -295,6 +295,14 @@ include __DIR__ . '/inc/layout_head.php';
                 </div>
                 <div class="support-head-actions">
                     <span class="tag <?= $tagClass ?>"><?= htmlspecialchars($statusLabel) ?></span>
+                    <?php if ($replyTicket): ?>
+                        <form method="POST" class="support-close-form support-close-form-head">
+                            <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                            <input type="hidden" name="action" value="close">
+                            <input type="hidden" name="tracking" value="<?= htmlspecialchars($replyTicket['Tracking']) ?>">
+                            <button class="btn btn-ghost btn-sm" type="submit">بستن گفتگو</button>
+                        </form>
+                    <?php endif; ?>
                     <a class="support-back" href="<?= support_inbox_url(['user_id' => null]) ?>"><?= icon('arrow-left', 15) ?> بازگشت</a>
                 </div>
             </div>
@@ -344,14 +352,16 @@ include __DIR__ . '/inc/layout_head.php';
                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                     <input type="hidden" name="action" value="reply">
                     <input type="hidden" name="tracking" value="<?= htmlspecialchars($replyTicket['Tracking']) ?>">
-                    <textarea class="textarea" name="reply" maxlength="3500" placeholder="پاسخ خود را برای کاربر بنویسید..."></textarea>
-                    <label class="support-attachment-picker">
-                        <input type="file" name="attachment" onchange="this.nextElementSibling.textContent=this.files[0] ? this.files[0].name : '📎 افزودن فایل'">
-                        <span>📎 افزودن فایل</span>
+                    <div class="support-reply-box">
+                        <button class="support-send-btn" type="submit" title="ارسال پاسخ" aria-label="ارسال پاسخ"><?= icon('send', 18) ?></button>
+                        <textarea class="textarea" name="reply" maxlength="3500" rows="1" placeholder="پیام خود را بنویسید..."></textarea>
+                    </div>
+                    <label class="support-attachment-btn">
+                        <input type="file" name="attachment" onchange="var s=this.nextElementSibling.querySelector('em'); this.parentElement.classList.toggle('has-file', !!this.files[0]); s.textContent = this.files[0] ? this.files[0].name : 'افزودن فایل'">
+                        <span><?= icon('paperclip', 15) ?> <em>افزودن فایل</em></span>
                     </label>
-                    <button class="btn btn-primary" type="submit"><?= icon('message', 15) ?> ارسال پاسخ</button>
                 </form>
-                <form method="POST" class="support-close-form">
+                <form method="POST" class="support-close-form support-close-form-foot">
                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                     <input type="hidden" name="action" value="close">
                     <input type="hidden" name="tracking" value="<?= htmlspecialchars($replyTicket['Tracking']) ?>">

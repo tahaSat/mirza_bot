@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $_SESSION['csrf'] = bin2hex(random_bytes(32));
 
       if ($remember) {
-        panel_enable_remember();
+        panel_enable_remember($admin['username']);
       } else {
         panel_clear_remember();
         // Session cookie only (cleared when browser closes)

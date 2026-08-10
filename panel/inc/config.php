@@ -22,7 +22,14 @@ function panel_is_https(): bool
     if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
         return true;
     }
-    return isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443;
+    if (isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443) {
+        return true;
+    }
+    $forwarded = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+    if ($forwarded !== '') {
+        return trim(explode(',', $forwarded)[0]) === 'https';
+    }
+    return (!empty($_SERVER['REQUEST_SCHEME']) && $_SERVER['REQUEST_SCHEME'] === 'https');
 }
 
 function panel_remember_lifetime(): int
@@ -30,11 +37,18 @@ function panel_remember_lifetime(): int
     return 60 * 60 * 24 * 30; // 30 days
 }
 
+function panel_cookie_path(): string
+{
+    // Prefer panel path so auth cookies are scoped; fall back to /
+    $base = panel_web_base();
+    return $base !== '' ? $base : '/';
+}
+
 function panel_cookie_options(int $expires): array
 {
     return [
         'expires' => $expires,
-        'path' => '/',
+        'path' => panel_cookie_path(),
         'secure' => panel_is_https(),
         'httponly' => true,
         'samesite' => 'Lax',
@@ -46,55 +60,298 @@ function panel_wants_remember(): bool
     return !empty($_COOKIE['panel_remember']);
 }
 
+function panel_session_save_path(): string
+{
+    $dir = dirname(__DIR__, 2) . '/storage/sessions/panel';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0700, true);
+    }
+    return $dir;
+}
+
+function panel_ensure_remember_table(PDO $pdo): void
+{
+    static $ready = false;
+    if ($ready) {
+        return;
+    }
+    $pdo->exec("CREATE TABLE IF NOT EXISTS panel_remember_token (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        selector VARCHAR(64) NOT NULL,
+        token_hash VARCHAR(255) NOT NULL,
+        username VARCHAR(200) NOT NULL,
+        expires_at INT UNSIGNED NOT NULL,
+        created_at INT UNSIGNED NOT NULL,
+        UNIQUE KEY uq_panel_remember_selector (selector),
+        KEY idx_panel_remember_user (username),
+        KEY idx_panel_remember_expires (expires_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $ready = true;
+}
+
+function panel_set_session_cookie(int $lifetime): void
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        return;
+    }
+    $expires = $lifetime > 0 ? time() + $lifetime : 0;
+    setcookie(session_name(), session_id(), panel_cookie_options($expires));
+}
+
+function panel_parse_remember_cookie(): ?array
+{
+    $raw = (string) ($_COOKIE['panel_remember'] ?? '');
+    // Legacy flag-only cookie ("1") cannot restore a dead session
+    if ($raw === '' || $raw === '1' || !str_contains($raw, ':')) {
+        return null;
+    }
+    [$selector, $validator] = explode(':', $raw, 2);
+    if ($selector === '' || $validator === '' || !preg_match('/^[a-f0-9]{16,64}$/i', $selector)) {
+        return null;
+    }
+    return ['selector' => $selector, 'validator' => $validator];
+}
+
+function panel_revoke_remember_selector(?string $selector): void
+{
+    if ($selector === null || $selector === '') {
+        return;
+    }
+    try {
+        global $pdo;
+        if (!($pdo instanceof PDO)) {
+            return;
+        }
+        panel_ensure_remember_table($pdo);
+        db_query($pdo, 'DELETE FROM panel_remember_token WHERE selector = ?', [$selector]);
+    } catch (Throwable $e) {
+        error_log('panel_revoke_remember_selector: ' . $e->getMessage());
+    }
+}
+
+function panel_try_restore_remember(): void
+{
+    if (!empty($_SESSION['admin_user'])) {
+        return;
+    }
+    $parts = panel_parse_remember_cookie();
+    if ($parts === null) {
+        // Drop useless legacy "1" cookie so lifetime logic stays honest
+        if (isset($_COOKIE['panel_remember']) && $_COOKIE['panel_remember'] === '1') {
+            setcookie('panel_remember', '', panel_cookie_options(time() - 3600));
+            // Also clear old path=/ cookie from previous versions
+            setcookie('panel_remember', '', [
+                'expires' => time() - 3600,
+                'path' => '/',
+                'secure' => panel_is_https(),
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
+            unset($_COOKIE['panel_remember']);
+        }
+        return;
+    }
+
+    try {
+        global $pdo;
+        if (!($pdo instanceof PDO)) {
+            return;
+        }
+        panel_ensure_remember_table($pdo);
+        $row = db_fetch(
+            $pdo,
+            'SELECT selector, token_hash, username, expires_at FROM panel_remember_token WHERE selector = ? LIMIT 1',
+            [$parts['selector']]
+        );
+        if (!$row || (int) $row['expires_at'] < time()) {
+            panel_revoke_remember_selector($parts['selector']);
+            panel_clear_remember_cookie();
+            return;
+        }
+        if (!hash_equals($row['token_hash'], hash('sha256', $parts['validator']))) {
+            panel_revoke_remember_selector($parts['selector']);
+            panel_clear_remember_cookie();
+            return;
+        }
+        $admin = db_fetch($pdo, 'SELECT username FROM admin WHERE username = ? LIMIT 1', [$row['username']]);
+        if (!$admin) {
+            panel_revoke_remember_selector($parts['selector']);
+            panel_clear_remember_cookie();
+            return;
+        }
+
+        // Rotate remember token (steal protection)
+        panel_revoke_remember_selector($parts['selector']);
+        panel_issue_remember_token($admin['username']);
+
+        session_regenerate_id(true);
+        $_SESSION['admin_user'] = $admin['username'];
+        $_SESSION['login_time'] = time();
+        $_SESSION['csrf'] = bin2hex(random_bytes(32));
+        $_SESSION['remember'] = true;
+        panel_set_session_cookie(panel_remember_lifetime());
+    } catch (Throwable $e) {
+        error_log('panel_try_restore_remember: ' . $e->getMessage());
+    }
+}
+
 function panel_session_start(): void
 {
     if (session_status() !== PHP_SESSION_NONE) {
+        if (empty($_SESSION['admin_user'])) {
+            panel_try_restore_remember();
+        }
         return;
     }
 
     $lifetime = panel_wants_remember() ? panel_remember_lifetime() : 0;
+    // Keep server-side data long enough for remember-me even when cookie is session-only
+    $gcLifetime = panel_remember_lifetime();
+
+    $savePath = panel_session_save_path();
+    if (is_dir($savePath) && is_writable($savePath)) {
+        session_save_path($savePath);
+    }
+
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.cookie_httponly', '1');
+    ini_set('session.gc_maxlifetime', (string) $gcLifetime);
 
     session_set_cookie_params([
         'lifetime' => $lifetime,
-        'path' => '/',
+        'path' => panel_cookie_path(),
         'secure' => panel_is_https(),
         'httponly' => true,
         'samesite' => 'Lax',
     ]);
 
-    // Keep server-side session data at least as long as the cookie
-    ini_set('session.gc_maxlifetime', (string) max(1440, $lifetime ?: 1440));
+    session_name('PICHASESSID');
     session_start();
+
+    if (!empty($_SESSION['remember']) || panel_wants_remember()) {
+        panel_set_session_cookie(panel_remember_lifetime());
+    }
+
+    panel_try_restore_remember();
 }
 
-function panel_enable_remember(): void
+function panel_issue_remember_token(string $username): void
 {
     $lifetime = panel_remember_lifetime();
-    setcookie('panel_remember', '1', panel_cookie_options(time() + $lifetime));
+    $selector = bin2hex(random_bytes(16));
+    $validator = bin2hex(random_bytes(32));
+    $now = time();
 
+    try {
+        global $pdo;
+        if ($pdo instanceof PDO) {
+            panel_ensure_remember_table($pdo);
+            // Limit active tokens per admin
+            db_query(
+                $pdo,
+                'DELETE FROM panel_remember_token WHERE username = ? OR expires_at < ?',
+                [$username, $now]
+            );
+            db_query(
+                $pdo,
+                'INSERT INTO panel_remember_token (selector, token_hash, username, expires_at, created_at) VALUES (?, ?, ?, ?, ?)',
+                [$selector, hash('sha256', $validator), $username, $now + $lifetime, $now]
+            );
+        }
+    } catch (Throwable $e) {
+        error_log('panel_issue_remember_token: ' . $e->getMessage());
+    }
+
+    setcookie('panel_remember', $selector . ':' . $validator, panel_cookie_options($now + $lifetime));
+    $_COOKIE['panel_remember'] = $selector . ':' . $validator;
+}
+
+function panel_clear_remember_cookie(): void
+{
+    $opts = panel_cookie_options(time() - 3600);
+    setcookie('panel_remember', '', $opts);
+    // Clear legacy path=/ cookie too
+    setcookie('panel_remember', '', [
+        'expires' => time() - 3600,
+        'path' => '/',
+        'secure' => panel_is_https(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    unset($_COOKIE['panel_remember']);
+}
+
+function panel_enable_remember(string $username = ''): void
+{
+    $lifetime = panel_remember_lifetime();
+    if ($username === '') {
+        $username = (string) ($_SESSION['admin_user'] ?? '');
+    }
+    if ($username !== '') {
+        panel_issue_remember_token($username);
+    } else {
+        // Fallback: persistent flag (weaker); still extends session cookie
+        setcookie('panel_remember', '1', panel_cookie_options(time() + $lifetime));
+        $_COOKIE['panel_remember'] = '1';
+    }
+
+    $_SESSION['remember'] = true;
     if (session_status() === PHP_SESSION_ACTIVE) {
-        setcookie(session_name(), session_id(), panel_cookie_options(time() + $lifetime));
+        panel_set_session_cookie($lifetime);
         ini_set('session.gc_maxlifetime', (string) $lifetime);
     }
 }
 
 function panel_clear_remember(): void
 {
-    setcookie('panel_remember', '', panel_cookie_options(time() - 3600));
+    $parts = panel_parse_remember_cookie();
+    if ($parts !== null) {
+        panel_revoke_remember_selector($parts['selector']);
+    }
+    panel_clear_remember_cookie();
+    unset($_SESSION['remember']);
 }
 
 function panel_logout(): void
 {
-    panel_session_start();
-    panel_clear_remember();
+    // Revoke remember token first so session bootstrap cannot restore auth
+    $parts = panel_parse_remember_cookie();
+    if ($parts !== null) {
+        panel_revoke_remember_selector($parts['selector']);
+    }
+    panel_clear_remember_cookie();
+
+    if (session_status() === PHP_SESSION_NONE) {
+        $savePath = panel_session_save_path();
+        if (is_dir($savePath) && is_writable($savePath)) {
+            session_save_path($savePath);
+        }
+        session_name('PICHASESSID');
+        session_start();
+    }
+
     $_SESSION = [];
     if (session_status() === PHP_SESSION_ACTIVE) {
         $params = session_get_cookie_params();
         setcookie(session_name(), '', panel_cookie_options(time() - 3600));
-        // Ensure path matches what session used
         setcookie(session_name(), '', [
             'expires' => time() - 3600,
             'path' => $params['path'] ?: '/',
+            'secure' => panel_is_https(),
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+        setcookie('PHPSESSID', '', [
+            'expires' => time() - 3600,
+            'path' => '/',
+            'secure' => panel_is_https(),
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+        setcookie('PHPSESSID', '', [
+            'expires' => time() - 3600,
+            'path' => panel_cookie_path(),
             'secure' => panel_is_https(),
             'httponly' => true,
             'samesite' => 'Lax',

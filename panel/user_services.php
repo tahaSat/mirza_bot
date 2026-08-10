@@ -74,6 +74,7 @@ include __DIR__ . '/inc/layout_head.php';
                     <th>پنل</th>
                     <th>حجم</th>
                     <th>زمان</th>
+                    <th>مبلغ</th>
                     <th>تاریخ خرید</th>
                     <th>وضعیت</th>
                     <th style="width:88px"></th>
@@ -82,7 +83,7 @@ include __DIR__ . '/inc/layout_head.php';
             <tbody>
                 <?php if (empty($services)): ?>
                     <tr>
-                        <td colspan="9">
+                        <td colspan="10">
                             <div class="empty" style="padding:36px">
                                 <p>این کاربر سرویس فعالی ندارد</p>
                                 <button type="button" class="btn btn-primary btn-sm" style="margin-top:12px" onclick="openModal('addServiceModal')">
@@ -111,6 +112,7 @@ include __DIR__ . '/inc/layout_head.php';
                             <td class="cf"><?= htmlspecialchars($svc['Service_location'] ?? '—') ?></td>
                             <td class="cn cf"><?= htmlspecialchars(($svc['Volume'] ?? '—') . $volUnit) ?></td>
                             <td class="cn cf"><?= htmlspecialchars(($svc['Service_time'] ?? '—') . $timeUnit) ?></td>
+                            <td class="cn cs"><?= number_format((int) ($svc['price_product'] ?? 0)) ?> <span class="cf">ت</span></td>
                             <td class="cf"><?= safe_date($svc['time_sell'] ?? null, 'Y/m/d') ?></td>
                             <td><span class="tag <?= $tagClass ?>"><?= $label ?></span></td>
                             <td>

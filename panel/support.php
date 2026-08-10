@@ -499,11 +499,16 @@ include __DIR__ . '/inc/layout_head.php';
     history.scrollRestoration = 'manual';
   }
 
-  var root = document.documentElement;
   var sheet = shell.querySelector('.support-conversation');
   var messages = shell.querySelector('.support-messages');
   var replyInput = shell.querySelector('.support-reply textarea');
   var pinnedToEnd = true;
+  var focusPoll = null;
+  var mobileMq = window.matchMedia ? window.matchMedia('(max-width: 768px)') : null;
+
+  function isMobileSheet() {
+    return document.body.classList.contains('support-sheet-open') && (!mobileMq || mobileMq.matches);
+  }
 
   function scrollMessagesToEnd(force) {
     if (!messages) return;
@@ -514,7 +519,6 @@ include __DIR__ . '/inc/layout_head.php';
       try { last.scrollIntoView({ block: 'end', inline: 'nearest' }); } catch (e) {}
     }
     messages.scrollTop = messages.scrollHeight;
-    if (sheet) sheet.scrollTop = sheet.scrollHeight;
   }
 
   function scheduleScrollToEnd(force) {
@@ -528,24 +532,65 @@ include __DIR__ . '/inc/layout_head.php';
     });
   }
 
+  function clearSheetGeometry() {
+    if (!sheet) return;
+    sheet.style.top = '';
+    sheet.style.bottom = '';
+    sheet.style.height = '';
+    sheet.style.maxHeight = '';
+    shell.classList.remove('support-keyboard-open');
+  }
+
   function syncSupportSheetViewport() {
-    if (!document.body.classList.contains('support-sheet-open')) return;
+    if (!sheet) return;
+    if (!isMobileSheet()) {
+      clearSheetGeometry();
+      return;
+    }
+
     var vv = window.visualViewport;
     var layoutH = window.innerHeight || document.documentElement.clientHeight || 0;
     var visibleH = vv ? vv.height : layoutH;
     var offsetTop = vv ? vv.offsetTop : 0;
-    var keyboard = Math.max(0, Math.round(layoutH - visibleH - offsetTop));
-    var sheetH;
+    var kb = Math.max(0, Math.round(layoutH - visibleH - offsetTop));
+    var focused = !!(replyInput && document.activeElement === replyInput);
+    var keyboardOpen = kb > 24 || focused;
 
-    if (keyboard > 40) {
-      sheetH = Math.max(220, Math.round(visibleH));
+    // Pin the sheet to the visible viewport so the composer stays above the keyboard.
+    var top;
+    var height;
+    if (keyboardOpen) {
+      top = Math.round(offsetTop);
+      height = Math.max(200, Math.round(visibleH));
+      shell.classList.add('support-keyboard-open');
     } else {
-      sheetH = Math.max(280, Math.round(Math.min(layoutH * 0.88, visibleH - 8)));
+      height = Math.max(280, Math.round(Math.min(layoutH * 0.88, visibleH - 8)));
+      top = Math.round(offsetTop + Math.max(0, visibleH - height));
+      shell.classList.remove('support-keyboard-open');
     }
 
-    root.style.setProperty('--support-kb', keyboard + 'px');
-    root.style.setProperty('--support-sheet-h', sheetH + 'px');
-    if (pinnedToEnd) scrollMessagesToEnd(true);
+    sheet.style.top = top + 'px';
+    sheet.style.bottom = 'auto';
+    sheet.style.height = height + 'px';
+    sheet.style.maxHeight = height + 'px';
+
+    if (pinnedToEnd || focused) scrollMessagesToEnd(true);
+  }
+
+  function stopFocusPoll() {
+    if (focusPoll) {
+      clearInterval(focusPoll);
+      focusPoll = null;
+    }
+  }
+
+  function startFocusPoll() {
+    stopFocusPoll();
+    var ticks = 0;
+    focusPoll = setInterval(function () {
+      syncSupportSheetViewport();
+      if (++ticks >= 60) stopFocusPoll();
+    }, 50);
   }
 
   if (messages) {
@@ -556,7 +601,10 @@ include __DIR__ . '/inc/layout_head.php';
 
   syncSupportSheetViewport();
   scheduleScrollToEnd(true);
-  window.addEventListener('load', function () { scheduleScrollToEnd(true); });
+  window.addEventListener('load', function () {
+    syncSupportSheetViewport();
+    scheduleScrollToEnd(true);
+  });
 
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', syncSupportSheetViewport);
@@ -566,18 +614,24 @@ include __DIR__ . '/inc/layout_head.php';
   window.addEventListener('orientationchange', function () {
     setTimeout(syncSupportSheetViewport, 150);
   });
+  if (mobileMq) {
+    if (mobileMq.addEventListener) mobileMq.addEventListener('change', syncSupportSheetViewport);
+    else if (mobileMq.addListener) mobileMq.addListener(syncSupportSheetViewport);
+  }
 
   if (replyInput) {
     replyInput.addEventListener('focus', function () {
       pinnedToEnd = true;
-      setTimeout(function () {
-        syncSupportSheetViewport();
-        scheduleScrollToEnd(true);
-      }, 50);
-      setTimeout(syncSupportSheetViewport, 300);
+      shell.classList.add('support-keyboard-open');
+      syncSupportSheetViewport();
+      startFocusPoll();
+      scheduleScrollToEnd(true);
     });
     replyInput.addEventListener('blur', function () {
-      setTimeout(syncSupportSheetViewport, 100);
+      stopFocusPoll();
+      setTimeout(function () {
+        syncSupportSheetViewport();
+      }, 120);
     });
   }
 }());

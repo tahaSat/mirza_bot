@@ -417,16 +417,19 @@ body.support-media-viewer-open{overflow:hidden}
   flex-direction:column;
   position:fixed;
   z-index:101;
-  right:0;bottom:var(--support-kb,0px);left:0;
+  right:0;left:0;
+  top:auto;
+  bottom:0;
   width:100%;
-  height:var(--support-sheet-h,88dvh);
-  max-height:none;
+  height:88dvh;
+  max-height:88dvh;
   margin:0;
   border-radius:18px 18px 0 0;
   overflow:hidden!important;
   overscroll-behavior:none;
   box-shadow:0 -12px 36px rgba(0,0,0,.28);
   padding-bottom:env(safe-area-inset-bottom,0px);
+  transition:none;
 }
 .support-chat-open .support-conversation-head{padding:14px 12px;position:relative;z-index:2;flex:0 0 auto;background:var(--sf)}
 .support-chat-open .support-meta,
@@ -441,7 +444,11 @@ body.support-media-viewer-open{overflow:hidden}
 }
 .support-chat-open .support-reply,
 .support-chat-open .support-close-form-foot{flex:0 0 auto;position:relative;z-index:2}
-.support-chat-open .support-reply{padding-bottom:max(12px,env(safe-area-inset-bottom,0px))}
+.support-chat-open .support-reply{padding-bottom:max(10px,env(safe-area-inset-bottom,0px))}
+.support-chat-open.support-keyboard-open .support-meta,
+.support-chat-open.support-keyboard-open .support-identities{display:none}
+.support-chat-open.support-keyboard-open .support-conversation{padding-bottom:0;border-radius:12px 12px 0 0}
+.support-chat-open.support-keyboard-open .support-reply{padding-bottom:10px}
 .support-sheet-backdrop{display:block;position:fixed;z-index:100;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(2px)}
 .support-back{display:inline-flex!important}
 .support-close-form-head{display:block}

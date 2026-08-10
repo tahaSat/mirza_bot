@@ -13,7 +13,7 @@ $supportUnansweredCount = isset($pdo) && $pdo instanceof PDO ? panel_support_una
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content">
   <meta name="theme-color" content="#0F172A" id="mtc">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">

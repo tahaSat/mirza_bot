@@ -307,3 +307,73 @@ function panel_remove_user_service(PDO $pdo, string $idInvoice, $userId, bool $r
     $msg = $refund ? 'سرویس حذف و مبلغ به کیف پول کاربر بازگردانده شد.' : 'سرویس از پنل حذف و در ربات غیرفعال شد.';
     return ['ok' => true, 'msg' => $msg];
 }
+
+/**
+ * @return array{ok:bool,msg:string}
+ */
+function panel_update_invoice_record(PDO $pdo, string $idInvoice, array $fields): array
+{
+    $invoice = db_fetch($pdo, 'SELECT * FROM invoice WHERE id_invoice = ?', [$idInvoice]);
+    if (!$invoice) {
+        return ['ok' => false, 'msg' => 'فاکتور یافت نشد.'];
+    }
+
+    $allowed = [
+        'Status' => 'Status',
+        'name_product' => 'name_product',
+        'price_product' => 'price_product',
+        'Volume' => 'Volume',
+        'Service_time' => 'Service_time',
+        'username' => 'username',
+        'note' => 'note',
+        'Service_location' => 'Service_location',
+    ];
+    $sets = [];
+    $params = [];
+    foreach ($allowed as $key => $column) {
+        if (!array_key_exists($key, $fields)) {
+            continue;
+        }
+        $sets[] = "`$column` = ?";
+        $params[] = trim((string) $fields[$key]);
+    }
+    if (!$sets) {
+        return ['ok' => false, 'msg' => 'فیلدی برای به‌روزرسانی ارسال نشد.'];
+    }
+    $params[] = $idInvoice;
+    db_query($pdo, 'UPDATE invoice SET ' . implode(', ', $sets) . ' WHERE id_invoice = ?', $params);
+    return ['ok' => true, 'msg' => 'فاکتور به‌روز شد.'];
+}
+
+/**
+ * @return array{ok:bool,msg:string}
+ */
+function panel_update_service_other_record(PDO $pdo, int $id, array $fields): array
+{
+    $row = db_fetch($pdo, 'SELECT * FROM service_other WHERE id = ?', [$id]);
+    if (!$row) {
+        return ['ok' => false, 'msg' => 'سفارش یافت نشد.'];
+    }
+
+    $allowed = [
+        'status' => 'status',
+        'value' => 'value',
+        'price' => 'price',
+        'username' => 'username',
+    ];
+    $sets = [];
+    $params = [];
+    foreach ($allowed as $key => $column) {
+        if (!array_key_exists($key, $fields)) {
+            continue;
+        }
+        $sets[] = "`$column` = ?";
+        $params[] = trim((string) $fields[$key]);
+    }
+    if (!$sets) {
+        return ['ok' => false, 'msg' => 'فیلدی برای به‌روزرسانی ارسال نشد.'];
+    }
+    $params[] = $id;
+    db_query($pdo, 'UPDATE service_other SET ' . implode(', ', $sets) . ' WHERE id = ?', $params);
+    return ['ok' => true, 'msg' => 'سفارش به‌روز شد.'];
+}

@@ -479,12 +479,18 @@ function panel_payment_is_wallet(array $payment): bool
 
 /**
  * Manually change a payment status (e.g. paid → reject).
- * When leaving paid for a purchase payment, optionally remove the created service.
+ * When leaving paid for a purchase payment, optionally remove the created service
+ * and/or mark the linked invoice/order as rejected (so Telegram سفارشات stats exclude it).
  *
  * @return array{ok:bool,msg:string}
  */
-function panel_payment_set_status(PDO $pdo, string $orderId, string $newStatus, bool $removeProduct = false): array
-{
+function panel_payment_set_status(
+    PDO $pdo,
+    string $orderId,
+    string $newStatus,
+    bool $removeProduct = false,
+    bool $rejectInvoice = false
+): array {
     $newStatus = trim($newStatus);
     if (!in_array($newStatus, panel_payment_status_values(), true)) {
         return ['ok' => false, 'msg' => 'وضعیت نامعتبر است.'];
@@ -525,6 +531,9 @@ function panel_payment_set_status(PDO $pdo, string $orderId, string $newStatus, 
         } else {
             $notes[] = 'سرویس مرتبطی برای حذف یافت نشد.';
         }
+    } elseif ($leavingPaid && $rejectInvoice) {
+        require_once __DIR__ . '/users_lib.php';
+        $notes[] = panel_payment_reject_linked_order($pdo, $payment);
     }
 
     $statusLabels = [
@@ -539,6 +548,48 @@ function panel_payment_set_status(PDO $pdo, string $orderId, string $newStatus, 
         $msg .= ' ' . implode(' ', $notes);
     }
     return ['ok' => true, 'msg' => $msg];
+}
+
+/**
+ * Mark the invoice / service_other linked to a payment as rejected.
+ */
+function panel_payment_reject_linked_order(PDO $pdo, array $payment): string
+{
+    $parts = explode('|', (string) ($payment['id_invoice'] ?? ''), 2);
+    $type = $parts[0] ?? '';
+    $payload = $parts[1] ?? '';
+
+    if ($type === 'getconfigafterpay' && $payload !== '') {
+        $before = db_fetch($pdo, 'SELECT id_invoice, Status FROM invoice WHERE username = ? LIMIT 1', [$payload]);
+        if (!$before) {
+            return 'فاکتور مرتبط یافت نشد.';
+        }
+        db_query($pdo, "UPDATE invoice SET Status = 'reject' WHERE username = ?", [$payload]);
+        return 'وضعیت فاکتور به رد شده تغییر کرد.';
+    }
+
+    $map = [
+        'getextenduser' => 'extend_user',
+        'getextravolumeuser' => 'extra_user',
+        'getextratimeuser' => 'extra_time_user',
+    ];
+    if (isset($map[$type]) && $payload !== '') {
+        $username = explode('%', $payload, 2)[0];
+        $row = db_fetch(
+            $pdo,
+            "SELECT id FROM service_other
+             WHERE id_user = ? AND username = ? AND type = ?
+             ORDER BY id DESC LIMIT 1",
+            [$payment['id_user'], $username, $map[$type]]
+        );
+        if ($row) {
+            db_query($pdo, "UPDATE service_other SET status = 'reject' WHERE id = ?", [$row['id']]);
+            return 'وضعیت سفارش مرتبط به رد شده تغییر کرد.';
+        }
+        return 'سفارش مرتبطی یافت نشد.';
+    }
+
+    return 'سفارش/فاکتور مرتبطی برای رد وجود ندارد.';
 }
 
 function panel_payment_method_label(string $method): string

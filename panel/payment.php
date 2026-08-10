@@ -19,6 +19,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!empty($_POST['status_filter'])) {
             $qs['status'] = trim((string) $_POST['status_filter']);
         }
+        if (isset($_POST['price_min']) && $_POST['price_min'] !== '') {
+            $qs['price_min'] = (int) $_POST['price_min'];
+        }
+        if (isset($_POST['price_max']) && $_POST['price_max'] !== '') {
+            $qs['price_max'] = (int) $_POST['price_max'];
+        }
         if (!empty($_POST['page'])) {
             $qs['page'] = (int) $_POST['page'];
         }
@@ -41,7 +47,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo,
             $orderId,
             (string) ($_POST['new_status'] ?? ''),
-            !empty($_POST['remove_product'])
+            !empty($_POST['remove_product']),
+            !empty($_POST['reject_invoice'])
         );
         flash($r['ok'] ? 'success' : 'error', $r['msg']);
     } elseif ($action === 'reject_all') {
@@ -60,6 +67,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $search = trim($_GET['q'] ?? '');
 $status = $_GET['status'] ?? '';
+$priceMinRaw = trim((string) ($_GET['price_min'] ?? ''));
+$priceMaxRaw = trim((string) ($_GET['price_max'] ?? ''));
+$priceMin = $priceMinRaw !== '' && is_numeric($priceMinRaw) ? (int) $priceMinRaw : null;
+$priceMax = $priceMaxRaw !== '' && is_numeric($priceMaxRaw) ? (int) $priceMaxRaw : null;
+if ($priceMin !== null && $priceMax !== null && $priceMin > $priceMax) {
+    [$priceMin, $priceMax] = [$priceMax, $priceMin];
+}
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 30;
 $offset = ($page - 1) * $perPage;
@@ -77,6 +91,14 @@ if ($tab === 'pending') {
     if ($status !== '') {
         $where[] = "payment_Status = ?";
         $params[] = $status;
+    }
+    if ($priceMin !== null) {
+        $where[] = 'CAST(price AS DECIMAL(20,0)) >= ?';
+        $params[] = $priceMin;
+    }
+    if ($priceMax !== null) {
+        $where[] = 'CAST(price AS DECIMAL(20,0)) <= ?';
+        $params[] = $priceMax;
     }
 }
 $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
@@ -162,13 +184,19 @@ include __DIR__ . '/inc/layout_head.php';
         <button type="submit" class="btn btn-no btn-sm">حذف همه</button>
       </form>
     <?php elseif ($tab !== 'pending'): ?>
-    <form method="GET" class="toolbar-end">
+    <form method="GET" class="toolbar-end" style="flex-wrap:wrap;gap:8px">
       <select name="status" class="select" style="width:auto" onchange="this.form.submit()">
         <option value="">همه وضعیت‌ها</option>
         <?php foreach ($statusMap as $k => [$_, $lbl]): ?>
           <option value="<?= $k ?>" <?= $status === $k ? 'selected' : '' ?>><?= $lbl ?></option>
         <?php endforeach; ?>
       </select>
+      <input type="number" name="price_min" class="select" style="width:120px" min="0" step="1"
+        placeholder="حداقل مبلغ"
+        value="<?= $priceMin !== null ? (int) $priceMin : '' ?>">
+      <input type="number" name="price_max" class="select" style="width:120px" min="0" step="1"
+        placeholder="حداکثر مبلغ"
+        value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
       <div class="search-box" style="min-width:230px">
         <?= icon('search', 14) ?>
         <input type="text" name="q" placeholder="آیدی کاربر یا شماره تراکنش..."
@@ -176,7 +204,7 @@ include __DIR__ . '/inc/layout_head.php';
         <button type="button" class="search-clear">✕</button>
         <button type="submit" class="search-btn">جستجو</button>
       </div>
-      <?php if ($search || $status): ?>
+      <?php if ($search || $status || $priceMin !== null || $priceMax !== null): ?>
         <a href="payment.php" class="btn-link" style="font-size:.78rem">پاک</a>
       <?php endif; ?>
     </form>
@@ -271,8 +299,17 @@ include __DIR__ . '/inc/layout_head.php';
     <span><?= number_format($total) ?> رکورد · صفحه <?= $page ?> از <?= $totalPages ?></span>
     <div class="pager">
       <?php
-      $base = $tab === 'pending' ? 'payment.php?tab=pending' : 'payment.php?q=' . urlencode($search) . '&status=' . urlencode($status);
-      $qs = fn($p) => $base . '&page=' . $p;
+      if ($tab === 'pending') {
+          $base = 'payment.php?tab=pending';
+      } else {
+          $base = 'payment.php?' . http_build_query(array_filter([
+              'q' => $search,
+              'status' => $status,
+              'price_min' => $priceMin,
+              'price_max' => $priceMax,
+          ], static fn($v) => $v !== null && $v !== ''));
+      }
+      $qs = fn($p) => $base . (str_contains($base, '?') ? '&' : '?') . 'page=' . $p;
       ?>
       <a class="<?= $page <= 1 ? 'disabled' : '' ?>" href="<?= $qs(max(1, $page - 1)) ?>">‹</a>
       <?php for ($p2 = max(1, $page - 2); $p2 <= min($totalPages, $page + 2); $p2++): ?>
@@ -323,6 +360,8 @@ function openRejectModal(orderId) {
         <input type="hidden" name="order_id" id="statusOrderId" value="">
         <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
         <input type="hidden" name="status_filter" value="<?= htmlspecialchars($status) ?>">
+        <input type="hidden" name="price_min" value="<?= $priceMin !== null ? (int) $priceMin : '' ?>">
+        <input type="hidden" name="price_max" value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
         <input type="hidden" name="page" value="<?= (int) $page ?>">
         <div class="field" style="margin-bottom:14px">
           <label class="lbl">وضعیت جدید</label>
@@ -331,6 +370,15 @@ function openRejectModal(orderId) {
               <option value="<?= htmlspecialchars($k) ?>"><?= htmlspecialchars($lbl) ?></option>
             <?php endforeach; ?>
           </select>
+        </div>
+        <div id="rejectInvoiceWrap" style="display:none;margin-bottom:12px">
+          <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
+            <input type="checkbox" name="reject_invoice" id="rejectInvoiceCheck" value="1" style="width:16px;height:16px;margin-top:3px">
+            <span>وضعیت فاکتور/سفارش مرتبط هم «رد شده» شود؟</span>
+          </label>
+          <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
+            برای اینکه از آمار سفارشات تلگرام هم خارج شود.
+          </p>
         </div>
         <div id="removeProductWrap" style="display:none">
           <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
@@ -356,11 +404,16 @@ function openRejectModal(orderId) {
   var selectEl = document.getElementById('statusNewSelect');
   var wrap = document.getElementById('removeProductWrap');
   var check = document.getElementById('removeProductCheck');
+  var rejectWrap = document.getElementById('rejectInvoiceWrap');
+  var rejectCheck = document.getElementById('rejectInvoiceCheck');
 
-  function syncRemovePrompt() {
-    var show = hasProduct && currentStatus === 'paid' && selectEl.value === 'reject';
-    wrap.style.display = show ? 'block' : 'none';
-    if (!show) check.checked = false;
+  function syncRejectPrompts() {
+    var leavingPaidToReject = currentStatus === 'paid' && selectEl.value === 'reject';
+    rejectWrap.style.display = leavingPaidToReject ? 'block' : 'none';
+    if (!leavingPaidToReject) rejectCheck.checked = false;
+    var showRemove = hasProduct && leavingPaidToReject;
+    wrap.style.display = showRemove ? 'block' : 'none';
+    if (!showRemove) check.checked = false;
   }
 
   window.openStatusModal = function (orderId, status, product) {
@@ -368,11 +421,11 @@ function openRejectModal(orderId) {
     hasProduct = !!product;
     document.getElementById('statusOrderId').value = orderId;
     selectEl.value = currentStatus;
-    syncRemovePrompt();
+    syncRejectPrompts();
     openModal('statusModal');
   };
 
-  selectEl.addEventListener('change', syncRemovePrompt);
+  selectEl.addEventListener('change', syncRejectPrompts);
 })();
 </script>
 <?php endif; ?>

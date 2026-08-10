@@ -2,6 +2,7 @@
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
 require_once __DIR__ . '/inc/payments_lib.php';
+require_once __DIR__ . '/inc/users_lib.php';
 require_once dirname(__DIR__) . '/jdf.php';
 require_auth();
 $pdo = panel_ensure_pdo();
@@ -13,6 +14,14 @@ $status = $_GET['status'] ?? '';
 $serviceType = $_GET['service_type'] ?? '';
 $fromDateTime = trim($_GET['from'] ?? '');
 $toDateTime = trim($_GET['to'] ?? '');
+$productFilter = trim($_GET['product'] ?? '');
+$priceMinRaw = trim((string) ($_GET['price_min'] ?? ''));
+$priceMaxRaw = trim((string) ($_GET['price_max'] ?? ''));
+$priceMin = $priceMinRaw !== '' && is_numeric($priceMinRaw) ? (int) $priceMinRaw : null;
+$priceMax = $priceMaxRaw !== '' && is_numeric($priceMaxRaw) ? (int) $priceMaxRaw : null;
+if ($priceMin !== null && $priceMax !== null && $priceMin > $priceMax) {
+  [$priceMin, $priceMax] = [$priceMax, $priceMin];
+}
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 30;
 $offset = ($page - 1) * $perPage;
@@ -20,25 +29,59 @@ $offset = ($page - 1) * $perPage;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check_post();
   $action = $_POST['action'] ?? '';
-  $orderId = trim($_POST['order_id'] ?? '');
+
+  $redirectTab = (($_POST['redirect_tab'] ?? '') === 'payments') ? 'payments' : 'orders';
   $redirectQs = [
-    'tab' => 'payments',
+    'tab' => $redirectTab,
     'q' => trim((string) ($_POST['q'] ?? $search)),
     'status' => trim((string) ($_POST['status_filter'] ?? $status)),
     'service_type' => trim((string) ($_POST['service_type'] ?? $serviceType)),
+    'product' => trim((string) ($_POST['product'] ?? ($_GET['product'] ?? ''))),
+    'price_min' => trim((string) ($_POST['price_min'] ?? ($_GET['price_min'] ?? ''))),
+    'price_max' => trim((string) ($_POST['price_max'] ?? ($_GET['price_max'] ?? ''))),
     'from' => trim((string) ($_POST['from'] ?? $fromDateTime)),
     'to' => trim((string) ($_POST['to'] ?? $toDateTime)),
     'page' => (int) ($_POST['page'] ?? $page),
   ];
-  if ($action === 'set_status' && $orderId !== '') {
-    $r = panel_payment_set_status(
-      $pdo,
-      $orderId,
-      (string) ($_POST['new_status'] ?? ''),
-      !empty($_POST['remove_product'])
-    );
+
+  if ($action === 'set_status') {
+    $orderId = trim((string) ($_POST['order_id'] ?? ''));
+    $redirectQs['tab'] = 'payments';
+    if ($orderId !== '') {
+      $r = panel_payment_set_status(
+        $pdo,
+        $orderId,
+        (string) ($_POST['new_status'] ?? ''),
+        !empty($_POST['remove_product']),
+        !empty($_POST['reject_invoice'])
+      );
+      flash($r['ok'] ? 'success' : 'error', $r['msg']);
+    }
+  } elseif ($action === 'update_invoice') {
+    $redirectQs['tab'] = 'orders';
+    $idInvoice = trim((string) ($_POST['record_id'] ?? ''));
+    $r = panel_update_invoice_record($pdo, $idInvoice, [
+      'Status' => $_POST['invoice_status'] ?? '',
+      'name_product' => $_POST['name_product'] ?? '',
+      'price_product' => $_POST['price_product'] ?? '',
+      'Volume' => $_POST['Volume'] ?? '',
+      'Service_time' => $_POST['Service_time'] ?? '',
+      'username' => $_POST['username'] ?? '',
+      'note' => $_POST['note'] ?? '',
+      'Service_location' => $_POST['Service_location'] ?? '',
+    ]);
+    flash($r['ok'] ? 'success' : 'error', $r['msg']);
+  } elseif ($action === 'update_service_other') {
+    $redirectQs['tab'] = 'orders';
+    $r = panel_update_service_other_record($pdo, (int) ($_POST['record_id'] ?? 0), [
+      'status' => $_POST['invoice_status'] ?? '',
+      'value' => $_POST['name_product'] ?? '',
+      'price' => $_POST['price_product'] ?? '',
+      'username' => $_POST['username'] ?? '',
+    ]);
     flash($r['ok'] ? 'success' : 'error', $r['msg']);
   }
+
   header('Location: invoice.php?' . http_build_query(array_filter($redirectQs, static fn($v) => $v !== '' && $v !== 0)));
   exit;
 }
@@ -146,11 +189,14 @@ $orderStatusMap = [
   'sendedwarn' => ['tag-warn', 'ارسال تمامی اعلان ها'],
   'send_on_hold' => ['tag-plain', 'اعلان متصنل نشدن ارسال شده'],
   'unpaid' => ['tag-plain', 'پرداخت نشده'],
+  'Unpaid' => ['tag-plain', 'پرداخت نشده'],
   'Unsuccessful' => ['tag-plain', 'خطا دریافت اطلاعات'],
   'paid' => ['tag-ok', 'انجام شده'],
   'done' => ['tag-ok', 'انجام شده'],
   'pending' => ['tag-warn', 'در انتظار'],
   'reject' => ['tag-no', 'رد شده'],
+  'removebyadmin' => ['tag-no', 'حذف توسط ادمین'],
+  'removedbyadmin' => ['tag-no', 'حذف توسط ادمین'],
 ];
 
 $paymentStatusMap = [
@@ -184,12 +230,14 @@ if ($tab === 'payments') {
   ";
 } else {
   $recordsSQL = "
-    SELECT id_user, username, name_product AS product_name, price_product AS price,
+    SELECT id_invoice AS record_id, id_user, username, name_product AS product_name, price_product AS price,
            time_sell AS transaction_time, CAST(time_sell AS UNSIGNED) AS transaction_epoch,
-           Status AS transaction_status, 'order' AS service_type
+           Status AS transaction_status, 'order' AS service_type, 'invoice' AS record_source,
+           COALESCE(Volume,'') AS volume, COALESCE(Service_time,'') AS service_time,
+           COALESCE(note,'') AS note, COALESCE(Service_location,'') AS service_location
     FROM invoice
     UNION ALL
-    SELECT id_user, username, value AS product_name, price,
+    SELECT CAST(id AS CHAR) AS record_id, id_user, username, value AS product_name, price,
            time AS transaction_time,
            CASE
              WHEN time REGEXP '^[0-9]{9,}$' THEN CAST(time AS UNSIGNED)
@@ -198,7 +246,8 @@ if ($tab === 'payments') {
                UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
              )
            END AS transaction_epoch,
-           status AS transaction_status, type AS service_type
+           status AS transaction_status, type AS service_type, 'service_other' AS record_source,
+           '' AS volume, '' AS service_time, '' AS note, '' AS service_location
     FROM service_other
   ";
 }
@@ -229,6 +278,20 @@ if ($toTimestamp !== null) {
   $where[] = "transaction_epoch <= ?";
   $params[] = $toTimestamp;
 }
+if ($tab === 'orders') {
+  if ($productFilter !== '') {
+    $where[] = "product_name = ?";
+    $params[] = $productFilter;
+  }
+  if ($priceMin !== null) {
+    $where[] = "CAST(price AS DECIMAL(20,0)) >= ?";
+    $params[] = $priceMin;
+  }
+  if ($priceMax !== null) {
+    $where[] = "CAST(price AS DECIMAL(20,0)) <= ?";
+    $params[] = $priceMax;
+  }
+}
 $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
 try {
@@ -245,6 +308,20 @@ $totalPages = max(1, (int) ceil($total / $perPage));
 
 $statusMap = $tab === 'payments' ? $paymentStatusMap : $orderStatusMap;
 $activeServiceTypeMap = $tab === 'payments' ? $paymentServiceTypeMap : $serviceTypeMap;
+
+$productOptions = [];
+try {
+  $productOptions = db_fetchAll(
+    $pdo,
+    "SELECT name_product FROM (
+       SELECT DISTINCT name_product FROM product WHERE name_product IS NOT NULL AND name_product != ''
+       UNION
+       SELECT DISTINCT name_product FROM invoice WHERE name_product IS NOT NULL AND name_product != ''
+     ) AS products ORDER BY name_product"
+  );
+} catch (Exception $e) {
+  $productOptions = [];
+}
 
 $pageTitle = 'سفارشات';
 $pageLede = 'فهرست کلیه سفارشات ثبت‌شده در ربات.';
@@ -265,7 +342,7 @@ include __DIR__ . '/inc/layout_head.php';
       <?= $tab === 'payments' ? 'گزارش پرداخت‌ها' : 'سفارشات جاری' ?>
       <small>(<?= number_format($total) ?>)</small>
     </div>
-    <form method="GET" id="invoiceForm" class="toolbar-end">
+    <form method="GET" id="invoiceForm" class="toolbar-end" style="flex-wrap:wrap;gap:8px">
       <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
       <select name="service_type" class="select" style="width:auto"
         onchange="document.getElementById('invoiceForm').submit()">
@@ -281,6 +358,26 @@ include __DIR__ . '/inc/layout_head.php';
           <option value="<?= $k ?>" <?= $status === $k ? 'selected' : '' ?>><?= $lbl ?></option>
         <?php endforeach; ?>
       </select>
+      <?php if ($tab === 'orders'): ?>
+      <select name="product" class="select" style="width:auto;max-width:180px"
+        onchange="document.getElementById('invoiceForm').submit()">
+        <option value="">همه محصولات</option>
+        <?php foreach ($productOptions as $pRow):
+          $pname = $pRow['name_product'] ?? '';
+          if ($pname === '') continue;
+        ?>
+          <option value="<?= htmlspecialchars($pname) ?>" <?= $productFilter === $pname ? 'selected' : '' ?>>
+            <?= htmlspecialchars(trunc($pname, 28)) ?>
+          </option>
+        <?php endforeach; ?>
+      </select>
+      <input type="number" name="price_min" class="select" style="width:110px" min="0" step="1"
+        placeholder="حداقل مبلغ"
+        value="<?= $priceMin !== null ? (int) $priceMin : '' ?>">
+      <input type="number" name="price_max" class="select" style="width:110px" min="0" step="1"
+        placeholder="حداکثر مبلغ"
+        value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
+      <?php endif; ?>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <label style="font-size:.76rem;color:var(--text2)">از</label>
         <div style="position:relative">
@@ -306,7 +403,7 @@ include __DIR__ . '/inc/layout_head.php';
         <button type="button" class="search-clear">✕</button>
         <button type="submit" class="search-btn">جستجو</button>
       </div>
-      <?php if ($search || $status || $serviceType || $fromDateTime || $toDateTime): ?>
+      <?php if ($search || $status || $serviceType || $fromDateTime || $toDateTime || $productFilter || $priceMin !== null || $priceMax !== null): ?>
         <a href="invoice.php?tab=<?= urlencode($tab) ?>" class="btn-link" style="font-size:.78rem">پاک کردن</a>
       <?php endif; ?>
     </form>
@@ -336,13 +433,14 @@ include __DIR__ . '/inc/layout_head.php';
           <th>قیمت</th>
           <th>تاریخ</th>
           <th>وضعیت</th>
+          <th>عملیات</th>
         </tr>
         <?php endif; ?>
       </thead>
       <tbody>
         <?php if (empty($invoices)): ?>
           <tr>
-            <td colspan="<?= $tab === 'payments' ? 9 : 7 ?>">
+            <td colspan="<?= $tab === 'payments' ? 9 : 8 ?>">
               <div class="empty">
                 <svg class="ill" viewBox="0 0 160 120" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <rect x="30" y="15" width="100" height="90" rx="8" fill="var(--sf3)" />
@@ -398,6 +496,23 @@ include __DIR__ . '/inc/layout_head.php';
               </td>
             </tr>
             <?php else: ?>
+            <?php
+              $recordId = (string) ($inv['record_id'] ?? '');
+              $recordSource = (string) ($inv['record_source'] ?? 'invoice');
+              $editPayload = [
+                'record_id' => $recordId,
+                'record_source' => $recordSource,
+                'id_user' => (string) ($inv['id_user'] ?? ''),
+                'username' => (string) ($inv['username'] ?? ''),
+                'product_name' => (string) ($inv['product_name'] ?? ''),
+                'price' => (string) ($inv['price'] ?? ''),
+                'status' => (string) $st,
+                'volume' => (string) ($inv['volume'] ?? ''),
+                'service_time' => (string) ($inv['service_time'] ?? ''),
+                'note' => (string) ($inv['note'] ?? ''),
+                'service_location' => (string) ($inv['service_location'] ?? ''),
+              ];
+            ?>
             <tr>
               <td class="cf"><?= $i++ ?></td>
               <td class="cm">
@@ -414,6 +529,11 @@ include __DIR__ . '/inc/layout_head.php';
                   : '—' ?>
               </td>
               <td><span class="tag <?= $cls ?>"><?= $lbl ?></span></td>
+              <td>
+                <button type="button" class="btn btn-ghost btn-sm"
+                  data-invoice="<?= htmlspecialchars(json_encode($editPayload, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>"
+                  onclick="openInvoiceEditModal(this)">ویرایش</button>
+              </td>
             </tr>
             <?php endif; ?>
           <?php endforeach; endif; ?>
@@ -425,15 +545,18 @@ include __DIR__ . '/inc/layout_head.php';
     <span><?= number_format($total) ?> رکورد · صفحه <?= $page ?> از <?= $totalPages ?></span>
     <div class="pager">
       <?php
-      $qs = fn($p) => '?' . http_build_query([
+      $qs = fn($p) => '?' . http_build_query(array_filter([
         'tab' => $tab,
         'q' => $search,
         'status' => $status,
         'service_type' => $serviceType,
+        'product' => $productFilter,
+        'price_min' => $priceMin,
+        'price_max' => $priceMax,
         'from' => $fromDateTime,
         'to' => $toDateTime,
         'page' => $p,
-      ]);
+      ], static fn($v) => $v !== null && $v !== ''));
       ?>
       <a class="<?= $page <= 1 ? 'dis' : '' ?>" href="<?= $qs(max(1, $page - 1)) ?>">‹</a>
       <?php for ($p = max(1, $page - 2); $p <= min($totalPages, $page + 2); $p++): ?>
@@ -483,10 +606,14 @@ include __DIR__ . '/inc/layout_head.php';
       <div class="modal-body">
         <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
         <input type="hidden" name="action" value="set_status">
+        <input type="hidden" name="redirect_tab" value="payments">
         <input type="hidden" name="order_id" id="statusOrderId" value="">
         <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
         <input type="hidden" name="status_filter" value="<?= htmlspecialchars($status) ?>">
         <input type="hidden" name="service_type" value="<?= htmlspecialchars($serviceType) ?>">
+        <input type="hidden" name="product" value="<?= htmlspecialchars($productFilter) ?>">
+        <input type="hidden" name="price_min" value="<?= $priceMin !== null ? (int) $priceMin : '' ?>">
+        <input type="hidden" name="price_max" value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
         <input type="hidden" name="from" value="<?= htmlspecialchars($fromDateTime) ?>">
         <input type="hidden" name="to" value="<?= htmlspecialchars($toDateTime) ?>">
         <input type="hidden" name="page" value="<?= (int) $page ?>">
@@ -497,6 +624,15 @@ include __DIR__ . '/inc/layout_head.php';
               <option value="<?= htmlspecialchars($k) ?>"><?= htmlspecialchars($lbl) ?></option>
             <?php endforeach; ?>
           </select>
+        </div>
+        <div id="rejectInvoiceWrap" style="display:none;margin-bottom:12px">
+          <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
+            <input type="checkbox" name="reject_invoice" id="rejectInvoiceCheck" value="1" style="width:16px;height:16px;margin-top:3px">
+            <span>وضعیت فاکتور/سفارش مرتبط هم «رد شده» شود؟</span>
+          </label>
+          <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
+            برای اینکه از آمار سفارشات تلگرام هم خارج شود.
+          </p>
         </div>
         <div id="removeProductWrap" style="display:none">
           <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
@@ -522,11 +658,16 @@ include __DIR__ . '/inc/layout_head.php';
   var selectEl = document.getElementById('statusNewSelect');
   var wrap = document.getElementById('removeProductWrap');
   var check = document.getElementById('removeProductCheck');
+  var rejectWrap = document.getElementById('rejectInvoiceWrap');
+  var rejectCheck = document.getElementById('rejectInvoiceCheck');
 
-  function syncRemovePrompt() {
-    var show = hasProduct && currentStatus === 'paid' && selectEl.value === 'reject';
-    wrap.style.display = show ? 'block' : 'none';
-    if (!show) check.checked = false;
+  function syncRejectPrompts() {
+    var leavingPaidToReject = currentStatus === 'paid' && selectEl.value === 'reject';
+    rejectWrap.style.display = leavingPaidToReject ? 'block' : 'none';
+    if (!leavingPaidToReject) rejectCheck.checked = false;
+    var showRemove = hasProduct && leavingPaidToReject;
+    wrap.style.display = showRemove ? 'block' : 'none';
+    if (!showRemove) check.checked = false;
   }
 
   window.openStatusModal = function (orderId, status, product) {
@@ -534,12 +675,110 @@ include __DIR__ . '/inc/layout_head.php';
     hasProduct = !!product;
     document.getElementById('statusOrderId').value = orderId;
     selectEl.value = currentStatus;
-    syncRemovePrompt();
+    syncRejectPrompts();
     openModal('statusModal');
   };
 
-  selectEl.addEventListener('change', syncRemovePrompt);
+  selectEl.addEventListener('change', syncRejectPrompts);
 })();
+</script>
+<?php endif; ?>
+
+<?php if ($tab === 'orders'): ?>
+<div class="modal-veil" id="invoiceEditModal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-head">
+      <h3>ویرایش سفارش</h3>
+      <button type="button" class="modal-x" onclick="closeModal('invoiceEditModal')"><?= icon('close', 14) ?></button>
+    </div>
+    <form method="POST" id="invoiceEditForm">
+      <div class="modal-body">
+        <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+        <input type="hidden" name="action" id="invoiceEditAction" value="update_invoice">
+        <input type="hidden" name="redirect_tab" value="orders">
+        <input type="hidden" name="record_id" id="editRecordId" value="">
+        <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
+        <input type="hidden" name="status_filter" value="<?= htmlspecialchars($status) ?>">
+        <input type="hidden" name="service_type" value="<?= htmlspecialchars($serviceType) ?>">
+        <input type="hidden" name="product" value="<?= htmlspecialchars($productFilter) ?>">
+        <input type="hidden" name="price_min" value="<?= $priceMin !== null ? (int) $priceMin : '' ?>">
+        <input type="hidden" name="price_max" value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
+        <input type="hidden" name="from" value="<?= htmlspecialchars($fromDateTime) ?>">
+        <input type="hidden" name="to" value="<?= htmlspecialchars($toDateTime) ?>">
+        <input type="hidden" name="page" value="<?= (int) $page ?>">
+
+        <div class="field" style="margin-bottom:10px">
+          <label class="lbl">وضعیت</label>
+          <select name="invoice_status" id="editStatus" class="select" style="width:100%">
+            <?php foreach ($orderStatusMap as $k => [$_, $lbl]): ?>
+              <option value="<?= htmlspecialchars($k) ?>"><?= htmlspecialchars($lbl) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:10px">
+          <label class="lbl">محصول / مقدار</label>
+          <input type="text" name="name_product" id="editProduct" class="select" style="width:100%" list="invoiceProductList">
+          <datalist id="invoiceProductList">
+            <?php foreach ($productOptions as $pRow):
+              $pname = $pRow['name_product'] ?? '';
+              if ($pname === '') continue;
+            ?>
+              <option value="<?= htmlspecialchars($pname) ?>"></option>
+            <?php endforeach; ?>
+          </datalist>
+        </div>
+        <div class="field" style="margin-bottom:10px">
+          <label class="lbl">قیمت (تومان)</label>
+          <input type="number" name="price_product" id="editPrice" class="select" style="width:100%" min="0" step="1">
+        </div>
+        <div class="field" style="margin-bottom:10px">
+          <label class="lbl">نام کاربری سرویس</label>
+          <input type="text" name="username" id="editUsername" class="select" style="width:100%">
+        </div>
+        <div id="invoiceOnlyFields">
+          <div class="field" style="margin-bottom:10px">
+            <label class="lbl">حجم</label>
+            <input type="text" name="Volume" id="editVolume" class="select" style="width:100%">
+          </div>
+          <div class="field" style="margin-bottom:10px">
+            <label class="lbl">مدت (روز)</label>
+            <input type="text" name="Service_time" id="editServiceTime" class="select" style="width:100%">
+          </div>
+          <div class="field" style="margin-bottom:10px">
+            <label class="lbl">لوکیشن / پنل</label>
+            <input type="text" name="Service_location" id="editLocation" class="select" style="width:100%">
+          </div>
+          <div class="field" style="margin-bottom:10px">
+            <label class="lbl">یادداشت</label>
+            <input type="text" name="note" id="editNote" class="select" style="width:100%">
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="submit" class="btn btn-primary">ذخیره</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('invoiceEditModal')">انصراف</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+window.openInvoiceEditModal = function (btn) {
+  var data;
+  try { data = JSON.parse(btn.getAttribute('data-invoice') || '{}'); } catch (e) { data = {}; }
+  var isInvoice = (data.record_source || 'invoice') === 'invoice';
+  document.getElementById('invoiceEditAction').value = isInvoice ? 'update_invoice' : 'update_service_other';
+  document.getElementById('editRecordId').value = data.record_id || '';
+  document.getElementById('editStatus').value = data.status || '';
+  document.getElementById('editProduct').value = data.product_name || '';
+  document.getElementById('editPrice').value = data.price || '';
+  document.getElementById('editUsername').value = data.username || '';
+  document.getElementById('editVolume').value = data.volume || '';
+  document.getElementById('editServiceTime').value = data.service_time || '';
+  document.getElementById('editLocation').value = data.service_location || '';
+  document.getElementById('editNote').value = data.note || '';
+  document.getElementById('invoiceOnlyFields').style.display = isInvoice ? 'block' : 'none';
+  openModal('invoiceEditModal');
+};
 </script>
 <?php endif; ?>
 

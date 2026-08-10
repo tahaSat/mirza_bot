@@ -227,7 +227,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $sql1 = "SELECT COUNT(*) AS invoice_count FROM invoice WHERE (status = 'active' OR status = 'end_of_time' OR status = 'end_of_volume' OR status = 'sendedwarn' OR status = 'send_on_hold') AND name_product != 'سرویس تست'";
     $stmt1 = $pdo->query($sql1);
     $invoiceactive = $stmt1->fetch(PDO::FETCH_ASSOC)['invoice_count'];
-    $sqlall = "SELECT COUNT(*) AS invoice_count FROM invoice WHERE status != 'Unpaid' AND name_product != 'سرویس تست'";
+    $sqlall = "SELECT COUNT(*) AS invoice_count FROM invoice WHERE Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin') AND name_product != 'سرویس تست'";
     $sqlall = $pdo->query($sqlall);
     $invoice = $sqlall->fetch(PDO::FETCH_ASSOC)['invoice_count'];
     $sql2 = "SELECT SUM(price_product) AS total_price FROM invoice WHERE (status = 'active' OR status = 'end_of_time' OR status = 'end_of_volume' OR status = 'sendedwarn' OR status = 'send_on_hold') AND name_product != 'سرویس تست'";
@@ -238,13 +238,13 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $invoiceSumRow = $sql33->fetch(PDO::FETCH_ASSOC);
     $invoiceTotal = isset($invoiceSumRow['total_price']) ? (float) $invoiceSumRow['total_price'] : 0;
     $invoicesumall = number_format($invoiceTotal, 0);
-    $sql3 = "SELECT SUM(price) AS total_extend FROM service_other WHERE type = 'extend_user'";
+    $sql3 = "SELECT SUM(price) AS total_extend FROM service_other WHERE type = 'extend_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt3 = $pdo->query($sql3);
     $extendSumRow = $stmt3->fetch(PDO::FETCH_ASSOC);
     $extendsum = isset($extendSumRow['total_extend']) ? (float) $extendSumRow['total_extend'] : 0;
     $count_usertest = select("invoice", "*", "name_product", "سرویس تست", "count");
     $timeacc = jdate('H:i:s', time());
-    $stmt2 = $pdo->prepare("SELECT COUNT(DISTINCT id_user) as count FROM `invoice` WHERE Status != 'Unpaid'");
+    $stmt2 = $pdo->prepare("SELECT COUNT(DISTINCT id_user) as count FROM `invoice` WHERE Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')");
     $stmt2->execute();
     $statisticsorder = $stmt2->fetch(PDO::FETCH_ASSOC)['count'];
     $sqlsum = "SELECT SUM(price) AS sumpay , Payment_Method,COUNT(price) AS countpay FROM Payment_report WHERE payment_Status = 'paid' AND Payment_Method NOT IN ('add balance by admin','low balance by admin') GROUP BY  Payment_Method;";
@@ -339,7 +339,7 @@ $paycount
     }
 } elseif ($datain == "hoursago_stat") {
     $desired_date_time_start = time() - 3600;
-    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status != 'Unpaid'  AND name_product != 'سرویس تست'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')  AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $time_current = time();
     $stmt->bindParam(':requestedDate', $desired_date_time_start);
@@ -360,19 +360,19 @@ $paycount
     $extend_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extend = $extend_stat['count'];
     $sum_extend = number_format($extend_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  time  >= NOW() - INTERVAL 1 HOUR AND type = 'extra_user'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  time  >= NOW() - INTERVAL 1 HOUR AND type = 'extra_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->execute();
     $extra_volume_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extra_volume = $extra_volume_stat['count'];
     $sum_extra_volume = number_format($extra_volume_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  time  >= NOW() - INTERVAL 1 HOUR AND type = 'extra_time_user'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  time  >= NOW() - INTERVAL 1 HOUR AND type = 'extra_time_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->execute();
     $extra_time_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extra_time = $extra_time_stat['count'];
     $sum_extrat_time = number_format($extra_time_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  time  >= NOW() - INTERVAL 1 HOUR AND type = 'change_location'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  time  >= NOW() - INTERVAL 1 HOUR AND type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->execute();
     $change_location_stat = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -411,7 +411,7 @@ $paycount
     $end_time = date('Y/m/d', strtotime("-1 days")) . " 23:59:59";
     $start_time_timestamp = strtotime($start_time);
     $end_time_timestamp = strtotime($end_time);
-    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status != 'Unpaid'  AND name_product != 'سرویس تست'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')  AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
@@ -433,7 +433,7 @@ $paycount
     $extend_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extend = $extend_stat['count'];
     $sum_extend = number_format($extend_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_user'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -441,7 +441,7 @@ $paycount
     $extra_volume_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extra_volume = $extra_volume_stat['count'];
     $sum_extra_volume = number_format($extra_volume_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_time_user'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_time_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -449,7 +449,7 @@ $paycount
     $extra_time_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extra_time = $extra_time_stat['count'];
     $sum_extrat_time = number_format($extra_time_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'change_location'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -491,7 +491,7 @@ $paycount
     $end_time = date('Y/m/d H:i:s');
     $start_time_timestamp = strtotime($start_time);
     $end_time_timestamp = strtotime($end_time);
-    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status != 'Unpaid' AND name_product != 'سرویس تست'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin') AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
@@ -513,7 +513,7 @@ $paycount
     $extend_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extend = $extend_stat['count'];
     $sum_extend = number_format($extend_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_user'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -521,7 +521,7 @@ $paycount
     $extra_volume_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extra_volume = $extra_volume_stat['count'];
     $sum_extra_volume = number_format($extra_volume_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_time_user'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_time_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -529,7 +529,7 @@ $paycount
     $extra_time_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extra_time = $extra_time_stat['count'];
     $sum_extrat_time = number_format($extra_time_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'change_location'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -573,7 +573,7 @@ $paycount
     $end_time = $lastDayLastMonth->format('Y/m/d');
     $start_time_timestamp = strtotime($start_time);
     $end_time_timestamp = strtotime($end_time);
-    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status != 'Unpaid'  AND name_product != 'سرویس تست'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')  AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
@@ -595,7 +595,7 @@ $paycount
     $extend_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extend = $extend_stat['count'];
     $sum_extend = number_format($extend_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_user'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -603,7 +603,7 @@ $paycount
     $extra_volume_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extra_volume = $extra_volume_stat['count'];
     $sum_extra_volume = number_format($extra_volume_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_time_user'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_time_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -611,7 +611,7 @@ $paycount
     $extra_time_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extra_time = $extra_time_stat['count'];
     $sum_extrat_time = number_format($extra_time_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'change_location'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -655,7 +655,7 @@ $paycount
     $end_time = $lastDayLastMonth->format('Y/m/d');
     $start_time_timestamp = strtotime($start_time);
     $end_time_timestamp = strtotime($end_time);
-    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status != 'Unpaid'  AND name_product != 'سرویس تست'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')  AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
@@ -677,7 +677,7 @@ $paycount
     $extend_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extend = $extend_stat['count'];
     $sum_extend = number_format($extend_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_user'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -685,7 +685,7 @@ $paycount
     $extra_volume_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extra_volume = $extra_volume_stat['count'];
     $sum_extra_volume = number_format($extra_volume_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_time_user'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_time_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -693,7 +693,7 @@ $paycount
     $extra_time_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extra_time = $extra_time_stat['count'];
     $sum_extrat_time = number_format($extra_time_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'change_location'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -751,7 +751,7 @@ $paycount
     $end_time = $text . "23:59:00";
     $start_time_timestamp = strtotime($start_time);
     $end_time_timestamp = strtotime($end_time);
-    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend)  AND  Status != 'Unpaid' AND name_product != 'سرویس تست'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend)  AND  Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin') AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
@@ -773,7 +773,7 @@ $paycount
     $extend_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extend = $extend_stat['count'];
     $sum_extend = number_format($extend_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_user'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -781,7 +781,7 @@ $paycount
     $extra_volume_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extra_volume = $extra_volume_stat['count'];
     $sum_extra_volume = number_format($extra_volume_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_time_user'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE  (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'extra_time_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -789,7 +789,7 @@ $paycount
     $extra_time_stat = $stmt->fetch(PDO::FETCH_ASSOC);
     $count_extra_time = $extra_time_stat['count'];
     $sum_extrat_time = number_format($extra_time_stat['sum'], 0);
-    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'change_location'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price) as sum FROM service_other WHERE (time BETWEEN :requestedDate AND :requestedDateend) AND type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time);
     $stmt->bindParam(':requestedDateend', $end_time);
@@ -4899,7 +4899,7 @@ $caption";
     } else {
         $sumvolume = mysqli_fetch_assoc(mysqli_query($connect, "SELECT SUM(Volume) FROM invoice WHERE (status = 'active' OR status = 'end_of_time'  OR status = 'end_of_volume' OR status = 'sendedwarn' OR Status = 'send_on_hold') AND id_user = '$id_user' AND name_product != 'سرویس تست'"));
     }
-    $affiliatesBoughtCount = (int) (mysqli_fetch_assoc(mysqli_query($connect, "SELECT COUNT(DISTINCT u.id) AS cnt FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$id_user' AND i.name_product != 'سرویس تست' AND i.Status != 'Unpaid'"))['cnt'] ?? 0);
+    $affiliatesBoughtCount = (int) (mysqli_fetch_assoc(mysqli_query($connect, "SELECT COUNT(DISTINCT u.id) AS cnt FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$id_user' AND i.name_product != 'سرویس تست' AND i.Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')"))['cnt'] ?? 0);
     $user = select("user", "*", "id", $id_user, "select");
     $roll_Status = [
         '1' => $textbotlang['Admin']['ManageUser']['Acceptedphone'],
@@ -6518,10 +6518,10 @@ $iduser  در ربات  رفع مسدود گردید
         return;
     }
     $affiliatesTotal = (int) $affiliatesUsers;
-    $affiliatesBoughtCount = (int) (mysqli_fetch_assoc(mysqli_query($connect, "SELECT COUNT(DISTINCT u.id) AS cnt FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$iduser' AND i.name_product != 'سرویس تست' AND i.Status != 'Unpaid'"))['cnt'] ?? 0);
+    $affiliatesBoughtCount = (int) (mysqli_fetch_assoc(mysqli_query($connect, "SELECT COUNT(DISTINCT u.id) AS cnt FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$iduser' AND i.name_product != 'سرویس تست' AND i.Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')"))['cnt'] ?? 0);
     $affiliatesUsers = select("user", "*", "affiliates", $iduser, "fetchAll");
     $boughtIds = [];
-    $boughtResult = mysqli_query($connect, "SELECT DISTINCT u.id FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$iduser' AND i.name_product != 'سرویس تست' AND i.Status != 'Unpaid'");
+    $boughtResult = mysqli_query($connect, "SELECT DISTINCT u.id FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$iduser' AND i.name_product != 'سرویس تست' AND i.Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')");
     if ($boughtResult) {
         while ($boughtRow = mysqli_fetch_assoc($boughtResult)) {
             $boughtIds[$boughtRow['id']] = true;

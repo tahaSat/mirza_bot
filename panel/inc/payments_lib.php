@@ -311,54 +311,64 @@ function panel_payment_bootstrap(): void
         return;
     }
     $root = dirname(__DIR__, 2);
-
-    // botapi must load even when function.php (select) is already available
-    if (!function_exists('sendmessage')) {
-        require_once $root . '/botapi.php';
-    }
-    if (!function_exists('jdate')) {
-        require_once $root . '/jdf.php';
-    }
-    if (!class_exists('ManagePanel', false)) {
-        require_once $root . '/panels.php';
-    }
-    if (!function_exists('languagechange')) {
-        require_once $root . '/function.php';
+    $prevCwd = getcwd();
+    if (is_dir($root)) {
+        @chdir($root);
     }
 
-    global $ManagePanel, $textbotlang, $setting, $datatextbot, $keyboard, $pdo;
-    global $from_id, $message_id, $Confirm_pay, $keyboardextendfnished;
+    try {
+        // botapi must load even when function.php (select) is already available
+        if (!function_exists('sendmessage')) {
+            require_once $root . '/botapi.php';
+        }
+        if (!function_exists('jdate')) {
+            require_once $root . '/jdf.php';
+        }
+        if (!class_exists('ManagePanel', false)) {
+            require_once $root . '/panels.php';
+        }
+        if (!function_exists('languagechange')) {
+            require_once $root . '/function.php';
+        }
 
-    if (!isset($ManagePanel)) {
-        $ManagePanel = new ManagePanel();
-    }
-    if (!isset($textbotlang)) {
-        $textbotlang = languagechange($root . '/text.json');
-    }
-    if (!isset($setting) || !is_array($setting)) {
-        $setting = select('setting', '*');
-    }
-    if (!isset($datatextbot) || !is_array($datatextbot)) {
-        $datatextbot = $pdo->query('SELECT id_text, text FROM textbot')->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
-    }
-    if (!isset($keyboard)) {
-        $keyboard = null;
-    }
-    // Panel has no Telegram callback context — DirectPayment skips Editmessagetext when empty
-    if (!isset($from_id)) {
-        $from_id = 0;
-    }
-    if (!isset($message_id)) {
-        $message_id = 0;
-    }
-    if (!isset($Confirm_pay)) {
-        $Confirm_pay = null;
-    }
-    if (!isset($keyboardextendfnished)) {
-        $keyboardextendfnished = null;
-    }
+        global $ManagePanel, $textbotlang, $setting, $datatextbot, $keyboard, $pdo;
+        global $from_id, $message_id, $Confirm_pay, $keyboardextendfnished;
 
-    $done = true;
+        if (!isset($ManagePanel)) {
+            $ManagePanel = new ManagePanel();
+        }
+        if (!isset($textbotlang)) {
+            $textbotlang = languagechange($root . '/text.json');
+        }
+        if (!isset($setting) || !is_array($setting)) {
+            $setting = select('setting', '*');
+        }
+        if (!isset($datatextbot) || !is_array($datatextbot)) {
+            $datatextbot = $pdo->query('SELECT id_text, text FROM textbot')->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+        }
+        if (!isset($keyboard)) {
+            $keyboard = null;
+        }
+        // Panel has no Telegram callback context — DirectPayment skips Editmessagetext when empty
+        if (!isset($from_id)) {
+            $from_id = 0;
+        }
+        if (!isset($message_id)) {
+            $message_id = 0;
+        }
+        if (!isset($Confirm_pay)) {
+            $Confirm_pay = null;
+        }
+        if (!isset($keyboardextendfnished)) {
+            $keyboardextendfnished = null;
+        }
+
+        $done = true;
+    } finally {
+        if ($prevCwd !== false) {
+            @chdir($prevCwd);
+        }
+    }
 }
 
 function panel_payment_confirm(PDO $pdo, string $orderId): array

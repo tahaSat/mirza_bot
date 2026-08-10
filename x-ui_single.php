@@ -3,7 +3,7 @@ require_once 'config.php';
 require_once 'request.php';
 ini_set('error_log', 'error_log');
 
-function panel_cookie_path(): string
+function xui_cookie_file_path(): string
 {
     return __DIR__ . '/cookie.txt';
 }
@@ -308,7 +308,7 @@ function panel_login_cookie($code_panel)
 {
     $panel = select("marzban_panel", "*", "code_panel", $code_panel, "select");
     $baseUrl = panel_login_base_url($panel);
-    $cookieFile = panel_cookie_path();
+    $cookieFile = xui_cookie_file_path();
     if (is_file($cookieFile)) {
         @unlink($cookieFile);
     }
@@ -373,7 +373,7 @@ function panel_login_cookie($code_panel)
 function login($code_panel, $verify = true)
 {
     $panel = select("marzban_panel", "*", "code_panel", $code_panel, "select");
-    $cookieFile = panel_cookie_path();
+    $cookieFile = xui_cookie_file_path();
     if ($panel['datelogin'] != null && $verify) {
         $date = json_decode($panel['datelogin'], true);
         if (isset($date['time'])) {
@@ -420,7 +420,7 @@ function get_clinets($username, $namepanel)
     $url = $base . "/panel/api/clients/get/" . rawurlencode($username);
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));
-    $req->setCookie(panel_cookie_path());
+    $req->setCookie(xui_cookie_file_path());
     $response = $req->get();
     $decodedBody = panel_xui_decode_json_body($response);
     if (isset($decodedBody['success']) && $decodedBody['success'] === false) {
@@ -504,8 +504,8 @@ function get_clinets($username, $namepanel)
         error_log(json_encode($response));
     }
 
-    if (is_file(panel_cookie_path())) {
-        @unlink(panel_cookie_path());
+    if (is_file(xui_cookie_file_path())) {
+        @unlink(xui_cookie_file_path());
     }
 
     return $response;
@@ -575,10 +575,10 @@ function addClient($namepanel, $usernameac, $Expire, $Total, $Uuid, $Flow, $subi
     $url = $base . '/panel/api/clients/add';
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));
-    $req->setCookie(panel_cookie_path());
+    $req->setCookie(xui_cookie_file_path());
     $response = $req->post($configpanel);
-    if (is_file(panel_cookie_path())) {
-        @unlink(panel_cookie_path());
+    if (is_file(xui_cookie_file_path())) {
+        @unlink(xui_cookie_file_path());
     }
     return $response;
 }
@@ -602,7 +602,7 @@ function updateClient($namepanel, $uuid, array $config)
     $base = panel_xui_api_base($marzban_list_get['url_panel']);
     $existingReq = new CurlRequest($base . '/panel/api/clients/get/' . rawurlencode($email));
     $existingReq->setHeaders(panel_xui_api_headers($marzban_list_get));
-    $existingReq->setCookie(panel_cookie_path());
+    $existingReq->setCookie(xui_cookie_file_path());
     $existingResp = $existingReq->get();
     $existingDecoded = panel_xui_decode_json_body($existingResp);
     $existingClient = panel_xui_extract_client_from_response($existingDecoded);
@@ -639,10 +639,10 @@ function updateClient($namepanel, $uuid, array $config)
     $url = $base . '/panel/api/clients/update/' . rawurlencode($email);
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));
-    $req->setCookie(panel_cookie_path());
+    $req->setCookie(xui_cookie_file_path());
     $response = $req->post($configpanel);
-    if (is_file(panel_cookie_path())) {
-        @unlink(panel_cookie_path());
+    if (is_file(xui_cookie_file_path())) {
+        @unlink(xui_cookie_file_path());
     }
     return $response;
 }
@@ -658,10 +658,10 @@ function ResetUserDataUsagex_uisin($usernamepanel, $namepanel)
     $url = $base . "/panel/api/clients/resetTraffic/" . rawurlencode($usernamepanel);
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));
-    $req->setCookie(panel_cookie_path());
+    $req->setCookie(xui_cookie_file_path());
     $response = $req->post(array());
-    if (is_file(panel_cookie_path())) {
-        @unlink(panel_cookie_path());
+    if (is_file(xui_cookie_file_path())) {
+        @unlink(xui_cookie_file_path());
     }
     return $response;
 }
@@ -677,10 +677,10 @@ function removeClient($location, $username)
     $url = $base . "/panel/api/clients/del/" . rawurlencode($username);
     $req = new CurlRequest($url);
     $req->setHeaders(panel_xui_api_headers($marzban_list_get));
-    $req->setCookie(panel_cookie_path());
+    $req->setCookie(xui_cookie_file_path());
     $response = $req->post(array());
-    if (is_file(panel_cookie_path())) {
-        @unlink(panel_cookie_path());
+    if (is_file(xui_cookie_file_path())) {
+        @unlink(xui_cookie_file_path());
     }
     return $response;
 }

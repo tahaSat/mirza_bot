@@ -137,6 +137,8 @@ function panel_enrich_services_usage(array $services): array
         return $services;
     }
 
+    @set_time_limit(120);
+
     try {
         panel_service_bootstrap();
     } catch (Throwable $e) {
@@ -150,8 +152,21 @@ function panel_enrich_services_usage(array $services): array
     }
 
     global $ManagePanel;
-    if (!isset($ManagePanel) || !is_object($ManagePanel)) {
-        $ManagePanel = new ManagePanel();
+    try {
+        if (!isset($ManagePanel) || !is_object($ManagePanel)) {
+            if (!class_exists('ManagePanel', false)) {
+                throw new RuntimeException('ManagePanel class missing after bootstrap');
+            }
+            $ManagePanel = new ManagePanel();
+        }
+    } catch (Throwable $e) {
+        error_log('panel_enrich_services_usage ManagePanel: ' . $e->getMessage());
+        foreach ($services as &$svc) {
+            $svc['usage_volume'] = '—';
+            $svc['usage_time'] = '—';
+        }
+        unset($svc);
+        return $services;
     }
 
     foreach ($services as &$svc) {

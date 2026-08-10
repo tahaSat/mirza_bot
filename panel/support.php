@@ -349,15 +349,6 @@ include __DIR__ . '/inc/layout_head.php';
                             <?php endforeach; ?>
                         </form>
                     </div>
-                    <?php if ($canReply): ?>
-                        <form method="POST" class="support-close-form support-close-form-head">
-                            <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-                            <input type="hidden" name="action" value="close">
-                            <input type="hidden" name="user_id" value="<?= htmlspecialchars($ticket['iduser']) ?>">
-                            <input type="hidden" name="tracking" value="<?= htmlspecialchars($replyTicket['Tracking']) ?>">
-                            <button class="btn btn-ghost btn-sm" type="submit"><span class="support-close-full">بستن گفتگو</span><span class="support-close-short">بستن</span></button>
-                        </form>
-                    <?php endif; ?>
                     <a class="support-back" href="<?= support_inbox_url(['user_id' => null]) ?>" title="بازگشت" aria-label="بازگشت"><?= icon('arrow-left', 16) ?><span class="support-back-label">بازگشت</span></a>
                 </div>
             </div>
@@ -415,13 +406,6 @@ include __DIR__ . '/inc/layout_head.php';
                             <span><?= icon('paperclip', 15) ?> <em>افزودن فایل</em></span>
                         </label>
                     </div>
-                </form>
-                <form method="POST" class="support-close-form support-close-form-foot">
-                    <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-                    <input type="hidden" name="action" value="close">
-                    <input type="hidden" name="user_id" value="<?= htmlspecialchars($ticket['iduser']) ?>">
-                    <input type="hidden" name="tracking" value="<?= htmlspecialchars($replyTicket['Tracking']) ?>">
-                    <button class="btn btn-ghost btn-sm" type="submit">بستن گفتگو</button>
                 </form>
             <?php endif; ?>
         <?php endif; ?>

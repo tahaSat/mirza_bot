@@ -233,7 +233,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $sql2 = "SELECT SUM(price_product) AS total_price FROM invoice WHERE (status = 'active' OR status = 'end_of_time' OR status = 'end_of_volume' OR status = 'sendedwarn' OR status = 'send_on_hold') AND name_product != 'سرویس تست'";
     $stmt2 = $pdo->query($sql2);
     $invoicesum = $stmt2->fetch(PDO::FETCH_ASSOC)['total_price'];
-    $sql33 = "SELECT SUM(price_product) AS total_price FROM invoice WHERE status!= 'Unpaid' AND name_product != 'سرویس تست'";
+    $sql33 = "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_price FROM Payment_report WHERE payment_Status = 'paid' AND Payment_Method NOT IN ('add balance by admin','low balance by admin')";
     $sql33 = $pdo->query($sql33);
     $invoiceSumRow = $sql33->fetch(PDO::FETCH_ASSOC);
     $invoiceTotal = isset($invoiceSumRow['total_price']) ? (float) $invoiceSumRow['total_price'] : 0;
@@ -257,12 +257,23 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $end_time = date('d.m.Y', strtotime("-1 days")) . " 23:59:59";
     $start_time_timestamp = strtotime($start_time);
     $end_time_timestamp = strtotime($end_time);
-    $sql = "SELECT SUM(price_product) FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND (status = 'active' OR status = 'end_of_time'  OR status = 'end_of_volume' OR Status = 'send_on_hold' OR Status = 'sendedwarn') AND name_product != 'سرویس تست'";
+    $sql = "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_price FROM Payment_report
+            WHERE payment_Status = 'paid'
+              AND Payment_Method NOT IN ('add balance by admin','low balance by admin')
+              AND (
+                (time REGEXP '^[0-9]{9,}$' AND CAST(time AS UNSIGNED) BETWEEN :requestedDate AND :requestedDateend)
+                OR (time NOT REGEXP '^[0-9]{9,}$' AND COALESCE(
+                      UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s')),
+                      UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
+                    ) BETWEEN :requestedDate2 AND :requestedDateend2)
+              )";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
+    $stmt->bindParam(':requestedDate2', $start_time_timestamp);
+    $stmt->bindParam(':requestedDateend2', $end_time_timestamp);
     $stmt->execute();
-    $suminvoiceday = $stmt->fetch(PDO::FETCH_ASSOC)['SUM(price_product)'];
+    $suminvoiceday = $stmt->fetch(PDO::FETCH_ASSOC)['total_price'];
     $invoicesum = (float) ($invoicesum ?? 0);
     $extendsum = (float) ($extendsum ?? 0);
     $suminvoiceday = (float) ($suminvoiceday ?? 0);
@@ -270,9 +281,9 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $statisticsorder = (int) ($statisticsorder ?? 0);
     $paycount = "";
     $ratecustomer = $statistics > 0 ? round(($statisticsorder / $statistics) * 100, 2) : 0;
-    $avgbuy_customer = $statisticsorder > 0 ? number_format($invoicesum / $statisticsorder) : '0';
+    $avgbuy_customer = $statisticsorder > 0 ? number_format($invoiceTotal / $statisticsorder) : '0';
     $monthe_buy = number_format($suminvoiceday * 30);
-    $percent_of_extend = $invoicesum > 0 ? round(($extendsum / $invoicesum) * 100, 2) : 0;
+    $percent_of_extend = $invoiceTotal > 0 ? round(($extendsum / $invoiceTotal) * 100, 2) : 0;
     $percent_of_extend = $percent_of_extend > 100 ? 100 : $percent_of_extend;
     $extendsum = number_format($extendsum, 0);
     if (count($statispay) != 0) {
@@ -306,7 +317,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
 
 🧾 <b>تعداد کل فروش:</b> <code>$invoice</code> عدد  
 🧾 <b>تعداد کل فروش سرویس های فعال:</b> <code>$invoiceactive</code> عدد  
-💵 <b>جمع کل فروش :</b> <code>$invoicesumall</code> تومان  
+💵 <b>جمع کل درآمد (پرداخت‌های موفق):</b> <code>$invoicesumall</code> تومان  
 💵 <b>جمع کل فروش سرویس های فعال:</b> <code>$invoicesum</code> تومان  
 🔄 <b>جمع کل تمدید:</b> <code>$extendsum</code> تومان  
 📈 <b>نرخ تبدیل به مشتری:</b> <code>$ratecustomer</code>٪  

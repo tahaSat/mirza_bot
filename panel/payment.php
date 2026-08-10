@@ -11,6 +11,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $orderId = trim($_POST['order_id'] ?? '');
     $redirect = 'payment.php?tab=' . ($tab === 'pending' ? 'pending' : 'list');
+    if ($tab !== 'pending') {
+        $qs = [];
+        if (!empty($_POST['q'])) {
+            $qs['q'] = trim((string) $_POST['q']);
+        }
+        if (!empty($_POST['status_filter'])) {
+            $qs['status'] = trim((string) $_POST['status_filter']);
+        }
+        if (!empty($_POST['page'])) {
+            $qs['page'] = (int) $_POST['page'];
+        }
+        if ($qs) {
+            $redirect = 'payment.php?' . http_build_query($qs);
+        }
+    }
 
     if ($action === 'confirm' && $orderId !== '') {
         $r = panel_payment_confirm($pdo, $orderId);
@@ -20,6 +35,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flash($r['ok'] ? 'success' : 'error', $r['msg']);
     } elseif ($action === 'dismiss' && $orderId !== '') {
         $r = panel_payment_dismiss($pdo, $orderId);
+        flash($r['ok'] ? 'success' : 'error', $r['msg']);
+    } elseif ($action === 'set_status' && $orderId !== '') {
+        $r = panel_payment_set_status(
+            $pdo,
+            $orderId,
+            (string) ($_POST['new_status'] ?? ''),
+            !empty($_POST['remove_product'])
+        );
         flash($r['ok'] ? 'success' : 'error', $r['msg']);
     } elseif ($action === 'reject_all') {
         db_query(
@@ -171,13 +194,13 @@ include __DIR__ . '/inc/layout_head.php';
           <th>روش پرداخت</th>
           <th>تاریخ</th>
           <th>وضعیت</th>
-          <?php if ($tab === 'pending'): ?><th>عملیات</th><?php endif; ?>
+          <th>عملیات</th>
         </tr>
       </thead>
       <tbody>
         <?php if (empty($payments)): ?>
           <tr>
-            <td colspan="<?= $tab === 'pending' ? 8 : 7 ?>">
+            <td colspan="8">
               <div class="empty">
                 <div class="empty-mark">—</div>
                 <p><?= $tab === 'pending' ? 'رسید در انتظاری نیست' : 'تراکنشی یافت نشد' ?></p>
@@ -191,6 +214,7 @@ include __DIR__ . '/inc/layout_head.php';
             [$cls, $lbl] = $statusMap[$st] ?? ['tag-plain', $st ?: '—'];
             $method = panel_payment_method_label($p['Payment_Method'] ?? '');
             $oid = $p['id_order'] ?? '';
+            $hasProduct = strncmp((string) ($p['id_invoice'] ?? ''), 'getconfigafterpay|', 18) === 0;
             ?>
             <tr>
               <td style="color:var(--text-dim)"><?= $i++ ?></td>
@@ -209,8 +233,8 @@ include __DIR__ . '/inc/layout_head.php';
                 <?= safe_date($p['time'] ?? null, 'Y/m/d H:i') ?>
               </td>
               <td><span class="tag <?= $cls ?>"><?= $lbl ?></span></td>
-              <?php if ($tab === 'pending'): ?>
               <td>
+                <?php if ($tab === 'pending'): ?>
                 <div style="display:flex;gap:6px;flex-wrap:wrap">
                   <form method="POST" style="display:inline">
                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
@@ -227,8 +251,15 @@ include __DIR__ . '/inc/layout_head.php';
                     <button type="submit" class="btn btn-ghost btn-sm">حذف</button>
                   </form>
                 </div>
+                <?php else: ?>
+                <button type="button" class="btn btn-ghost btn-sm"
+                  onclick="openStatusModal(
+                    '<?= htmlspecialchars($oid, ENT_QUOTES) ?>',
+                    '<?= htmlspecialchars($st, ENT_QUOTES) ?>',
+                    <?= $hasProduct ? 'true' : 'false' ?>
+                  )">تغییر وضعیت</button>
+                <?php endif; ?>
               </td>
-              <?php endif; ?>
             </tr>
           <?php endforeach; endif; ?>
       </tbody>
@@ -277,6 +308,72 @@ function openRejectModal(orderId) {
   document.getElementById('rejectOrderId').value = orderId;
   openModal('rejectModal');
 }
+</script>
+<?php else: ?>
+<div class="modal-veil" id="statusModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>تغییر وضعیت پرداخت</h3>
+      <button type="button" class="modal-x" onclick="closeModal('statusModal')"><?= icon('close', 14) ?></button>
+    </div>
+    <form method="POST" id="statusForm">
+      <div class="modal-body">
+        <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+        <input type="hidden" name="action" value="set_status">
+        <input type="hidden" name="order_id" id="statusOrderId" value="">
+        <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
+        <input type="hidden" name="status_filter" value="<?= htmlspecialchars($status) ?>">
+        <input type="hidden" name="page" value="<?= (int) $page ?>">
+        <div class="field" style="margin-bottom:14px">
+          <label class="lbl">وضعیت جدید</label>
+          <select name="new_status" id="statusNewSelect" class="select" style="width:100%">
+            <?php foreach ($statusMap as $k => [$_, $lbl]): ?>
+              <option value="<?= htmlspecialchars($k) ?>"><?= htmlspecialchars($lbl) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div id="removeProductWrap" style="display:none">
+          <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
+            <input type="checkbox" name="remove_product" id="removeProductCheck" value="1" style="width:16px;height:16px;margin-top:3px">
+            <span>سرویس ساخته‌شده برای این پرداخت هم حذف شود؟</span>
+          </label>
+          <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
+            فقط برای خرید سرویس (نه تمدید/شارژ کیف پول). در صورت انتخاب، سرویس از پنل و ربات حذف می‌شود.
+          </p>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="submit" class="btn btn-primary">ذخیره وضعیت</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('statusModal')">انصراف</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+(function () {
+  var currentStatus = '';
+  var hasProduct = false;
+  var selectEl = document.getElementById('statusNewSelect');
+  var wrap = document.getElementById('removeProductWrap');
+  var check = document.getElementById('removeProductCheck');
+
+  function syncRemovePrompt() {
+    var show = hasProduct && currentStatus === 'paid' && selectEl.value === 'reject';
+    wrap.style.display = show ? 'block' : 'none';
+    if (!show) check.checked = false;
+  }
+
+  window.openStatusModal = function (orderId, status, product) {
+    currentStatus = status || '';
+    hasProduct = !!product;
+    document.getElementById('statusOrderId').value = orderId;
+    selectEl.value = currentStatus;
+    syncRemovePrompt();
+    openModal('statusModal');
+  };
+
+  selectEl.addEventListener('change', syncRemovePrompt);
+})();
 </script>
 <?php endif; ?>
 

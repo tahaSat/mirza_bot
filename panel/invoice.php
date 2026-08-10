@@ -17,6 +17,32 @@ $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 30;
 $offset = ($page - 1) * $perPage;
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  csrf_check_post();
+  $action = $_POST['action'] ?? '';
+  $orderId = trim($_POST['order_id'] ?? '');
+  $redirectQs = [
+    'tab' => 'payments',
+    'q' => trim((string) ($_POST['q'] ?? $search)),
+    'status' => trim((string) ($_POST['status_filter'] ?? $status)),
+    'service_type' => trim((string) ($_POST['service_type'] ?? $serviceType)),
+    'from' => trim((string) ($_POST['from'] ?? $fromDateTime)),
+    'to' => trim((string) ($_POST['to'] ?? $toDateTime)),
+    'page' => (int) ($_POST['page'] ?? $page),
+  ];
+  if ($action === 'set_status' && $orderId !== '') {
+    $r = panel_payment_set_status(
+      $pdo,
+      $orderId,
+      (string) ($_POST['new_status'] ?? ''),
+      !empty($_POST['remove_product'])
+    );
+    flash($r['ok'] ? 'success' : 'error', $r['msg']);
+  }
+  header('Location: invoice.php?' . http_build_query(array_filter($redirectQs, static fn($v) => $v !== '' && $v !== 0)));
+  exit;
+}
+
 /**
  * Convert a Jalali date entered in Tehran local time to a UTC Unix timestamp.
  * Unix timestamps are timezone-neutral, so this can be compared directly with
@@ -299,6 +325,7 @@ include __DIR__ . '/inc/layout_head.php';
           <th>مبلغ</th>
           <th>تاریخ</th>
           <th>وضعیت</th>
+          <th>عملیات</th>
         </tr>
         <?php else: ?>
         <tr>
@@ -315,7 +342,7 @@ include __DIR__ . '/inc/layout_head.php';
       <tbody>
         <?php if (empty($invoices)): ?>
           <tr>
-            <td colspan="<?= $tab === 'payments' ? 8 : 7 ?>">
+            <td colspan="<?= $tab === 'payments' ? 9 : 7 ?>">
               <div class="empty">
                 <svg class="ill" viewBox="0 0 160 120" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <rect x="30" y="15" width="100" height="90" rx="8" fill="var(--sf3)" />
@@ -340,6 +367,10 @@ include __DIR__ . '/inc/layout_head.php';
             $typeLabel = $activeServiceTypeMap[$inv['service_type'] ?? ''] ?? ($inv['service_type'] ?? '—');
             ?>
             <?php if ($tab === 'payments'): ?>
+            <?php
+              $oid = (string) ($inv['id_order'] ?? '');
+              $hasProduct = ($inv['service_type'] ?? '') === 'order';
+            ?>
             <tr>
               <td class="cf"><?= $i++ ?></td>
               <td class="cm">
@@ -347,7 +378,7 @@ include __DIR__ . '/inc/layout_head.php';
                   <?= htmlspecialchars($inv['id_user'] ?? '—') ?>
                 </a>
               </td>
-              <td class="cm" style="font-size:.78rem"><?= htmlspecialchars(trunc((string) ($inv['id_order'] ?? '—'), 22)) ?></td>
+              <td class="cm" style="font-size:.78rem"><?= htmlspecialchars(trunc($oid !== '' ? $oid : '—', 22)) ?></td>
               <td style="font-size:.82rem;color:var(--text2)"><?= htmlspecialchars($typeLabel) ?></td>
               <td style="font-size:.8rem"><?= htmlspecialchars(panel_payment_method_label($inv['payment_method'] ?? '')) ?></td>
               <td class="cn cs"><?= number_format((int) ($inv['price'] ?? 0)) ?> <span class="cf">ت</span></td>
@@ -357,6 +388,14 @@ include __DIR__ . '/inc/layout_head.php';
                   : '—' ?>
               </td>
               <td><span class="tag <?= $cls ?>"><?= $lbl ?></span></td>
+              <td>
+                <button type="button" class="btn btn-ghost btn-sm"
+                  onclick="openStatusModal(
+                    '<?= htmlspecialchars($oid, ENT_QUOTES) ?>',
+                    '<?= htmlspecialchars($st, ENT_QUOTES) ?>',
+                    <?= $hasProduct ? 'true' : 'false' ?>
+                  )">تغییر وضعیت</button>
+              </td>
             </tr>
             <?php else: ?>
             <tr>
@@ -432,5 +471,76 @@ include __DIR__ . '/inc/layout_head.php';
     });
   });
 </script>
+
+<?php if ($tab === 'payments'): ?>
+<div class="modal-veil" id="statusModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>تغییر وضعیت پرداخت</h3>
+      <button type="button" class="modal-x" onclick="closeModal('statusModal')"><?= icon('close', 14) ?></button>
+    </div>
+    <form method="POST" id="statusForm">
+      <div class="modal-body">
+        <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+        <input type="hidden" name="action" value="set_status">
+        <input type="hidden" name="order_id" id="statusOrderId" value="">
+        <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
+        <input type="hidden" name="status_filter" value="<?= htmlspecialchars($status) ?>">
+        <input type="hidden" name="service_type" value="<?= htmlspecialchars($serviceType) ?>">
+        <input type="hidden" name="from" value="<?= htmlspecialchars($fromDateTime) ?>">
+        <input type="hidden" name="to" value="<?= htmlspecialchars($toDateTime) ?>">
+        <input type="hidden" name="page" value="<?= (int) $page ?>">
+        <div class="field" style="margin-bottom:14px">
+          <label class="lbl">وضعیت جدید</label>
+          <select name="new_status" id="statusNewSelect" class="select" style="width:100%">
+            <?php foreach ($paymentStatusMap as $k => [$_, $lbl]): ?>
+              <option value="<?= htmlspecialchars($k) ?>"><?= htmlspecialchars($lbl) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div id="removeProductWrap" style="display:none">
+          <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
+            <input type="checkbox" name="remove_product" id="removeProductCheck" value="1" style="width:16px;height:16px;margin-top:3px">
+            <span>سرویس ساخته‌شده برای این پرداخت هم حذف شود؟</span>
+          </label>
+          <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
+            فقط برای خرید سرویس. در صورت انتخاب، سرویس از پنل و ربات حذف می‌شود.
+          </p>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="submit" class="btn btn-primary">ذخیره وضعیت</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('statusModal')">انصراف</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+(function () {
+  var currentStatus = '';
+  var hasProduct = false;
+  var selectEl = document.getElementById('statusNewSelect');
+  var wrap = document.getElementById('removeProductWrap');
+  var check = document.getElementById('removeProductCheck');
+
+  function syncRemovePrompt() {
+    var show = hasProduct && currentStatus === 'paid' && selectEl.value === 'reject';
+    wrap.style.display = show ? 'block' : 'none';
+    if (!show) check.checked = false;
+  }
+
+  window.openStatusModal = function (orderId, status, product) {
+    currentStatus = status || '';
+    hasProduct = !!product;
+    document.getElementById('statusOrderId').value = orderId;
+    selectEl.value = currentStatus;
+    syncRemovePrompt();
+    openModal('statusModal');
+  };
+
+  selectEl.addEventListener('change', syncRemovePrompt);
+})();
+</script>
+<?php endif; ?>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

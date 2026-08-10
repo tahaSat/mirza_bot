@@ -450,6 +450,97 @@ function panel_payment_dismiss(PDO $pdo, string $orderId): array
     return ['ok' => true, 'msg' => 'رسید حذف شد (بدون اطلاع کاربر).'];
 }
 
+/** Allowed payment_Status values for admin updates. */
+function panel_payment_status_values(): array
+{
+    return ['paid', 'Unpaid', 'waiting', 'reject', 'expire'];
+}
+
+/**
+ * Invoice created by a purchase payment (getconfigafterpay|username), if any.
+ *
+ * @return array|null
+ */
+function panel_payment_linked_invoice(PDO $pdo, array $payment): ?array
+{
+    $parts = explode('|', (string) ($payment['id_invoice'] ?? ''), 2);
+    if (($parts[0] ?? '') !== 'getconfigafterpay' || ($parts[1] ?? '') === '') {
+        return null;
+    }
+    $invoice = db_fetch($pdo, 'SELECT * FROM invoice WHERE username = ? LIMIT 1', [$parts[1]]);
+    return $invoice ?: null;
+}
+
+function panel_payment_is_wallet(array $payment): bool
+{
+    $prefix = explode('|', (string) ($payment['id_invoice'] ?? ''), 2)[0] ?? '';
+    return !in_array($prefix, ['getconfigafterpay', 'getextenduser', 'getextravolumeuser', 'getextratimeuser'], true);
+}
+
+/**
+ * Manually change a payment status (e.g. paid → reject).
+ * When leaving paid for a purchase payment, optionally remove the created service.
+ *
+ * @return array{ok:bool,msg:string}
+ */
+function panel_payment_set_status(PDO $pdo, string $orderId, string $newStatus, bool $removeProduct = false): array
+{
+    $newStatus = trim($newStatus);
+    if (!in_array($newStatus, panel_payment_status_values(), true)) {
+        return ['ok' => false, 'msg' => 'وضعیت نامعتبر است.'];
+    }
+
+    $payment = db_fetch($pdo, 'SELECT * FROM Payment_report WHERE id_order = ?', [$orderId]);
+    if (!$payment) {
+        return ['ok' => false, 'msg' => 'تراکنش یافت نشد.'];
+    }
+
+    $oldStatus = (string) ($payment['payment_Status'] ?? '');
+    if ($oldStatus === $newStatus) {
+        return ['ok' => true, 'msg' => 'وضعیت تغییری نکرد.'];
+    }
+
+    db_query($pdo, 'UPDATE Payment_report SET payment_Status = ? WHERE id_order = ?', [$newStatus, $orderId]);
+
+    $notes = [];
+    $wasPaid = $oldStatus === 'paid';
+    $leavingPaid = $wasPaid && $newStatus !== 'paid';
+
+    if ($leavingPaid && panel_payment_is_wallet($payment)) {
+        $price = (int) ($payment['price'] ?? 0);
+        if ($price > 0 && !in_array((string) ($payment['Payment_Method'] ?? ''), ['add balance by admin', 'low balance by admin'], true)) {
+            db_query($pdo, 'UPDATE user SET Balance = GREATEST(0, CAST(Balance AS SIGNED) - ?) WHERE id = ?', [$price, $payment['id_user']]);
+            $notes[] = 'مبلغ از کیف پول کاربر کسر شد.';
+        }
+    }
+
+    if ($leavingPaid && $removeProduct) {
+        $invoice = panel_payment_linked_invoice($pdo, $payment);
+        if ($invoice) {
+            require_once __DIR__ . '/users_lib.php';
+            $removed = panel_remove_user_service($pdo, (string) $invoice['id_invoice'], $invoice['id_user'], false);
+            $notes[] = $removed['ok']
+                ? 'سرویس مرتبط حذف شد.'
+                : ('حذف سرویس: ' . $removed['msg']);
+        } else {
+            $notes[] = 'سرویس مرتبطی برای حذف یافت نشد.';
+        }
+    }
+
+    $statusLabels = [
+        'paid' => 'پرداخت شده',
+        'Unpaid' => 'پرداخت نشده',
+        'waiting' => 'در انتظار تأیید',
+        'reject' => 'رد شده',
+        'expire' => 'منقضی',
+    ];
+    $msg = 'وضعیت پرداخت به «' . ($statusLabels[$newStatus] ?? $newStatus) . '» تغییر کرد.';
+    if ($notes) {
+        $msg .= ' ' . implode(' ', $notes);
+    }
+    return ['ok' => true, 'msg' => $msg];
+}
+
 function panel_payment_method_label(string $method): string
 {
     $map = [

@@ -104,7 +104,6 @@ include __DIR__ . '/inc/layout_head.php';
                     <th>یوزرنیم</th>
                     <th>نقش</th>
                     <th>موجودی</th>
-                    <th>حجم باقیمانده</th>
                     <th>قیمت هر گیگ</th>
                     <th>ربات فروش</th>
                     <th>انقضا</th>
@@ -114,7 +113,7 @@ include __DIR__ . '/inc/layout_head.php';
             <tbody>
                 <?php if (empty($agents)): ?>
                     <tr>
-                        <td colspan="10">
+                        <td colspan="9">
                             <div class="empty" style="padding:36px"><p>نماینده‌ای یافت نشد</p></div>
                         </td>
                     </tr>
@@ -124,20 +123,19 @@ include __DIR__ . '/inc/layout_head.php';
                         $rowNum++;
                         $uid = (int) $a['id'];
                         $uname = ($a['username'] ?? '') === 'none' ? '' : ($a['username'] ?? '');
-                        $vol = (int) ($a['agent_volume_remaining'] ?? 0);
                         $ppg = (int) ($a['agent_price_per_gb'] ?? 0);
                         $hasBot = !empty($a['bot_username']);
                         $expire = $a['expire'] ?? null;
                         $expireLabel = $expire ? date('Y/m/d', (int) $expire) : '—';
+                        $roleAgent = $a['agent'] ?? 'f';
                         ?>
                         <tr>
                             <td class="cf"><?= $rowNum ?></td>
                             <td><span class="cm"><?= $uid ?></span></td>
                             <td><?= $uname ? '@' . htmlspecialchars($uname) : '—' ?></td>
-                            <td><span class="tag <?= user_role_tag($a['agent'] ?? 'f') ?>"><?= user_role_label($a['agent'] ?? 'f') ?></span></td>
+                            <td><span class="tag <?= user_role_tag($roleAgent) ?>"><?= user_role_label($roleAgent) ?></span></td>
                             <td><?= number_format((int) ($a['Balance'] ?? 0)) ?></td>
-                            <td><?= number_format($vol) ?> GB</td>
-                            <td><?= number_format($ppg) ?></td>
+                            <td><?= $roleAgent === 'n2' ? '—' : number_format($ppg) ?></td>
                             <td>
                                 <?php if ($hasBot): ?>
                                     <span class="tag tag-ok">@<?= htmlspecialchars($a['bot_username']) ?></span>

@@ -652,7 +652,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
                 sendmessage($from_id, "🛍️ لطفاً سرویسی که می‌خواهید خریداری کنید را انتخاب کنید!", $prodcut, 'HTML');
                 return;
             } else {
-                $nullproduct = (agent_is_n2($userbot['agent'] ?? 'f') ? count(agent_n2_list_products($dataBase['id_user'])) : select("product", "*", "agent", $userbot['agent'], "count"));
+                $nullproduct = (agent_uses_category_whitelist($userbot['agent'] ?? 'f') ? count(agent_n2_list_products($dataBase['id_user'])) : select("product", "*", "agent", $userbot['agent'], "count"));
                 if ($nullproduct == 0) {
                     sendmessage($from_id, $textbotlang['Admin']['Product']['nullpProduct'], null, 'HTML');
                     return;
@@ -730,7 +730,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
             $prodcut = KeyboardProduct($locationproduct['name_panel'], $query, 0, $keyboarddata, $statuscustom, "backuser", null, $customvolume = "customvolumebuy");
             Editmessagetext($from_id, $message_id, "🛍️ لطفاً سرویسی که می‌خواهید خریداری کنید را انتخاب کنید!", $prodcut, 'HTML');
         } else {
-            $nullproduct = (agent_is_n2($userbot['agent'] ?? 'f') ? count(agent_n2_list_products($dataBase['id_user'])) : select("product", "*", "agent", $userbot['agent'], "count"));
+            $nullproduct = (agent_uses_category_whitelist($userbot['agent'] ?? 'f') ? count(agent_n2_list_products($dataBase['id_user'])) : select("product", "*", "agent", $userbot['agent'], "count"));
             if ($nullproduct == 0) {
                 sendmessage($from_id, $textbotlang['Admin']['Product']['nullpProduct'], null, 'HTML');
                 return;
@@ -1002,17 +1002,14 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $botbalance = select("botsaz", "*", "bot_token", $ApiToken, "select");
     $userbotbalance = select("user", "*", "id", $botbalance['id_user'], "select");
     $agentVolumeGb = (int) $datafactor['Volume_constraint'];
-    if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
+    if (agent_uses_category_whitelist($userbotbalance['agent'] ?? 'f')) {
         $n2Code = $datafactor['code_product'] ?? '';
         $n2Cat = category_from_processing($userdate ?? []);
         $n2CatRemark = is_array($n2Cat) ? ($n2Cat['remark'] ?? '') : '';
-        $n2Allowed = false;
-        if ($n2CatRemark !== '' && agent_n2_category_enabled($botbalance['id_user'], $n2CatRemark)) {
-            $n2Allowed = true;
-        } elseif ($n2Code !== 'customvolume' && agent_n2_product_enabled($botbalance['id_user'], $n2Code, $n2CatRemark)) {
-            $n2Allowed = true;
+        if ($n2CatRemark === '' && !empty($datafactor['category'])) {
+            $n2CatRemark = (string) $datafactor['category'];
         }
-        if (!$n2Allowed) {
+        if (!agent_category_purchase_allowed($botbalance['id_user'], $n2Code, $n2CatRemark)) {
             sendmessage($from_id, "❌ این محصول / دسته‌بندی برای نمایندگی فعال نیست.", $keyboard, 'HTML');
             step("home", $from_id);
             return;
@@ -1813,17 +1810,14 @@ $output
     $botbalance = select("botsaz", "*", "bot_token", $ApiToken, "select");
     $userbotbalance = select("user", "*", "id", $botbalance['id_user'], "select");
     $agentVolumeGb = (int) $datafactor['Volume_constraint'];
-    if (agent_is_n2($userbotbalance['agent'] ?? 'f')) {
+    if (agent_uses_category_whitelist($userbotbalance['agent'] ?? 'f')) {
         $n2Code = $datafactor['code_product'] ?? '';
         $n2Cat = category_from_processing($userdate ?? []);
         $n2CatRemark = is_array($n2Cat) ? ($n2Cat['remark'] ?? '') : '';
-        $n2Allowed = false;
-        if ($n2CatRemark !== '' && agent_n2_category_enabled($botbalance['id_user'], $n2CatRemark)) {
-            $n2Allowed = true;
-        } elseif ($n2Code !== 'customvolume' && agent_n2_product_enabled($botbalance['id_user'], $n2Code, $n2CatRemark)) {
-            $n2Allowed = true;
+        if ($n2CatRemark === '' && !empty($datafactor['category'])) {
+            $n2CatRemark = (string) $datafactor['category'];
         }
-        if (!$n2Allowed) {
+        if (!agent_category_purchase_allowed($botbalance['id_user'], $n2Code, $n2CatRemark)) {
             sendmessage($from_id, "❌ این محصول / دسته‌بندی برای نمایندگی فعال نیست.", $keyboard, 'HTML');
             step("home", $from_id);
             return;

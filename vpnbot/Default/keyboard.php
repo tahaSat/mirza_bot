@@ -235,7 +235,7 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
 {
     global $pdo, $textbotlang, $from_id, $botinfo;
     $uid = $agentUserId;
-    if ($uid === null && agent_is_n2($agent) && !empty($botinfo['id_user'])) {
+    if ($uid === null && agent_uses_category_whitelist($agent) && !empty($botinfo['id_user'])) {
         $uid = $botinfo['id_user'];
     }
     if ($uid === null) {

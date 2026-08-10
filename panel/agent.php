@@ -55,11 +55,14 @@ $expire = $user['expire'] ?? null;
 $expireLabel = $expire ? date('Y/m/d H:i', (int) $expire) : 'بدون انقضا';
 
 $isN2 = ($agent === 'n2');
+$usesCategoryWhitelist = function_exists('agent_uses_category_whitelist')
+    ? agent_uses_category_whitelist($agent)
+    : in_array($agent, ['n', 'n2'], true);
 $volumeConsumed = agent_is_reseller($agent) ? agent_sum_volume_consumed($id, $agent) : 0.0;
 $allCategories = [];
 $enabledCategories = [];
 $n2Purchases = [];
-if ($isN2) {
+if ($usesCategoryWhitelist) {
     agent_ensure_n2_tables();
     try {
         $allCategories = db_fetchAll($pdo, 'SELECT id, remark FROM category ORDER BY remark ASC');
@@ -76,6 +79,8 @@ if ($isN2) {
         }
     } catch (Exception $e) {
     }
+}
+if ($isN2) {
     try {
         $agentIdKey = function_exists('agent_n2_agent_id') ? agent_n2_agent_id($id) : (string) $id;
         $n2Purchases = db_fetchAll($pdo, 'SELECT * FROM agent_n2_purchase WHERE agent_id = ? OR agent_id = ? ORDER BY created_at DESC LIMIT 100', [$agentIdKey, (string) $id]);
@@ -108,12 +113,12 @@ include __DIR__ . '/inc/layout_head.php';
         <div class="stat-num"><?= number_format($balance) ?><small>ت</small></div>
     </div>
     <div class="stat">
-        <div class="stat-label">حجم باقیمانده</div>
-        <div class="stat-num"><?= number_format($volRemaining) ?><small>GB</small></div>
-    </div>
-    <div class="stat">
         <div class="stat-label">قیمت هر گیگ</div>
         <div class="stat-num"><?= number_format($pricePerGb) ?><small>ت</small></div>
+    </div>
+    <div class="stat">
+        <div class="stat-label">دسته‌های فعال</div>
+        <div class="stat-num"><?= number_format(count($enabledCategories)) ?></div>
     </div>
     <?php else: ?>
     <div class="stat">
@@ -167,30 +172,9 @@ include __DIR__ . '/inc/layout_head.php';
 
     <?php if (!$isN2): ?>
     <div class="card">
-        <div class="card-head"><strong>سهمیه حجم و قیمت</strong></div>
+        <div class="card-head"><strong>قیمت هر گیگ (پرداخت به‌ازای مصرف)</strong></div>
         <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
-            <form method="POST" action="agent_action.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
-                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-                <input type="hidden" name="action" value="set_volume_remaining">
-                <input type="hidden" name="id" value="<?= $id ?>">
-                <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
-                <div class="field" style="flex:1;margin:0">
-                    <label>تنظیم حجم باقیمانده (GB)</label>
-                    <input type="number" name="volume" class="input" min="0" value="<?= $volRemaining ?>" required>
-                </div>
-                <button type="submit" class="btn btn-primary btn-sm">تنظیم</button>
-            </form>
-            <form method="POST" action="agent_action.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
-                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-                <input type="hidden" name="action" value="add_volume">
-                <input type="hidden" name="id" value="<?= $id ?>">
-                <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
-                <div class="field" style="flex:1;margin:0">
-                    <label>افزودن حجم (GB)</label>
-                    <input type="number" name="volume" class="input" min="1" value="10" required>
-                </div>
-                <button type="submit" class="btn btn-ok btn-sm">افزودن</button>
-            </form>
+            <p class="cf" style="margin:0">هزینه خرید = حجم سرویس (GB) × قیمت هر گیگ؛ از کیف پول کسر می‌شود.</p>
             <form method="POST" action="agent_action.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                 <input type="hidden" name="action" value="set_price_per_gb">
@@ -206,30 +190,40 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
 
     <div class="card">
+        <div class="card-head"><strong>موجودی کیف پول</strong></div>
+        <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+            <button type="button" class="btn btn-ok btn-sm" onclick="openModal('addBalModal')">افزایش موجودی</button>
+            <button type="button" class="btn btn-no btn-sm" onclick="openModal('lowBalModal')">کسر موجودی</button>
+        </div>
+    </div>
+    <?php else: ?>
+    <div class="card">
         <div class="card-head"><strong>موجودی و سقف خرید</strong></div>
         <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
             <button type="button" class="btn btn-ok btn-sm" onclick="openModal('addBalModal')">افزایش موجودی</button>
             <button type="button" class="btn btn-no btn-sm" onclick="openModal('lowBalModal')">کسر موجودی</button>
-            <?php if ($agent === 'n2'): ?>
-                <form method="POST" action="agent_action.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
-                    <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-                    <input type="hidden" name="action" value="set_max_buy">
-                    <input type="hidden" name="id" value="<?= $id ?>">
-                    <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
-                    <div class="field" style="flex:1;margin:0">
-                        <label>سقف خرید منفی (۰ = نامحدود)</label>
-                        <input type="number" name="max" class="input" min="0" value="<?= $maxBuy ?>" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-sm">ذخیره</button>
-                </form>
-            <?php endif; ?>
+            <form method="POST" action="agent_action.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="set_max_buy">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
+                <div class="field" style="flex:1;margin:0">
+                    <label>سقف خرید منفی (۰ = نامحدود)</label>
+                    <input type="number" name="max" class="input" min="0" value="<?= $maxBuy ?>" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">ذخیره</button>
+            </form>
         </div>
     </div>
-    <?php else: ?>
+    <?php endif; ?>
+
+    <?php if ($usesCategoryWhitelist): ?>
     <div class="card" style="grid-column:1/-1">
-        <div class="card-head"><strong>دسته‌بندی‌های مجاز نماینده پیشرفته</strong></div>
+        <div class="card-head"><strong>دسته‌بندی‌های مجاز<?= $isN2 ? ' نماینده پیشرفته' : ' نماینده' ?></strong></div>
         <div style="padding:16px">
-            <p class="cf" style="margin-bottom:12px">دسته‌هایی که این نماینده می‌تواند ببیند و از محصولات داخلشان (بدون اعتبار) بخرد را فعال کنید. در ربات، اول دسته و بعد محصولات همان دسته نمایش داده می‌شود.</p>
+            <p class="cf" style="margin-bottom:12px"><?= $isN2
+                ? 'دسته‌هایی که این نماینده می‌تواند ببیند و از محصولات داخلشان (بدون اعتبار) بخرد را فعال کنید. در ربات، اول دسته و بعد محصولات همان دسته نمایش داده می‌شود.'
+                : 'دسته‌هایی که این نماینده می‌تواند ببیند و از محصولات داخلشان بخرد را فعال کنید. هزینه هر خرید از کیف پول با قیمت هر گیگ محاسبه می‌شود.' ?></p>
             <form method="POST" action="agent_action.php">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                 <input type="hidden" name="action" value="set_n2_categories">
@@ -255,7 +249,9 @@ include __DIR__ . '/inc/layout_head.php';
             </form>
         </div>
     </div>
+    <?php endif; ?>
 
+    <?php if ($isN2): ?>
     <div class="card" style="grid-column:1/-1">
         <div class="card-head"><strong>لیست خریدهای نماینده</strong></div>
         <div style="padding:16px;overflow:auto">

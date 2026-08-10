@@ -273,8 +273,8 @@ switch ($action) {
         break;
 
     case 'set_n2_categories':
-        if (($user['agent'] ?? '') !== 'n2') {
-            flash('error', 'این عملیات فقط برای نماینده پیشرفته است.');
+        if (!agent_uses_category_whitelist($user['agent'] ?? 'f')) {
+            flash('error', 'این عملیات فقط برای نمایندگان گروه n و n2 است.');
             break;
         }
         agent_ensure_n2_tables();
@@ -297,8 +297,8 @@ switch ($action) {
 
     case 'set_n2_products':
         // legacy action kept for old forms — convert to categories of selected products
-        if (($user['agent'] ?? '') !== 'n2') {
-            flash('error', 'این عملیات فقط برای نماینده پیشرفته است.');
+        if (!agent_uses_category_whitelist($user['agent'] ?? 'f')) {
+            flash('error', 'این عملیات فقط برای نمایندگان گروه n و n2 است.');
             break;
         }
         agent_ensure_n2_tables();

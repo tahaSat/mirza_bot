@@ -4315,6 +4315,14 @@ function agent_is_n2($agent): bool
 }
 
 /**
+ * Roles that buy only from panel-assigned category whitelist (n and n2).
+ */
+function agent_uses_category_whitelist($agent): bool
+{
+    return in_array((string) $agent, ['n', 'n2'], true);
+}
+
+/**
  * Total GB volume used when creating volumetric services (from invoices).
  */
 function agent_sum_volume_created($agentUserId): float
@@ -4360,13 +4368,13 @@ function agent_sum_volume_consumed($agentUserId, $agent = null): float
 
 /**
  * SQL fragment restricting products by role.
- * n2: products whose category is enabled for the agent (any catalog product.agent).
+ * n / n2: products whose category is enabled for the agent (any catalog product.agent).
  * others: product.agent = role.
  */
 function agent_product_access_sql($agent, $agentUserId): string
 {
     agent_ensure_n2_tables();
-    if (agent_is_n2($agent)) {
+    if (agent_uses_category_whitelist($agent)) {
         $aid = preg_replace('/\D/', '', (string) $agentUserId);
         if ($aid === '') {
             return '0=1';
@@ -4573,7 +4581,35 @@ function getUsersHighVolumeUsage($percent = 80, $agent = 'all', $panelName = 'al
 }
 
 /**
+ * True if this product/category is allowed for an agent with category whitelist (n / n2).
+ */
+function agent_category_purchase_allowed($agentUserId, $codeProduct, $categoryRemark = ''): bool
+{
+    $categoryRemark = trim((string) $categoryRemark);
+    if ($categoryRemark !== '' && agent_n2_category_enabled($agentUserId, $categoryRemark)) {
+        return true;
+    }
+    $codeProduct = (string) ($codeProduct ?? '');
+    if ($codeProduct !== '' && $codeProduct !== 'customvolume' && agent_n2_product_enabled($agentUserId, $codeProduct, $categoryRemark)) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Wholesale cost for group-n pay-as-you-go: volume_GB × agent_price_per_gb.
+ */
+function agent_wholesale_cost($user, $volumeGb): int
+{
+    $volumeGb = (int) $volumeGb;
+    $pricePerGb = (int) ($user['agent_price_per_gb'] ?? 0);
+    return max(0, $volumeGb) * max(0, $pricePerGb);
+}
+
+/**
  * Pre-check whether an agent can create the given GB volume.
+ * n: pay-as-you-go — Balance >= GB × agent_price_per_gb (no volume quota).
+ * n2: skips billing (category whitelist enforced separately).
  * Returns ['ok' => bool, 'msg' => string, 'cost' => int, 'user' => array|null]
  */
 function agent_check_volume_quota($agentUserId, $volumeGb): array
@@ -4604,18 +4640,7 @@ function agent_check_volume_quota($agentUserId, $volumeGb): array
             'skipped' => false,
         ];
     }
-    $remaining = (int) ($user['agent_volume_remaining'] ?? 0);
-    if ($remaining < $volumeGb) {
-        return [
-            'ok' => false,
-            'msg' => "❌ سهمیه حجم نمایندگی کافی نیست.\nباقیمانده: {$remaining} گیگ | درخواستی: {$volumeGb} گیگ",
-            'cost' => 0,
-            'user' => $user,
-            'skipped' => false,
-        ];
-    }
-    $pricePerGb = (int) ($user['agent_price_per_gb'] ?? 0);
-    $cost = $volumeGb * $pricePerGb;
+    $cost = agent_wholesale_cost($user, $volumeGb);
     $balance = (int) ($user['Balance'] ?? 0);
     if ($cost > $balance) {
         return [
@@ -4630,9 +4655,9 @@ function agent_check_volume_quota($agentUserId, $volumeGb): array
 }
 
 /**
- * Deduct GB quota and wholesale cost from agent after a successful create.
+ * Deduct wholesale cost from agent Balance after a successful create (pay-as-you-go).
  * Call agent_check_volume_quota first; this re-checks and updates.
- * n2 agents skip billing (skipped_billing).
+ * n2 agents skip billing (skipped_billing). Volume quota is not used.
  */
 function agent_consume_volume($agentUserId, $volumeGb): array
 {
@@ -4644,13 +4669,9 @@ function agent_consume_volume($agentUserId, $volumeGb): array
         return $check;
     }
     $user = $check['user'];
-    $volumeGb = (int) $volumeGb;
     $cost = (int) $check['cost'];
-    $remaining = (int) ($user['agent_volume_remaining'] ?? 0) - $volumeGb;
     $balance = (int) ($user['Balance'] ?? 0) - $cost;
-    update('user', 'agent_volume_remaining', (string) $remaining, 'id', $agentUserId);
     update('user', 'Balance', $balance, 'id', $agentUserId);
-    $check['remaining'] = $remaining;
     $check['balance'] = $balance;
     return $check;
 }

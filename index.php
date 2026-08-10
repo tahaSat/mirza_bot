@@ -4069,6 +4069,9 @@ $textinvite
         return;
     }
     $custompricevalue = category_agent_field($category, 'pricecustomvolume', $user['agent'], '4000');
+    if (($user['agent'] ?? '') === 'n') {
+        $custompricevalue = (int) ($user['agent_price_per_gb'] ?? 0);
+    }
     $mainvolume = category_agent_field($category, 'mainvolume', $user['agent'], '1');
     $maxvolume = category_agent_field($category, 'maxvolume', $user['agent'], '1000');
     $textcustom = "📌 حجم درخواستی خود را ارسال کنید.
@@ -4188,7 +4191,9 @@ $textinvite
         sendmessage($from_id, "❌ خطایی در تایید  انجام شده است لطفا مراحل پرداخت را مجددا انجام دهید", $keyboard, 'HTML');
         return;
     }
-    if (intval($user['pricediscount']) != 0) {
+    if (($user['agent'] ?? '') === 'n') {
+        $info_product['price_product'] = agent_wholesale_cost($user, (int) ($info_product['Volume_constraint'] ?? 0));
+    } elseif (intval($user['pricediscount']) != 0) {
         $resultper = ($info_product['price_product'] * $user['pricediscount']) / 100;
         $info_product['price_product'] = $info_product['price_product'] - $resultper;
     }
@@ -4261,20 +4266,14 @@ $textinvite
     }
     if (!isset($info_product['price_product']))
         return;
-    if (agent_is_n2($user['agent'] ?? 'f')) {
+    if (agent_uses_category_whitelist($user['agent'] ?? 'f')) {
         $n2Code = $info_product['code_product'] ?? '';
         $n2Cat = category_from_processing($userdate ?? (json_decode($user['Processing_value'], true) ?: []));
         $n2CatRemark = is_array($n2Cat) ? ($n2Cat['remark'] ?? '') : '';
         if ($n2CatRemark === '' && !empty($info_product['category'])) {
             $n2CatRemark = (string) $info_product['category'];
         }
-        $n2Allowed = false;
-        if ($n2CatRemark !== '' && agent_n2_category_enabled($from_id, $n2CatRemark)) {
-            $n2Allowed = true;
-        } elseif ($n2Code !== 'customvolume' && agent_n2_product_enabled($from_id, $n2Code, $n2CatRemark)) {
-            $n2Allowed = true;
-        }
-        if (!$n2Allowed) {
+        if (!agent_category_purchase_allowed($from_id, $n2Code, $n2CatRemark)) {
             sendmessage($from_id, '❌ این محصول / دسته‌بندی برای نمایندگی شما فعال نیست.', $keyboard, 'HTML');
             return;
         }
@@ -4288,6 +4287,10 @@ $textinvite
         $priceproduct = $partsdic[1];
     } else {
         $priceproduct = $info_product['price_product'];
+    }
+    if (($user['agent'] ?? '') === 'n') {
+        $priceproduct = agent_wholesale_cost($user, (int) ($info_product['Volume_constraint'] ?? 0));
+        $info_product['price_product'] = $priceproduct;
     }
     $username_ac = strtolower($user['Processing_value_tow']);
     $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
@@ -4313,7 +4316,7 @@ $textinvite
             return;
         }
     }
-    if (intval($user['pricediscount']) != 0) {
+    if (intval($user['pricediscount']) != 0 && ($user['agent'] ?? '') !== 'n') {
         $result = ($priceproduct * $user['pricediscount']) / 100;
         $priceproduct = $priceproduct - $result;
         sendmessage($from_id, sprintf($textbotlang['users']['Discount']['discountapplied'], $user['pricediscount']), null, 'HTML');
@@ -4947,29 +4950,28 @@ $textonebuy
     }
     if (empty($info_product['price_product']) || empty($info_product['price_product']))
         return;
-    if (agent_is_n2($user['agent'] ?? 'f')) {
+    if (agent_uses_category_whitelist($user['agent'] ?? 'f')) {
         $n2Code = $info_product['code_product'] ?? '';
         $n2Cat = category_from_processing($userdate ?? (json_decode($user['Processing_value'], true) ?: []));
         $n2CatRemark = is_array($n2Cat) ? ($n2Cat['remark'] ?? '') : '';
         if ($n2CatRemark === '' && !empty($info_product['category'])) {
             $n2CatRemark = (string) $info_product['category'];
         }
-        $n2Allowed = false;
-        if ($n2CatRemark !== '' && agent_n2_category_enabled($from_id, $n2CatRemark)) {
-            $n2Allowed = true;
-        } elseif ($n2Code !== 'customvolume' && agent_n2_product_enabled($from_id, $n2Code, $n2CatRemark)) {
-            $n2Allowed = true;
-        }
-        if (!$n2Allowed) {
+        if (!agent_category_purchase_allowed($from_id, $n2Code, $n2CatRemark)) {
             sendmessage($from_id, '❌ این محصول / دسته‌بندی برای نمایندگی شما فعال نیست.', $keyboard, 'HTML');
             return;
         }
     }
     $priceproduct = $info_product['price_product'] * $user['Processing_value_four'];
+    if (($user['agent'] ?? '') === 'n') {
+        $unitCost = agent_wholesale_cost($user, (int) ($info_product['Volume_constraint'] ?? 0));
+        $info_product['price_product'] = $unitCost;
+        $priceproduct = $unitCost * (int) $user['Processing_value_four'];
+    }
     Editmessagetext($from_id, $message_id, $text_inline, null);
     $username_ac = $user['Processing_value_tow'];
     $date = time();
-    if (intval($user['pricediscount']) != 0) {
+    if (intval($user['pricediscount']) != 0 && ($user['agent'] ?? '') !== 'n') {
         $result = ($priceproduct * $user['pricediscount']) / 100;
         $priceproduct = $priceproduct - $result;
         sendmessage($from_id, sprintf($textbotlang['users']['Discount']['discountapplied'], $user['pricediscount']), null, 'HTML');

@@ -1399,7 +1399,7 @@ $keyboardlinkapp = json_encode([
 ]);
 function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $statuscustom = false, $backuser = "backuser", $valuetow = null, $customvolume = "customsellvolume")
 {
-    global $pdo, $textbotlang, $from_id;
+    global $pdo, $textbotlang, $from_id, $user;
     $product = ['inline_keyboard' => []];
     $statusshowprice = select("shopSetting", "*", "Namevalue", "statusshowprice", "select")['value'];
     $stmt = $pdo->prepare($query);
@@ -1409,6 +1409,8 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
     } else {
         $valuetow = "";
     }
+    $isAgentN = (($user['agent'] ?? '') === 'n');
+    $agentPricePerGb = $isAgentN ? (int) ($user['agent_price_per_gb'] ?? 0) : 0;
     foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
         $hide_panel = json_decode($result['hide_panel'], true);
         if (in_array($location, $hide_panel))
@@ -1419,7 +1421,9 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
         $countorder = $stmts2->rowCount();
         if ($result['one_buy_status'] == "1" && $countorder != 0)
             continue;
-        if (intval($pricediscount) != 0) {
+        if ($isAgentN) {
+            $result['price_product'] = max(0, (int) ($result['Volume_constraint'] ?? 0)) * $agentPricePerGb;
+        } elseif (intval($pricediscount) != 0) {
             $resultper = ($result['price_product'] * $pricediscount) / 100;
             $result['price_product'] = $result['price_product'] - $resultper;
         }

@@ -94,6 +94,104 @@ function panel_fetch_user_services(PDO $pdo, $userId, int $limit = 100, int $off
     );
 }
 
+function panel_format_traffic_gb($bytes, int $precision = 2): string
+{
+    if (!is_numeric($bytes) || (float) $bytes <= 0) {
+        return '0';
+    }
+    $gb = (float) $bytes / pow(1024, 3);
+    $formatted = number_format($gb, $precision, '.', '');
+    return rtrim(rtrim($formatted, '0'), '.') ?: '0';
+}
+
+function panel_format_remaining_time($expireTs): string
+{
+    if ($expireTs === null || $expireTs === '' || !is_numeric($expireTs) || (int) $expireTs <= 0) {
+        return 'نامحدود';
+    }
+    $diff = (int) $expireTs - time();
+    if ($diff <= 0) {
+        return 'منقضی';
+    }
+    $days = intdiv($diff, 86400);
+    $hours = intdiv($diff % 86400, 3600);
+    $mins = intdiv($diff % 3600, 60);
+    if ($days > 0) {
+        return $days . ' روز' . ($hours > 0 ? ' و ' . $hours . ' ساعت' : '');
+    }
+    if ($hours > 0) {
+        return $hours . ' ساعت' . ($mins > 0 ? ' و ' . $mins . ' دقیقه' : '');
+    }
+    return max(1, $mins) . ' دقیقه';
+}
+
+/**
+ * Attach live panel usage (used/total GB + remaining time) to invoice rows.
+ *
+ * @param list<array<string,mixed>> $services
+ * @return list<array<string,mixed>>
+ */
+function panel_enrich_services_usage(array $services): array
+{
+    if ($services === []) {
+        return $services;
+    }
+
+    try {
+        panel_service_bootstrap();
+    } catch (Throwable $e) {
+        error_log('panel_enrich_services_usage bootstrap: ' . $e->getMessage());
+        foreach ($services as &$svc) {
+            $svc['usage_volume'] = '—';
+            $svc['usage_time'] = '—';
+        }
+        unset($svc);
+        return $services;
+    }
+
+    global $ManagePanel;
+    if (!isset($ManagePanel) || !is_object($ManagePanel)) {
+        $ManagePanel = new ManagePanel();
+    }
+
+    foreach ($services as &$svc) {
+        $panel = (string) ($svc['Service_location'] ?? '');
+        $username = (string) ($svc['username'] ?? '');
+        $svc['usage_volume'] = '—';
+        $svc['usage_time'] = '—';
+        if ($panel === '' || $username === '') {
+            continue;
+        }
+        try {
+            $live = $ManagePanel->DataUser($panel, $username);
+        } catch (Throwable $e) {
+            error_log('panel_enrich_services_usage DataUser: ' . $e->getMessage());
+            continue;
+        }
+        if (!is_array($live) || ($live['status'] ?? '') === 'Unsuccessful') {
+            continue;
+        }
+
+        $usedBytes = isset($live['used_traffic']) && is_numeric($live['used_traffic'])
+            ? (float) $live['used_traffic']
+            : 0.0;
+        $limitBytes = isset($live['data_limit']) && is_numeric($live['data_limit'])
+            ? (float) $live['data_limit']
+            : 0.0;
+        $usedGb = panel_format_traffic_gb($usedBytes);
+        if ($limitBytes > 0) {
+            $svc['usage_volume'] = $usedGb . ' / ' . panel_format_traffic_gb($limitBytes) . ' گیگ';
+        } else {
+            $svc['usage_volume'] = $usedGb . ' گیگ / نامحدود';
+        }
+
+        $svc['usage_time'] = panel_format_remaining_time($live['expire'] ?? null);
+    }
+    unset($svc);
+
+    return $services;
+}
+
 function panel_record_admin_balance_change(PDO $pdo, $userId, int $amount, string $method): void
 {
     if ($amount <= 0) {

@@ -22,7 +22,7 @@ $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 25;
 $offset = ($page - 1) * $perPage;
 $total = panel_count_user_services($pdo, $id);
-$services = panel_fetch_user_services($pdo, $id, $perPage, $offset);
+$services = panel_enrich_services_usage(panel_fetch_user_services($pdo, $id, $perPage, $offset));
 $totalPages = max(1, (int) ceil($total / $perPage));
 
 $panels = [];
@@ -72,9 +72,8 @@ include __DIR__ . '/inc/layout_head.php';
                     <th>نام کاربری سرویس</th>
                     <th>محصول</th>
                     <th>پنل</th>
-                    <th>حجم</th>
-                    <th>زمان</th>
-                    <th>مبلغ</th>
+                    <th>مصرف حجم</th>
+                    <th>باقیمانده زمان</th>
                     <th>تاریخ خرید</th>
                     <th>وضعیت</th>
                     <th style="width:88px"></th>
@@ -83,7 +82,7 @@ include __DIR__ . '/inc/layout_head.php';
             <tbody>
                 <?php if (empty($services)): ?>
                     <tr>
-                        <td colspan="10">
+                        <td colspan="9">
                             <div class="empty" style="padding:36px">
                                 <p>این کاربر سرویس فعالی ندارد</p>
                                 <button type="button" class="btn btn-primary btn-sm" style="margin-top:12px" onclick="openModal('addServiceModal')">
@@ -96,9 +95,6 @@ include __DIR__ . '/inc/layout_head.php';
                     $i = $offset + 1;
                     foreach ($services as $svc):
                         [$tagClass, $label] = panel_invoice_status_label(panel_invoice_get_status($svc));
-                        $isTest = ($svc['name_product'] ?? '') === 'سرویس تست';
-                        $volUnit = $isTest ? ' مگابایت' : ' گیگابایت';
-                        $timeUnit = $isTest ? ' ساعت' : ' روز';
                         ?>
                         <tr>
                             <td class="cf"><?= $i++ ?></td>
@@ -110,9 +106,8 @@ include __DIR__ . '/inc/layout_head.php';
                             </td>
                             <td class="cs"><?= htmlspecialchars(trunc($svc['name_product'] ?? '—', 24)) ?></td>
                             <td class="cf"><?= htmlspecialchars($svc['Service_location'] ?? '—') ?></td>
-                            <td class="cn cf"><?= htmlspecialchars(($svc['Volume'] ?? '—') . $volUnit) ?></td>
-                            <td class="cn cf"><?= htmlspecialchars(($svc['Service_time'] ?? '—') . $timeUnit) ?></td>
-                            <td class="cn cs"><?= number_format((int) ($svc['price_product'] ?? 0)) ?> <span class="cf">ت</span></td>
+                            <td class="cn cf"><?= htmlspecialchars($svc['usage_volume'] ?? '—') ?></td>
+                            <td class="cn cf"><?= htmlspecialchars($svc['usage_time'] ?? '—') ?></td>
                             <td class="cf"><?= safe_date($svc['time_sell'] ?? null, 'Y/m/d') ?></td>
                             <td><span class="tag <?= $tagClass ?>"><?= $label ?></span></td>
                             <td>

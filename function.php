@@ -4672,8 +4672,31 @@ function agent_encode_price_tiers(array $tiers): string
 }
 
 /**
- * Progressive step cost for purchasing $volumeGb given prior lifetime consumption.
- * Tiers are cumulative ceilings in TB. Falls back to flat agent_price_per_gb if no tiers.
+ * Price/GB for the tier that contains $consumedGb (lifetime GB already used).
+ */
+function agent_tier_price_at(array $tiers, float $consumedGb): int
+{
+    if (empty($tiers)) {
+        return 0;
+    }
+    $gbPerTb = agent_gb_per_tb();
+    $consumedGb = max(0.0, $consumedGb);
+    foreach ($tiers as $tier) {
+        $ceilingGb = $tier['upto_tb'] === null
+            ? INF
+            : ((float) $tier['upto_tb'] * $gbPerTb);
+        if ($consumedGb < $ceilingGb || $tier['upto_tb'] === null) {
+            return (int) $tier['price_per_gb'];
+        }
+    }
+    return (int) (end($tiers)['price_per_gb'] ?? 0);
+}
+
+/**
+ * Wholesale cost for purchasing $volumeGb given prior lifetime consumption.
+ * If the purchase stays inside the current tier → current tier price × GB.
+ * If it crosses any tier ceiling → entire purchase billed at the next tier's price.
+ * Falls back to flat agent_price_per_gb if no tiers.
  */
 function agent_wholesale_cost_from_consumed($user, $volumeGb, $consumedGb = null): int
 {
@@ -4692,43 +4715,24 @@ function agent_wholesale_cost_from_consumed($user, $volumeGb, $consumedGb = null
         return (int) round($volumeGb * max(0, $pricePerGb));
     }
 
+    $startPrice = agent_tier_price_at($tiers, $consumedGb);
+    $endGb = $consumedGb + $volumeGb;
     $gbPerTb = agent_gb_per_tb();
-    $remaining = $volumeGb;
-    $cursor = $consumedGb;
-    $cost = 0.0;
-    $prevCeilingGb = 0.0;
+    $pricePerGb = $startPrice;
 
     foreach ($tiers as $tier) {
-        $ceilingGb = $tier['upto_tb'] === null
-            ? INF
-            : ((float) $tier['upto_tb'] * $gbPerTb);
-        if ($ceilingGb <= $prevCeilingGb && $tier['upto_tb'] !== null) {
+        if ($tier['upto_tb'] === null) {
             continue;
         }
-        if ($cursor >= $ceilingGb) {
-            $prevCeilingGb = $ceilingGb;
-            continue;
-        }
-        $room = $ceilingGb - $cursor;
-        $take = min($remaining, $room);
-        if ($take > 0) {
-            $cost += $take * (int) $tier['price_per_gb'];
-            $remaining -= $take;
-            $cursor += $take;
-        }
-        $prevCeilingGb = $ceilingGb;
-        if ($remaining <= 0.0000001) {
+        $ceilingGb = (float) $tier['upto_tb'] * $gbPerTb;
+        // Purchase crosses this ceiling → bill whole purchase at the next tier
+        if ($consumedGb < $ceilingGb && $endGb > $ceilingGb) {
+            $pricePerGb = agent_tier_price_at($tiers, $ceilingGb);
             break;
         }
     }
 
-    // If tiers ended without open-ended last tier, bill leftover at last tier price or flat fallback
-    if ($remaining > 0.0000001) {
-        $lastPrice = (int) (end($tiers)['price_per_gb'] ?? ($user['agent_price_per_gb'] ?? 0));
-        $cost += $remaining * max(0, $lastPrice);
-    }
-
-    return (int) round($cost);
+    return (int) round($volumeGb * max(0, $pricePerGb));
 }
 
 /**
@@ -4752,19 +4756,7 @@ function agent_current_price_per_gb($user, $consumedGb = null): int
     if ($consumedGb === null) {
         $consumedGb = agent_sum_volume_consumed($user['id'] ?? 0, $user['agent'] ?? 'n');
     }
-    $consumedGb = max(0.0, (float) $consumedGb);
-    $gbPerTb = agent_gb_per_tb();
-    $prevCeilingGb = 0.0;
-    foreach ($tiers as $tier) {
-        $ceilingGb = $tier['upto_tb'] === null
-            ? INF
-            : ((float) $tier['upto_tb'] * $gbPerTb);
-        if ($consumedGb < $ceilingGb || $tier['upto_tb'] === null) {
-            return (int) $tier['price_per_gb'];
-        }
-        $prevCeilingGb = $ceilingGb;
-    }
-    return (int) (end($tiers)['price_per_gb'] ?? ($user['agent_price_per_gb'] ?? 0));
+    return agent_tier_price_at($tiers, max(0.0, (float) $consumedGb));
 }
 
 /**

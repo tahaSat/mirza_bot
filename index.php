@@ -4337,6 +4337,12 @@ $textinvite
             sendmessage($from_id, $agentQuotaCheck['msg'], $keyboard, 'HTML');
             return;
         }
+        if (($user['agent'] ?? '') === 'n') {
+            // Keep invoice amount identical to tiered wallet deduction
+            $priceproduct = (int) ($agentQuotaCheck['cost'] ?? $priceproduct);
+            $info_product['price_product'] = $priceproduct;
+            update("invoice", "price_product", $priceproduct, "id_invoice", $randomString);
+        }
     } elseif ($priceproduct > $user['Balance'] && $user['agent'] != "n2" && intval($priceproduct) != 0) {
         $marzbandirectpay = select("shopSetting", "*", "Namevalue", "statusdirectpabuy", "select")['value'];
         $Balance_prim = $priceproduct - $user['Balance'];
@@ -4963,10 +4969,14 @@ $textonebuy
         }
     }
     $priceproduct = $info_product['price_product'] * $user['Processing_value_four'];
+    $bulkVolumeTotal = (int) ($info_product['Volume_constraint'] ?? 0) * (int) $user['Processing_value_four'];
+    $bulkUnitVolume = (int) ($info_product['Volume_constraint'] ?? 0);
+    $bulkCount = (int) $user['Processing_value_four'];
+    $agentBulkConsumedBase = null;
     if (($user['agent'] ?? '') === 'n') {
-        $unitCost = agent_wholesale_cost($user, (int) ($info_product['Volume_constraint'] ?? 0));
-        $info_product['price_product'] = $unitCost;
-        $priceproduct = $unitCost * (int) $user['Processing_value_four'];
+        // Progressive tiers over the full bulk volume (not unit×count)
+        $priceproduct = agent_wholesale_cost($user, $bulkVolumeTotal);
+        $agentBulkConsumedBase = agent_sum_volume_consumed($from_id, 'n');
     }
     Editmessagetext($from_id, $message_id, $text_inline, null);
     $username_ac = $user['Processing_value_tow'];
@@ -4977,11 +4987,13 @@ $textonebuy
         sendmessage($from_id, sprintf($textbotlang['users']['Discount']['discountapplied'], $user['pricediscount']), null, 'HTML');
     }
     if (agent_is_reseller($user['agent'] ?? 'f')) {
-        $bulkVolumeTotal = (int) $info_product['Volume_constraint'] * (int) $user['Processing_value_four'];
         $agentQuotaCheck = agent_check_volume_quota($from_id, $bulkVolumeTotal);
         if (!$agentQuotaCheck['ok']) {
             sendmessage($from_id, $agentQuotaCheck['msg'], $keyboard, 'HTML');
             return;
+        }
+        if (($user['agent'] ?? '') === 'n') {
+            $priceproduct = (int) ($agentQuotaCheck['cost'] ?? $priceproduct);
         }
     } elseif ($priceproduct > $user['Balance'] && $user['agent'] != "n2") {
         $marzbandirectpay = select('shopSetting', "*", "Namevalue", "statusdirectpabuy", "select")['value'];
@@ -5086,7 +5098,15 @@ $textonebuy
         }
         $stmt = $connect->prepare("INSERT IGNORE INTO invoice (id_user, id_invoice, username,time_sell, Service_location, name_product, price_product, Volume, Service_time,Status,notifctions) VALUES (?, ?, ?, ?, ?, ?, ?,?,?,?,?)");
         $Status = "active";
-        $stmt->bind_param("sssssssssss", $from_id, $randomString, $username_acc, $date, $user['Processing_value'], $info_product['name_product'], $info_product['price_product'], $info_product['Volume_constraint'], $info_product['Service_time'], $Status, $notifctions);
+        $invoicePrice = $info_product['price_product'];
+        if (($user['agent'] ?? '') === 'n' && $agentBulkConsumedBase !== null) {
+            $invoicePrice = agent_wholesale_cost_from_consumed(
+                $user,
+                $bulkUnitVolume,
+                $agentBulkConsumedBase + ($i * $bulkUnitVolume)
+            );
+        }
+        $stmt->bind_param("sssssssssss", $from_id, $randomString, $username_acc, $date, $user['Processing_value'], $info_product['name_product'], $invoicePrice, $info_product['Volume_constraint'], $info_product['Service_time'], $Status, $notifctions);
         $stmt->execute();
         $stmt->close();
         $config = "";

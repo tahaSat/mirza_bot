@@ -24,8 +24,29 @@ if (is_file($bulkChargeFile)) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check_post();
     $action = $_POST['action'] ?? '';
+    $redirectView = 'admins';
     if (!$canManageAdmins) {
         flash('error', 'فقط مدیر اصلی می‌تواند ادمین‌ها را مدیریت کند.');
+        if ($action === 'reset_all_test_limits') {
+            $redirectView = 'users';
+        }
+    } elseif ($action === 'reset_all_test_limits') {
+        $redirectView = 'users';
+        $limit = trim($_POST['limit'] ?? '');
+        if ($limit === '' || !ctype_digit($limit)) {
+            flash('error', 'محدودیت اکانت تست باید عدد باشد.');
+        } else {
+            try {
+                ensureColumnExistsForUpdate('user', 'time_usertest', '0');
+                db_query($pdo, "UPDATE user SET limit_usertest = ?, time_usertest = '0'", [$limit]);
+                db_query($pdo, 'UPDATE setting SET limit_usertest_all = ?', [$limit]);
+                $affected = db_count($pdo, 'SELECT COUNT(*) FROM user');
+                flash('success', 'محدودیت اکانت تست همه کاربران (' . number_format($affected) . ' نفر) به ' . number_format((int) $limit) . ' ریست شد.');
+            } catch (Exception $e) {
+                error_log('users.php reset_all_test_limits: ' . $e->getMessage());
+                flash('error', 'ریست محدودیت اکانت تست ناموفق بود.');
+            }
+        }
     } elseif ($action === 'add_admin') {
         $adminId = trim($_POST['admin_id'] ?? '');
         $adminUsername = trim($_POST['admin_username'] ?? '');
@@ -65,8 +86,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('success', 'ادمین حذف شد.');
         }
     }
-    header('Location: users.php?view=admins');
+    header('Location: users.php' . ($redirectView === 'admins' ? '?view=admins' : ''));
     exit;
+}
+
+$defaultTestLimit = '1';
+try {
+    $settingRow = db_fetch($pdo, 'SELECT limit_usertest_all FROM setting LIMIT 1');
+    if ($settingRow && isset($settingRow['limit_usertest_all']) && $settingRow['limit_usertest_all'] !== '') {
+        $defaultTestLimit = (string) $settingRow['limit_usertest_all'];
+    }
+} catch (Exception $e) {
 }
 
 $search = trim($_GET['q'] ?? '');
@@ -160,6 +190,9 @@ include __DIR__ . '/inc/layout_head.php';
                         <?= icon('plus', 14) ?> شارژ همگانی سرویس‌ها
                     </button>
                 <?php endif; ?>
+                <button type="button" class="btn btn-ghost btn-sm" onclick="openModal('resetTestLimitModal')">
+                    <?= icon('users', 14) ?> ریست محدودیت اکانت تست
+                </button>
             <?php endif; ?>
 
             <?php if ($view === 'users' && $blockedCount > 0): ?>
@@ -368,6 +401,47 @@ include __DIR__ . '/inc/layout_head.php';
         </div>
     </div>
 </div>
+
+<?php if ($view === 'users' && $canManageAdmins): ?>
+<div class="modal-veil" id="resetTestLimitModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h3>ریست محدودیت اکانت تست همه کاربران</h3>
+            <button class="modal-x" type="button" onclick="closeModal('resetTestLimitModal')"><?= icon('close', 14) ?></button>
+        </div>
+        <form method="POST" id="resetTestLimitForm">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="reset_all_test_limits">
+                <div class="field">
+                    <label>تعداد مجاز اکانت تست</label>
+                    <input class="input" type="number" name="limit" min="0" step="1" inputmode="numeric"
+                        value="<?= htmlspecialchars($defaultTestLimit) ?>" required>
+                    <span class="field-hint">این مقدار برای همه کاربران اعمال می‌شود و دوره محدودیت آن‌ها هم ریست می‌گردد.</span>
+                </div>
+                <div style="margin:0;padding:10px 12px;border:1px solid var(--warn);border-radius:var(--r);color:var(--warn);font-size:.8rem;line-height:1.8">
+                    محدودیت پیش‌فرض سیستم نیز به همین عدد به‌روز می‌شود.
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-primary" type="submit">ریست همه کاربران</button>
+                <button class="btn btn-ghost" type="button" onclick="closeModal('resetTestLimitModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+(function () {
+    var form = document.getElementById('resetTestLimitForm');
+    if (!form) return;
+    form.addEventListener('submit', function (event) {
+        if (!window.confirm('محدودیت اکانت تست همه کاربران ریست شود؟')) {
+            event.preventDefault();
+        }
+    });
+}());
+</script>
+<?php endif; ?>
 
 <?php if ($view === 'users' && $canManageAdmins && !$bulkChargeJob): ?>
 <div class="modal-veil" id="bulkServiceChargeModal">

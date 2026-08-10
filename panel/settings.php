@@ -167,7 +167,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'chang
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_channel_post') {
+    csrf_check_post();
+    ensure_channel_post_setting_column();
+    $channel = normalize_channel_post_input($_POST['channel_post'] ?? '');
+    update('setting', 'Channel_Post', $channel, null, null);
+    clearSelectCache('setting');
+    flash('success', $channel === '' ? 'کانال پیش‌فرض پاک شد.' : 'کانال پیش‌فرض ذخیره شد.');
+    header('Location: settings.php?tab=system');
+    exit;
+}
+
 $tab = $_GET['tab'] ?? 'appearance';
+
+ensure_channel_post_setting_column();
+$channel_post_setting = select('setting', 'Channel_Post', null, null, 'select', ['cache' => false]);
+$channel_post_value = normalize_channel_post_input(is_array($channel_post_setting) ? ($channel_post_setting['Channel_Post'] ?? '') : '');
 
 $bot_setting = select('setting', 'keyboardmain', null, null, 'select', ['cache' => false]);
 $bot_keyboardmain = $bot_setting['keyboardmain'] ?? get_default_main_keyboard_json();
@@ -630,6 +645,32 @@ include __DIR__ . '/inc/layout_head.php';
 <?php elseif ($tab === 'system'): ?>
 
     <div class="card fade-up">
+        <div class="card-head">
+            <div>
+                <div class="card-title">کانال ارسال پست</div>
+                <div class="card-subtitle">آیدی یا یوزرنیم پیش‌فرض برای «پست در کانال» در ربات</div>
+            </div>
+        </div>
+        <form method="POST" class="card-body">
+            <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+            <input type="hidden" name="action" value="save_channel_post">
+            <div style="display:flex;flex-direction:column;gap:14px">
+                <div class="field">
+                    <label>آیدی عددی یا یوزرنیم کانال</label>
+                    <input type="text" name="channel_post" class="input" dir="ltr"
+                        value="<?= htmlspecialchars($channel_post_value) ?>"
+                        placeholder="@mychannel یا -1001234567890"
+                        autocomplete="off">
+                    <span class="field-hint">ربات باید ادمین کانال با دسترسی ارسال پیام باشد. خالی بگذارید تا هر بار در ربات پرسیده شود.</span>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button type="submit" class="btn btn-primary"><?= icon('check', 14) ?> ذخیره</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class="card fade-up d1" style="margin-top:14px">
         <div class="card-head">
             <div>
                 <div class="card-title">اطلاعات محیط</div>

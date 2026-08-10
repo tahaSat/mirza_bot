@@ -271,6 +271,7 @@ timeauto_not_verify,status_keyboard_config,cron_status
         addFieldToTable("setting", "get_number", "onAuthenticationphone", "VARCHAR(200)");
         addFieldToTable("setting", "limit_usertest_all", "1", "VARCHAR(200)");
         addFieldToTable("setting", "Channel_Report", "0", "VARCHAR(200)");
+        addFieldToTable("setting", "Channel_Post", "", "VARCHAR(200)");
         addFieldToTable("setting", "Bot_Status", "botstatuson", "VARCHAR(200)");
         addFieldToTable("setting", "roll_Status", "rolleon", "VARCHAR(200)");
         addFieldToTable("setting", "verifystart", "offverify", "VARCHAR(200)");

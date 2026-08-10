@@ -5964,3 +5964,87 @@ function broadcast_channel_start_payload($btn_type, $broadcast_id)
     }
     return $legacy . '__' . intval($broadcast_id);
 }
+
+function ensure_channel_post_setting_column()
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        return;
+    }
+    try {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'setting' AND COLUMN_NAME = 'Channel_Post'");
+        $stmt->execute();
+        if ((int) $stmt->fetchColumn() === 0) {
+            $pdo->exec("ALTER TABLE setting ADD Channel_Post VARCHAR(200) NULL DEFAULT ''");
+        }
+    } catch (Throwable $e) {
+        error_log('ensure_channel_post_setting_column: ' . $e->getMessage());
+    }
+}
+
+function normalize_channel_post_input($channel_input)
+{
+    $channel_input = trim((string) $channel_input);
+    if ($channel_input === '' || $channel_input === '0') {
+        return '';
+    }
+    if (preg_match('/^https?:\/\/t\.me\/([A-Za-z0-9_]+)$/i', $channel_input, $m)) {
+        return '@' . $m[1];
+    }
+    if ($channel_input[0] !== '@' && !preg_match('/^-?\d+$/', $channel_input)) {
+        return '@' . ltrim($channel_input, '@');
+    }
+    return $channel_input;
+}
+
+/**
+ * Resolve and validate a Telegram channel for bot posting.
+ * @return array{ok:bool,channel_id?:string,channel_title?:string,error?:string}
+ */
+function resolve_channel_post_target($channel_input)
+{
+    global $APIKEY;
+    $channel_input = normalize_channel_post_input($channel_input);
+    if ($channel_input === '') {
+        return ['ok' => false, 'error' => 'empty'];
+    }
+    $chat = telegram('getChat', ['chat_id' => $channel_input]);
+    if (!isset($chat['ok']) || !$chat['ok']) {
+        return ['ok' => false, 'error' => 'not_found'];
+    }
+    $channel_id = $chat['result']['id'];
+    $bot_id = explode(':', (string) $APIKEY)[0];
+    $member = telegram('getChatMember', ['chat_id' => $channel_id, 'user_id' => $bot_id]);
+    $bot_status = $member['result']['status'] ?? '';
+    if (!isset($member['ok']) || !$member['ok'] || !in_array($bot_status, ['administrator', 'creator'], true)) {
+        return ['ok' => false, 'error' => 'not_admin'];
+    }
+    $can_post = true;
+    if ($bot_status === 'administrator' && array_key_exists('can_post_messages', $member['result'])) {
+        $can_post = (bool) $member['result']['can_post_messages'];
+    }
+    if (!$can_post) {
+        return ['ok' => false, 'error' => 'no_post'];
+    }
+    return [
+        'ok' => true,
+        'channel_id' => (string) $channel_id,
+        'channel_title' => (string) ($chat['result']['title'] ?? $channel_input),
+    ];
+}
+
+function channel_post_resolve_error_message($error)
+{
+    $messages = [
+        'empty' => '❌ آیدی یا یوزرنیم کانال را ارسال کنید.',
+        'not_found' => '❌ کانال یافت نشد. یوزرنیم یا آیدی را بررسی کنید و مطمئن شوید ربات عضو کانال است.',
+        'not_admin' => '❌ ربات ادمین این کانال نیست. ابتدا ربات را ادمین کانال کنید (با دسترسی ارسال پیام).',
+        'no_post' => '❌ ربات دسترسی ارسال پیام در کانال را ندارد.',
+    ];
+    return $messages[$error] ?? '❌ کانال معتبر نیست.';
+}

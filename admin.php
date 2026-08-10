@@ -1104,6 +1104,34 @@ elseif ($datain == "systemsms") {
             return;
         }
         deletemessage($from_id, $message_id);
+        ensure_channel_post_setting_column();
+        $default_channel = normalize_channel_post_input($setting['Channel_Post'] ?? '');
+        if ($default_channel !== '') {
+            $resolved = resolve_channel_post_target($default_channel);
+            if ($resolved['ok']) {
+                savedata("save", "channel_id", $resolved['channel_id']);
+                savedata("save", "channel_title", $resolved['channel_title']);
+                $listbtn = broadcast_btn_picker_keyboard('channelpostbtn', [
+                    [
+                        ['text' => "بازگشت به منوی قبل", 'callback_data' => 'typeservice-sendmessage'],
+                    ],
+                ]);
+                step("home", $from_id);
+                $channel_title = htmlspecialchars($resolved['channel_title'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                sendmessage($from_id, "✅ کانال پیش‌فرض <b>{$channel_title}</b> تایید شد.\n\n📌 دکمه‌ای که زیر پست نمایش داده شود را انتخاب کنید:", $listbtn, 'HTML');
+                return;
+            }
+            step("getchannelpostid", $from_id);
+            sendmessage($from_id, channel_post_resolve_error_message($resolved['error']) . "\n\n📌 کانال پیش‌فرض در پنل معتبر نیست. آیدی عددی یا یوزرنیم کانال را ارسال کنید.
+
+مثال:
+<code>@mychannel</code>
+یا
+<code>-1001234567890</code>
+
+⚠️ ربات باید ادمین کانال با دسترسی ارسال پیام باشد.", $backadmin, 'HTML');
+            return;
+        }
         step("getchannelpostid", $from_id);
         sendmessage($from_id, "📌 آیدی عددی یا یوزرنیم کانال را ارسال کنید.
 
@@ -1112,7 +1140,8 @@ elseif ($datain == "systemsms") {
 یا
 <code>-1001234567890</code>
 
-⚠️ ربات باید ادمین کانال با دسترسی ارسال پیام باشد.", $backadmin, 'HTML');
+⚠️ ربات باید ادمین کانال با دسترسی ارسال پیام باشد.
+💡 می‌توانید کانال پیش‌فرض را در پنل مدیریت ← تنظیمات ذخیره کنید تا دیگر هر بار پرسیده نشود.", $backadmin, 'HTML');
         return;
     }
     if ($userdata['typeservice'] == "sendmessage") {
@@ -1159,47 +1188,20 @@ elseif ($datain == "systemsms") {
         step("home", $from_id);
         return;
     }
-    $channel_input = trim((string) $text);
-    if ($channel_input === '') {
-        sendmessage($from_id, "❌ آیدی یا یوزرنیم کانال را ارسال کنید.", $backadmin, 'HTML');
+    $resolved = resolve_channel_post_target($text);
+    if (!$resolved['ok']) {
+        sendmessage($from_id, channel_post_resolve_error_message($resolved['error']), $backadmin, 'HTML');
         return;
     }
-    if (preg_match('/^https?:\/\/t\.me\/([A-Za-z0-9_]+)$/i', $channel_input, $m)) {
-        $channel_input = '@' . $m[1];
-    } elseif ($channel_input[0] !== '@' && !preg_match('/^-?\d+$/', $channel_input)) {
-        $channel_input = '@' . ltrim($channel_input, '@');
-    }
-    $chat = telegram('getChat', ['chat_id' => $channel_input]);
-    if (!isset($chat['ok']) || !$chat['ok']) {
-        sendmessage($from_id, "❌ کانال یافت نشد. یوزرنیم یا آیدی را بررسی کنید و مطمئن شوید ربات عضو کانال است.", $backadmin, 'HTML');
-        return;
-    }
-    $channel_id = $chat['result']['id'];
-    $bot_id = explode(':', $APIKEY)[0];
-    $member = telegram('getChatMember', ['chat_id' => $channel_id, 'user_id' => $bot_id]);
-    $bot_status = $member['result']['status'] ?? '';
-    if (!isset($member['ok']) || !$member['ok'] || !in_array($bot_status, ['administrator', 'creator'], true)) {
-        sendmessage($from_id, "❌ ربات ادمین این کانال نیست. ابتدا ربات را ادمین کانال کنید (با دسترسی ارسال پیام).", $backadmin, 'HTML');
-        return;
-    }
-    $can_post = true;
-    if ($bot_status === 'administrator' && array_key_exists('can_post_messages', $member['result'])) {
-        $can_post = (bool) $member['result']['can_post_messages'];
-    }
-    if (!$can_post) {
-        sendmessage($from_id, "❌ ربات دسترسی ارسال پیام در کانال را ندارد.", $backadmin, 'HTML');
-        return;
-    }
-    $channel_title = $chat['result']['title'] ?? $channel_input;
-    savedata("save", "channel_id", (string) $channel_id);
-    savedata("save", "channel_title", $channel_title);
+    savedata("save", "channel_id", $resolved['channel_id']);
+    savedata("save", "channel_title", $resolved['channel_title']);
     $listbtn = broadcast_btn_picker_keyboard('channelpostbtn', [
         [
             ['text' => "بازگشت به منوی قبل", 'callback_data' => 'typeservice-sendmessage'],
         ],
     ]);
     step("home", $from_id);
-    sendmessage($from_id, "✅ کانال <b>" . htmlspecialchars($channel_title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</b> تایید شد.\n\n📌 دکمه‌ای که زیر پست نمایش داده شود را انتخاب کنید:", $listbtn, 'HTML');
+    sendmessage($from_id, "✅ کانال <b>" . htmlspecialchars($resolved['channel_title'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</b> تایید شد.\n\n📌 دکمه‌ای که زیر پست نمایش داده شود را انتخاب کنید:", $listbtn, 'HTML');
 } elseif (preg_match('/^channelpostbtn-(\w+)/', $datain, $dataget)) {
     $btn_type = $dataget[1];
     $userdata = json_decode($user['Processing_value'], true);

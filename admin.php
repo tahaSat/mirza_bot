@@ -1081,6 +1081,9 @@ elseif ($datain == "systemsms") {
             ['text' => "کاربرانی که خرید نداشتند", 'callback_data' => 'typeusermessage-nonecustomer'],
         ],
         [
+            ['text' => "کاربرانی که فقط تست کرده اند", 'callback_data' => 'typeusermessage-testonly'],
+        ],
+        [
             ['text' => "کاربرانی که بیش از ۸۰٪ مصرف کرده‌اند", 'callback_data' => 'typeusermessage-highvolume'],
         ],
     ];
@@ -1572,6 +1575,7 @@ elseif ($datain == "systemsms") {
         "all" => "ارسال به همه کاربران",
         "customer" => "مشتریان",
         "nonecustomer" => "کسانی که خرید نداشتند",
+        "testonly" => "کاربرانی که فقط تست کرده اند",
         "highvolume" => "کاربرانی که بیش از ۸۰٪ مصرف کرده‌اند",
     ][$userdata['typeusermessage']];
     if ($userdata['typeservice'] == "xdaynotmessage") {
@@ -1745,6 +1749,10 @@ $textday
                 $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id) AND u.User_Status = 'Active'");
                 $stmt->execute();
                 $userslist = json_encode($stmt->fetchAll());
+            } elseif ($typeusermessage == "testonly") {
+                $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.User_Status = 'Active' AND EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product = 'سرویس تست') AND NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product != 'سرویس تست')");
+                $stmt->execute();
+                $userslist = json_encode($stmt->fetchAll());
             }
         } else {
             if ($typeusermessage == "all") {
@@ -1761,6 +1769,11 @@ $textday
                 $userslist = json_encode($stmt->fetchAll());
             } elseif ($typeusermessage == "nonecustomer") {
                 $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.agent =  :agent AND NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id) AND u.User_Status = 'Active'");
+                $stmt->bindParam(':agent', $agent, PDO::PARAM_STR);
+                $stmt->execute();
+                $userslist = json_encode($stmt->fetchAll());
+            } elseif ($typeusermessage == "testonly") {
+                $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.agent = :agent AND u.User_Status = 'Active' AND EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product = 'سرویس تست') AND NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product != 'سرویس تست')");
                 $stmt->bindParam(':agent', $agent, PDO::PARAM_STR);
                 $stmt->execute();
                 $userslist = json_encode($stmt->fetchAll());
@@ -1812,6 +1825,10 @@ $textday
                 $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id) AND u.User_Status = 'Active'");
                 $stmt->execute();
                 $userslist = json_encode($stmt->fetchAll());
+            } elseif ($typeusermessage == "testonly") {
+                $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.User_Status = 'Active' AND EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product = 'سرویس تست') AND NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product != 'سرویس تست')");
+                $stmt->execute();
+                $userslist = json_encode($stmt->fetchAll());
             }
         } else {
             if ($typeusermessage == "all") {
@@ -1828,6 +1845,11 @@ $textday
                 $userslist = json_encode($stmt->fetchAll());
             } elseif ($typeusermessage == "nonecustomer") {
                 $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.agent =  :agent AND NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id) AND u.User_Status = 'Active'");
+                $stmt->bindParam(':agent', $agent, PDO::PARAM_STR);
+                $stmt->execute();
+                $userslist = json_encode($stmt->fetchAll());
+            } elseif ($typeusermessage == "testonly") {
+                $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.agent = :agent AND u.User_Status = 'Active' AND EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product = 'سرویس تست') AND NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product != 'سرویس تست')");
                 $stmt->bindParam(':agent', $agent, PDO::PARAM_STR);
                 $stmt->execute();
                 $userslist = json_encode($stmt->fetchAll());
@@ -1870,9 +1892,32 @@ $textday
             $stmt->execute(array_merge([$timenouser], $ids));
             $userslist = json_encode($stmt->fetchAll());
         } elseif ($agent == "all") {
-            $stmt = $pdo->prepare("SELECT id FROM user  WHERE last_message_time < $timenouser");
-            $stmt->execute();
-            $userslist = json_encode($stmt->fetchAll());
+            if ($typeusermessage == "customer") {
+                if (($userdata['selectpanel'] ?? 'all') == "all") {
+                    $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.last_message_time < :time AND EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id)");
+                } else {
+                    $panel = select("marzban_panel", "*", "code_panel", $userdata['selectpanel'], "select");
+                    $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.last_message_time < :time AND EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.Service_location = '{$panel['name_panel']}')");
+                }
+                $stmt->bindParam(':time', $timenouser, PDO::PARAM_STR);
+                $stmt->execute();
+                $userslist = json_encode($stmt->fetchAll());
+            } elseif ($typeusermessage == "nonecustomer") {
+                $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.last_message_time < :time AND NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id)");
+                $stmt->bindParam(':time', $timenouser, PDO::PARAM_STR);
+                $stmt->execute();
+                $userslist = json_encode($stmt->fetchAll());
+            } elseif ($typeusermessage == "testonly") {
+                $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.last_message_time < :time AND EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product = 'سرویس تست') AND NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product != 'سرویس تست')");
+                $stmt->bindParam(':time', $timenouser, PDO::PARAM_STR);
+                $stmt->execute();
+                $userslist = json_encode($stmt->fetchAll());
+            } else {
+                $stmt = $pdo->prepare("SELECT id FROM user WHERE last_message_time < :time");
+                $stmt->bindParam(':time', $timenouser, PDO::PARAM_STR);
+                $stmt->execute();
+                $userslist = json_encode($stmt->fetchAll());
+            }
         } else {
             if ($typeusermessage == "all") {
                 if ($typeusermessage == "all") {
@@ -1895,6 +1940,11 @@ $textday
                     $stmt->bindParam(':time', $timenouser, PDO::PARAM_STR);
                     $stmt->execute();
                     $userslist = json_encode($stmt->fetchAll());
+                } elseif ($typeusermessage == "testonly") {
+                    $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.last_message_time < :time AND EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product = 'سرویس تست') AND NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product != 'سرویس تست');");
+                    $stmt->bindParam(':time', $timenouser, PDO::PARAM_STR);
+                    $stmt->execute();
+                    $userslist = json_encode($stmt->fetchAll());
                 }
             } elseif ($typeusermessage == "customer") {
                 if ($userdata['selectpanel'] == "all") {
@@ -1909,6 +1959,12 @@ $textday
                 $userslist = json_encode($stmt->fetchAll());
             } elseif ($typeusermessage == "nonecustomer") {
                 $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.agent =  :agent AND u.last_message_time < :time AND NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id);");
+                $stmt->bindParam(':agent', $agent, PDO::PARAM_STR);
+                $stmt->bindParam(':time', $timenouser, PDO::PARAM_STR);
+                $stmt->execute();
+                $userslist = json_encode($stmt->fetchAll());
+            } elseif ($typeusermessage == "testonly") {
+                $stmt = $pdo->prepare("SELECT u.id FROM user u WHERE u.agent = :agent AND u.last_message_time < :time AND EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product = 'سرویس تست') AND NOT EXISTS ( SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product != 'سرویس تست');");
                 $stmt->bindParam(':agent', $agent, PDO::PARAM_STR);
                 $stmt->bindParam(':time', $timenouser, PDO::PARAM_STR);
                 $stmt->execute();

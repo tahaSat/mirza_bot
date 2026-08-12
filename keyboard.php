@@ -742,6 +742,7 @@ $textbot = json_encode([
         [['text' => "دکمه افزایش موجودی"], ['text' => "متن دکمه زیرمجموعه گیری"]],
         [['text' => "متن دکمه خرید اشتراک"], ['text' => "متن دکمه لیست تعرفه"]],
         [['text' => "متن توضیحات لیست تعرفه"]],
+        [['text' => "🛒 متن‌های فرآیند خرید"]],
         [['text' => "متن دکمه کیف پول"], ['text' => "متن پیش فاکتور"]],
         [['text' => "📝 تنظیم متن توضیحات عضویت اجباری"]],
         [['text' => "📝 تنظیم متن توضیحات سوالات متداول"]],
@@ -756,6 +757,23 @@ $textbot = json_encode([
         [['text' => "تنظیم متن کارت به کارت خودکار"]],
         [['text' => "متن توضیحات درخواست نمایندگی"]],
         [['text' => $textbotlang['Admin']['backadmin']], ['text' => $textbotlang['Admin']['backmenu']]]
+    ],
+    'resize_keyboard' => true
+]);
+
+$textbot_purchase = json_encode([
+    'keyboard' => [
+        [['text' => "متن انتخاب لوکیشن"], ['text' => "متن انتخاب دسته‌بندی"]],
+        [['text' => "متن انتخاب سرویس"], ['text' => "متن انتخاب سرویس (اول)"]],
+        [['text' => "متن انتخاب مدت"], ['text' => "متن یادداشت خرید"]],
+        [['text' => "متن درخواست حجم سرویس دلخواه"]],
+        [['text' => "متن انتخاب مدت سرویس دلخواه"]],
+        [['text' => "متن حجم نامعتبر"], ['text' => "متن پیش فاکتور"]],
+        [['text' => "متن انتخاب نام کاربری"]],
+        [['text' => "توضیحات پنل (پس از انتخاب)"]],
+        [['text' => "متن دکمه سرویس دلخواه"]],
+        [['text' => "توضیحات داخل دسته‌بندی"]],
+        [['text' => "🔙 بازگشت به تنظیم متن"], ['text' => $textbotlang['Admin']['backmenu']]]
     ],
     'resize_keyboard' => true
 ]);
@@ -1441,8 +1459,8 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
     }
     if ($statuscustom) {
         $panelRow = select("marzban_panel", "*", "name_panel", $location, "select");
-        $btnText = panel_custom_button_text(is_array($panelRow) ? $panelRow : []);
-        $product['inline_keyboard'][] = [['text' => $btnText, 'callback_data' => $customvolume]];
+        $customBtn = panel_custom_service_inline_button(is_array($panelRow) ? $panelRow : [], $customvolume);
+        $product['inline_keyboard'][] = [$customBtn];
     }
     $product['inline_keyboard'][] = [
         ['text' => $textbotlang['users']['stateus']['backinfo'], 'callback_data' => $backuser],
@@ -1485,7 +1503,7 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
     $panel = select("marzban_panel", "*", "name_panel", $location, "select");
     if (is_array($panel) && panel_custom_enabled($panel, (string) $agent)) {
         $list_category['inline_keyboard'][] = [
-            ['text' => panel_custom_button_text($panel), 'callback_data' => "customsellvolume"],
+            panel_custom_service_inline_button($panel, 'customsellvolume'),
         ];
     }
     $list_category['inline_keyboard'][] = [
@@ -1575,8 +1593,12 @@ function keyboardTimeCategory($name_panel, $agent, $callback_data = "producttime
     }
     if ($statusbtnextend)
         $monthkeyboard['inline_keyboard'][] = [['text' => "♻️ تمدید پلن فعلی", 'callback_data' => "exntedagei"]];
-    if ($statuscustomvolume == true)
-        $monthkeyboard['inline_keyboard'][] = [['text' => $textbotlang['users']['customsellvolume']['title'], 'callback_data' => "customsellvolume"]];
+    if ($statuscustomvolume == true) {
+        $panelForCustom = select('marzban_panel', '*', 'name_panel', $name_panel, 'select');
+        $monthkeyboard['inline_keyboard'][] = [
+            panel_custom_service_inline_button(is_array($panelForCustom) ? $panelForCustom : [], 'customsellvolume'),
+        ];
+    }
     $monthkeyboard['inline_keyboard'][] = [
         ['text' => $textbotlang['users']['stateus']['backinfo'], 'callback_data' => $callback_data_back]
     ];

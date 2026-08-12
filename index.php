@@ -1549,7 +1549,7 @@ $textconnect
 📌 هر ماه معادل ۳۰ روز است
 ⚠️ فقط گزینه‌های زیر قابل انتخاب هستند";
     $backCb = "product_" . $nameloc['id_invoice'];
-    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonthextend_', $backCb), 'html');
+    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonthextend_', $backCb, (int) $text, $user), 'html');
     step('selectcustommonthextend', $from_id);
 } elseif (preg_match('/^custommonthextend_(\d+)$/', $datain, $dataget) && ($user['step'] == "selectcustommonthextend" || $user['step'] == "getvolumecustomuserforextend")) {
     $months = (int) $dataget[1];
@@ -1648,7 +1648,8 @@ $textconnect
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
     if ($user['step'] == "getvolumecustomuserforextend") {
         $backCb = "product_" . $nameloc['id_invoice'];
-        sendmessage($from_id, "⌛️ مدت زمان تمدید را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonthextend_', $backCb), 'html');
+        $gbExtend = (int) ($userdate['volume'] ?? 0);
+        sendmessage($from_id, "⌛️ مدت زمان تمدید را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonthextend_', $backCb, $gbExtend, $user), 'html');
         step('selectcustommonthextend', $from_id);
         return;
     } elseif ($datain == "exntedagei") {
@@ -3229,7 +3230,7 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
         if ($user['step'] != "createusertest") {
             step('createusertest', $from_id);
             update("user", "Processing_value_one", $location, "id", $from_id);
-            sendmessage($from_id, $textbotlang['users']['selectusername'], $backuser, 'html');
+            sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), $backuser, 'html');
             return;
         }
     } else {
@@ -3897,9 +3898,7 @@ $textinvite
             $maxvolume = $maxvolume[$user['agent']];
             $nullproduct = select("product", "*", null, null, "count");
             if ($nullproduct == 0) {
-                $textcustom = "📌 حجم درخواستی خود را ارسال کنید.
-🔔قیمت هر گیگ حجم $custompricevalue تومان می باشد.
-🔔 حداقل حجم $mainvolume گیگابایت و حداکثر $maxvolume گیگابایت می باشد.";
+                $textcustom = textbot_custom_volume_ask($custompricevalue, $mainvolume, $maxvolume);
                 sendmessage($from_id, $textcustom, $backuser, 'html');
                 step('gettimecustomvol', $from_id);
                 return;
@@ -3911,9 +3910,11 @@ $textinvite
                 } else {
                     $backuser = "backuser";
                 }
-                $categorySelectMessage = (!empty($marzban_list_get['description']) && is_string($marzban_list_get['description']))
-                    ? htmlspecialchars(trim($marzban_list_get['description']), ENT_QUOTES, 'UTF-8')
-                    : "📌 دسته بندی خود را انتخاب نمایید!";
+                $categorySelectMessage = purchase_description_or_fallback(
+                    $marzban_list_get['description'] ?? '',
+                    'text_category_select',
+                    '📌 دسته بندی خود را انتخاب نمایید!'
+                );
                 if ($datain == "buy") {
                     Editmessagetext($from_id, $message_id, $categorySelectMessage, KeyboardCategory($location, $user['agent'], $backuser));
                 } else {
@@ -3928,7 +3929,7 @@ $textinvite
                     $datakeyboard = "prodcutservice_";
                 }
                 $statuscustom = panel_custom_enabled($marzban_list_get, (string) $user['agent']);
-                $textproduct = $textbotlang['users']['sell']['Service-select-first'];
+                $textproduct = textbot_get('text_service_select_first', $textbotlang['users']['sell']['Service-select-first']);
                 if ($datain == "buy") {
                     Editmessagetext($from_id, $message_id, $textproduct, KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom));
                 } else {
@@ -3950,10 +3951,11 @@ $textinvite
                 $back = "backuser";
             }
             $monthkeyboard = keyboardTimeCategory($marzban_list_get['name_panel'], $user['agent'], "productmonth_", $back, $statuscustom, false);
+            $monthSelectText = textbot_get('text_month_select', $textbotlang['Admin']['month']['title']);
             if ($datain == "buy" || $datain == "buybacktow") {
-                Editmessagetext($from_id, $message_id, $textbotlang['Admin']['month']['title'], $monthkeyboard);
+                Editmessagetext($from_id, $message_id, $monthSelectText, $monthkeyboard);
             } else {
-                sendmessage($from_id, $textbotlang['Admin']['month']['title'], $monthkeyboard, 'HTML');
+                sendmessage($from_id, $monthSelectText, $monthkeyboard, 'HTML');
             }
         }
         return;
@@ -3998,9 +4000,7 @@ $textinvite
         $mainvolume = $mainvolume[$user['agent']];
         $maxvolume = json_decode($marzban_list_get['maxvolume'], true);
         $maxvolume = $maxvolume[$user['agent']];
-        $textcustom = "📌 حجم درخواستی خود را ارسال کنید.
-🔔قیمت هر گیگ حجم $custompricevalue تومان می باشد.
-🔔 حداقل حجم $mainvolume گیگابایت و حداکثر $maxvolume گیگابایت می باشد.";
+        $textcustom = textbot_custom_volume_ask($custompricevalue, $mainvolume, $maxvolume);
         sendmessage($from_id, $textcustom, $backuser, 'html');
         step('gettimecustomvol', $from_id);
         return;
@@ -4008,9 +4008,11 @@ $textinvite
     if ($setting['statuscategory'] == "offcategory") {
         if ($setting['statuscategorygenral'] == "oncategorys") {
             $marzban_list_get = select("marzban_panel", "*", "name_panel", $location, "select");
-            $categorySelectMessage = (!empty($marzban_list_get['description']) && is_string($marzban_list_get['description']))
-                ? htmlspecialchars(trim($marzban_list_get['description']), ENT_QUOTES, 'UTF-8')
-                : "📌 دسته بندی خود را انتخاب نمایید!";
+            $categorySelectMessage = purchase_description_or_fallback(
+                $marzban_list_get['description'] ?? '',
+                'text_category_select',
+                '📌 دسته بندی خود را انتخاب نمایید!'
+            );
             Editmessagetext($from_id, $message_id, $categorySelectMessage, KeyboardCategory($location, $user['agent'], "buybacktow"));
         } else {
             $query = "SELECT * FROM product WHERE (Location = '$location' OR Location = '/all')AND " . agent_product_access_sql($user['agent'], $from_id) . "";
@@ -4026,7 +4028,7 @@ $textinvite
             } else {
                 $back = "buyback";
             }
-            Editmessagetext($from_id, $message_id, $textbotlang['users']['sell']['Service-select'], KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom, $back));
+            Editmessagetext($from_id, $message_id, textbot_get('text_service_select', $textbotlang['users']['sell']['Service-select']), KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom, $back));
         }
     } else {
         $nullproduct = select("product", "*", null, null, "count");
@@ -4036,7 +4038,7 @@ $textinvite
         }
         $statuscustom = false;
         $monthkeyboard = keyboardTimeCategory($marzban_list_get['name_panel'], $user['agent'], "productmonth_", "buybacktow", $statuscustom, false);
-        Editmessagetext($from_id, $message_id, $textbotlang['Admin']['month']['title'], $monthkeyboard);
+        Editmessagetext($from_id, $message_id, textbot_get('text_month_select', $textbotlang['Admin']['month']['title']), $monthkeyboard);
     }
 } elseif (preg_match('/^categorynames_(.*)/', $datain, $dataget)) {
     $category = select("category", "*", "id", $dataget[1], "select");
@@ -4045,10 +4047,8 @@ $textinvite
     }
     $categorynames = $category['remark'];
     savedata("save", "category_id", $category['id']);
-    $defaultCategoryMessage = $textbotlang['users']['sell']['Service-select-first'];
-    $categoryMessage = (!empty($category['description']) && is_string($category['description']))
-        ? htmlspecialchars(trim($category['description']), ENT_QUOTES, 'UTF-8')
-        : $defaultCategoryMessage;
+    $defaultCategoryMessage = textbot_get('text_service_select_first', $textbotlang['users']['sell']['Service-select-first']);
+    $categoryMessage = purchase_description_or_fallback($category['description'] ?? '', 'text_service_select_first', $defaultCategoryMessage);
     $userFresh = select("user", "*", "id", $from_id, "select");
     $userdate = json_decode(is_array($userFresh) ? ($userFresh['Processing_value'] ?? '{}') : '{}', true);
     if (!is_array($userdate) || empty($userdate['name_panel'])) {
@@ -4094,7 +4094,7 @@ $textinvite
         } else {
             $back = "location_{$marzban_list_get['code_panel']}";
         }
-        Editmessagetext($from_id, $message_id, "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($marzban_list_get['name_panel'], $user['agent'], $back));
+        Editmessagetext($from_id, $message_id, textbot_get('text_category_select', '📌 دسته بندی خود را انتخاب نمایید!'), KeyboardCategory($marzban_list_get['name_panel'], $user['agent'], $back));
     } else {
         $query = "SELECT * FROM product WHERE (Location = '{$userdate['name_panel']}' OR Location = '/all') AND " . agent_product_access_sql($user['agent'], $from_id) . " AND Service_time = '$monthenumber'";
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
@@ -4105,7 +4105,7 @@ $textinvite
         }
         // Custom sell only after a category is chosen
         $statuscustom = false;
-        Editmessagetext($from_id, $message_id, $textbotlang['users']['sell']['Service-select-first'], KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom));
+        Editmessagetext($from_id, $message_id, textbot_get('text_service_select_first', $textbotlang['users']['sell']['Service-select-first']), KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom));
     }
 } elseif ($datain == "customsellvolume") {
     $userdate = json_decode($user['Processing_value'], true);
@@ -4120,9 +4120,7 @@ $textinvite
     }
     $mainvolume = panel_agent_field($marzban_list_get, 'mainvolume', $user['agent'], '1');
     $maxvolume = panel_agent_field($marzban_list_get, 'maxvolume', $user['agent'], '1000');
-    $textcustom = "📌 حجم درخواستی خود را ارسال کنید.
-🔔قیمت هر گیگ حجم $custompricevalue تومان می باشد.
-🔔 حداقل حجم $mainvolume گیگابایت و حداکثر $maxvolume گیگابایت می باشد.";
+    $textcustom = textbot_custom_volume_ask($custompricevalue, $mainvolume, $maxvolume);
     sendmessage($from_id, $textcustom, $backuser, 'html');
     deletemessage($from_id, $message_id);
     step('gettimecustomvol', $from_id);
@@ -4136,7 +4134,7 @@ $textinvite
     $mainvolume = panel_agent_field($marzban_list_get, 'mainvolume', $user['agent'], '1');
     $maxvolume = panel_agent_field($marzban_list_get, 'maxvolume', $user['agent'], '1000');
     if ($text > intval($maxvolume) || $text < intval($mainvolume)) {
-        $texttime = "❌ حجم نامعتبر است.\n🔔 حداقل حجم $mainvolume گیگابایت و حداکثر $maxvolume گیگابایت می باشد";
+        $texttime = textbot_custom_volume_invalid($mainvolume, $maxvolume);
         sendmessage($from_id, $texttime, $backuser, 'HTML');
         return;
     }
@@ -4145,10 +4143,11 @@ $textinvite
         return;
     }
     update("user", "Processing_value_one", $text, "id", $from_id);
-    $textcustom = "⌛️ مدت زمان سرویس را انتخاب کنید
-📌 هر ماه معادل ۳۰ روز است
-⚠️ فقط گزینه‌های زیر قابل انتخاب هستند";
-    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser'), 'html');
+    $textcustom = textbot_get(
+        'text_custom_month_ask',
+        "⌛️ مدت زمان سرویس را انتخاب کنید\n📌 هر ماه معادل ۳۰ روز است\n⚠️ فقط گزینه‌های زیر قابل انتخاب هستند"
+    );
+    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) $text, $user), 'html');
     step('selectcustommonth', $from_id);
 } elseif (preg_match('/^custommonth_(\d+)$/', $datain, $dataget) && ($user['step'] == "selectcustommonth" || $user['step'] == "getvolumecustomuser" || $user['step'] == "getvolumecustomusername")) {
     $months = (int) $dataget[1];
@@ -4165,7 +4164,7 @@ $textinvite
     deletemessage($from_id, $message_id);
     if ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
         step('endstepusers', $from_id);
-        sendmessage($from_id, $textbotlang['users']['selectusername'], $backuser, 'html');
+        sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), $backuser, 'html');
         return;
     }
     $loc = $customvalue;
@@ -4219,7 +4218,7 @@ $textinvite
     if ($user['step'] == "getvolumecustomusername") {
         // Legacy free-text days path — redirect to month buttons
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
-        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser'), 'html');
+        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) $user['Processing_value_one'], $user), 'html');
         step('selectcustommonth', $from_id);
         return;
     } else {
@@ -4227,12 +4226,12 @@ $textinvite
         step('endstepuser', $from_id);
         deletemessage($from_id, $message_id);
     }
-    sendmessage($from_id, $textbotlang['users']['selectusername'], $backuser, 'html');
+    sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), $backuser, 'html');
 } elseif ($user['step'] == "endstepuser" || $user['step'] == "endstepusers" || preg_match('/prodcutservice_(.*)/', $datain, $dataget) || $user['step'] == "getvolumecustomuser") {
     $userdate = json_decode($user['Processing_value'], true);
     if ($user['step'] == "getvolumecustomuser") {
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
-        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser'), 'html');
+        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) $user['Processing_value_one'], $user), 'html');
         step('selectcustommonth', $from_id);
         return;
     } elseif ($user['step'] == "endstepusers" || $user['step'] == "endstepuser") {
@@ -4883,7 +4882,7 @@ $textonebuy
     // Custom sell is offered from panel settings
     $statuscustom = panel_custom_enabled($marzban_list_get, (string) $user['agent']);
     $query = "SELECT * FROM product WHERE (Location = '$location' OR Location = '/all')AND " . agent_product_access_sql($user['agent'], $from_id) . "";
-    Editmessagetext($from_id, $message_id, $textbotlang['users']['sell']['Service-select'], KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom, "backuser", null, "customsellvolumeom"));
+    Editmessagetext($from_id, $message_id, textbot_get('text_service_select', $textbotlang['users']['sell']['Service-select']), KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom, "backuser", null, "customsellvolumeom"));
 } elseif ($datain == "customsellvolumeom") {
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
     $eextraprice = json_decode($marzban_list_get['pricecustomvolume'], true);
@@ -4913,7 +4912,7 @@ $textonebuy
     $textcustom = "⌛️ مدت زمان سرویس را انتخاب کنید
 📌 هر ماه معادل ۳۰ روز است
 ⚠️ فقط گزینه‌های زیر قابل انتخاب هستند";
-    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonthom_', 'backuser'), 'html');
+    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonthom_', 'backuser', (int) $text, $user), 'html');
     step('selectcustommonthom', $from_id);
 } elseif (preg_match('/^custommonthom_(\d+)$/', $datain, $dataget) && ($user['step'] == "selectcustommonthom" || $user['step'] == "getvolumecustomuserom" || $user['step'] == "getvolumecustomusernameom")) {
     $months = (int) $dataget[1];
@@ -4929,7 +4928,7 @@ $textonebuy
     deletemessage($from_id, $message_id);
     if ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
         step('endstepusersom', $from_id);
-        sendmessage($from_id, $textbotlang['users']['selectusername'], $backuser, 'html');
+        sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), $backuser, 'html');
         return;
     }
     $loc = $customvalue;
@@ -4969,18 +4968,18 @@ $textonebuy
     $prodcut = $dataget[1];
     if ($user['step'] == "getvolumecustomusernameom") {
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
-        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonthom_', 'backuser'), 'html');
+        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonthom_', 'backuser', (int) $user['Processing_value_one'], $user), 'html');
         step('selectcustommonthom', $from_id);
         return;
     } else {
         update("user", "Processing_value_one", $prodcut, "id", $from_id);
         step('endstepuserom', $from_id);
     }
-    sendmessage($from_id, $textbotlang['users']['selectusername'], $backuser, 'html');
+    sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), $backuser, 'html');
 } elseif ($user['step'] == "endstepuserom" || $user['step'] == "endstepusersom" || preg_match('/prodcutserviceom_(.*)/', $datain, $dataget) || $user['step'] == "getvolumecustomuserom") {
     if ($user['step'] == "getvolumecustomuserom") {
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
-        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonthom_', 'backuser'), 'html');
+        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonthom_', 'backuser', (int) $user['Processing_value_one'], $user), 'html');
         step('selectcustommonthom', $from_id);
         return;
     } elseif ($user['step'] == "endstepusersom" || $user['step'] == "endstepuserom") {
@@ -7197,7 +7196,7 @@ $text_porsant
         sendmessage($from_id, $textbotlang['Admin']['agent']['agenttext'], $keyboardagent, 'HTML');
     }
 } elseif ($text == $textbotlang['users']['agenttext']['customnameusername'] || $datain == "selectname") {
-    sendmessage($from_id, $textbotlang['users']['selectusername'], $backuser, 'html');
+    sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), $backuser, 'html');
     step('selectusernamecustom', $from_id);
 } elseif ($user['step'] == "selectusernamecustom") {
     if (!preg_match('~(?!_)^[a-z][a-z\d_]{2,32}(?<!_)$~i', $text)) {

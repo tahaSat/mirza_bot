@@ -1692,8 +1692,32 @@ function panel_custom_button_text($panel): string
     if (!is_array($panel)) {
         return $default;
     }
-    $text = trim((string) ($panel['customvolume_text'] ?? ''));
+    $text = strip_html_for_button_label((string) ($panel['customvolume_text'] ?? ''));
     return $text !== '' ? $text : $default;
+}
+
+/** Premium icon id for سرویس دلخواه inline button, if set. */
+function panel_custom_button_emoji_id($panel): string
+{
+    if (!is_array($panel)) {
+        return '';
+    }
+    $normalized = normalize_main_keyboard_custom_emoji_id($panel['customvolume_emoji_id'] ?? '');
+    return ($normalized !== null && $normalized !== '') ? $normalized : '';
+}
+
+/** Build inline button array for سرویس دلخواه (optional Premium icon). */
+function panel_custom_service_inline_button($panel, string $callback_data = 'customsellvolume'): array
+{
+    $btn = [
+        'text' => panel_custom_button_text($panel),
+        'callback_data' => $callback_data,
+    ];
+    $emojiId = panel_custom_button_emoji_id($panel);
+    if ($emojiId !== '') {
+        $btn['icon_custom_emoji_id'] = $emojiId;
+    }
+    return $btn;
 }
 
 /** Default month options for سرویس دلخواه (1 month = 30 days). */
@@ -1796,24 +1820,49 @@ function panel_custom_service_price_for_user($panel, $user, int $gb, int $days):
 }
 
 /**
- * Inline keyboard of configured month options.
+ * Inline keyboard of configured month options (one button per row).
+ * When $gb > 0, labels include duration surcharge vs 1-month baseline.
  * Callback: {$prefix}{months} e.g. custommonth_2
  */
-function KeyboardCustomMonths($panel, string $prefix = 'custommonth_', string $backCallback = 'backuser'): string
+function KeyboardCustomMonths($panel, string $prefix = 'custommonth_', string $backCallback = 'backuser', int $gb = 0, $user = null): string
 {
     global $textbotlang;
     $keyboard = ['inline_keyboard' => []];
-    $row = [];
-    foreach (panel_custom_months($panel) as $opt) {
+    $monthsList = panel_custom_months($panel);
+    $baselineMonths = 1;
+    $baselineFound = false;
+    foreach ($monthsList as $opt) {
         $m = (int) $opt['months'];
-        $row[] = ['text' => $m . ' ماه', 'callback_data' => $prefix . $m];
-        if (count($row) >= 3) {
-            $keyboard['inline_keyboard'][] = $row;
-            $row = [];
+        if ($m === 1) {
+            $baselineMonths = 1;
+            $baselineFound = true;
+            break;
         }
     }
-    if ($row !== []) {
-        $keyboard['inline_keyboard'][] = $row;
+    if (!$baselineFound && $monthsList !== []) {
+        $baselineMonths = (int) $monthsList[0]['months'];
+    }
+    $baseCost = null;
+    if ($gb > 0) {
+        $baseCost = panel_custom_service_price_for_user($panel, $user, $gb, panel_custom_months_to_days($baselineMonths));
+    }
+    foreach ($monthsList as $opt) {
+        $m = (int) $opt['months'];
+        $label = $m . ' ماهه';
+        if ($gb > 0 && $baseCost !== null) {
+            $cost = panel_custom_service_price_for_user($panel, $user, $gb, panel_custom_months_to_days($m));
+            if ($cost !== null) {
+                $extra = (int) $cost - (int) $baseCost;
+                if ($extra <= 0) {
+                    $label .= ' - هزینه ی مدت : بدون هزینه';
+                } else {
+                    $label .= ' - هزینه ی مدت : ' . number_format($extra);
+                }
+            }
+        }
+        $keyboard['inline_keyboard'][] = [
+            ['text' => $label, 'callback_data' => $prefix . $m],
+        ];
     }
     $keyboard['inline_keyboard'][] = [
         ['text' => $textbotlang['users']['stateus']['backinfo'] ?? '🏠 بازگشت', 'callback_data' => $backCallback],
@@ -3249,6 +3298,375 @@ function extract_custom_emoji_id_from_update($update)
         }
     }
     return '';
+}
+
+/** UTF-16 code unit length (Telegram entity offsets). */
+function telegram_utf16_strlen(string $text): int
+{
+    return (int) (strlen(mb_convert_encoding($text, 'UTF-16LE', 'UTF-8')) / 2);
+}
+
+/** Substring by Telegram UTF-16 offset/length. */
+function telegram_utf16_substr(string $text, int $offset, ?int $length = null): string
+{
+    $utf16 = mb_convert_encoding($text, 'UTF-16LE', 'UTF-8');
+    $byteOffset = max(0, $offset) * 2;
+    if ($length === null) {
+        $slice = substr($utf16, $byteOffset);
+    } else {
+        $slice = substr($utf16, $byteOffset, max(0, $length) * 2);
+    }
+    if ($slice === false || $slice === '') {
+        return '';
+    }
+    return mb_convert_encoding($slice, 'UTF-8', 'UTF-16LE');
+}
+
+/**
+ * Convert Telegram message text + entities to HTML (preserves Premium custom emoji).
+ */
+function message_text_to_html(string $text, $entities = null): string
+{
+    if ($text === '') {
+        return '';
+    }
+    if (!is_array($entities) || $entities === []) {
+        return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    $valid = [];
+    foreach ($entities as $entity) {
+        if (!is_array($entity)) {
+            continue;
+        }
+        $offset = isset($entity['offset']) ? (int) $entity['offset'] : -1;
+        $length = isset($entity['length']) ? (int) $entity['length'] : -1;
+        if ($offset < 0 || $length <= 0) {
+            continue;
+        }
+        $valid[] = $entity;
+    }
+    if ($valid === []) {
+        return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    usort($valid, static function ($a, $b) {
+        $ao = (int) ($a['offset'] ?? 0);
+        $bo = (int) ($b['offset'] ?? 0);
+        if ($ao === $bo) {
+            return (int) ($b['length'] ?? 0) <=> (int) ($a['length'] ?? 0);
+        }
+        return $ao <=> $bo;
+    });
+
+    $total = telegram_utf16_strlen($text);
+    $out = '';
+    $cursor = 0;
+    $i = 0;
+    $n = count($valid);
+
+    while ($i < $n) {
+        $entity = $valid[$i];
+        $offset = (int) $entity['offset'];
+        $length = (int) $entity['length'];
+        if ($offset < $cursor) {
+            $i++;
+            continue;
+        }
+        if ($offset > $cursor) {
+            $out .= htmlspecialchars(telegram_utf16_substr($text, $cursor, $offset - $cursor), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+
+        $inner = telegram_utf16_substr($text, $offset, $length);
+        $type = (string) ($entity['type'] ?? '');
+        $end = $offset + $length;
+
+        // Nest non-overlapping child entities fully inside this span.
+        $childEntities = [];
+        $j = $i + 1;
+        while ($j < $n) {
+            $child = $valid[$j];
+            $co = (int) ($child['offset'] ?? 0);
+            $cl = (int) ($child['length'] ?? 0);
+            if ($co >= $end) {
+                break;
+            }
+            if ($co >= $offset && ($co + $cl) <= $end) {
+                $childEntities[] = $child;
+            }
+            $j++;
+        }
+        $innerHtml = $childEntities === []
+            ? htmlspecialchars($inner, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+            : message_text_to_html($inner, array_map(static function ($c) use ($offset) {
+                $c['offset'] = (int) $c['offset'] - $offset;
+                return $c;
+            }, $childEntities));
+
+        switch ($type) {
+            case 'custom_emoji':
+                $emojiId = normalize_main_keyboard_custom_emoji_id($entity['custom_emoji_id'] ?? '');
+                if ($emojiId !== null && $emojiId !== '') {
+                    $fallback = htmlspecialchars($inner !== '' ? $inner : '⭐', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                    $out .= '<tg-emoji emoji-id="' . $emojiId . '">' . $fallback . '</tg-emoji>';
+                } else {
+                    $out .= $innerHtml;
+                }
+                break;
+            case 'bold':
+                $out .= '<b>' . $innerHtml . '</b>';
+                break;
+            case 'italic':
+                $out .= '<i>' . $innerHtml . '</i>';
+                break;
+            case 'underline':
+                $out .= '<u>' . $innerHtml . '</u>';
+                break;
+            case 'strikethrough':
+                $out .= '<s>' . $innerHtml . '</s>';
+                break;
+            case 'spoiler':
+                $out .= '<tg-spoiler>' . $innerHtml . '</tg-spoiler>';
+                break;
+            case 'code':
+                $out .= '<code>' . htmlspecialchars($inner, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</code>';
+                break;
+            case 'pre':
+                $lang = trim((string) ($entity['language'] ?? ''));
+                if ($lang !== '') {
+                    $out .= '<pre><code class="language-' . htmlspecialchars($lang, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">'
+                        . htmlspecialchars($inner, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</code></pre>';
+                } else {
+                    $out .= '<pre>' . htmlspecialchars($inner, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</pre>';
+                }
+                break;
+            case 'text_link':
+                $url = htmlspecialchars((string) ($entity['url'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $out .= '<a href="' . $url . '">' . $innerHtml . '</a>';
+                break;
+            case 'text_mention':
+                $userId = (int) ($entity['user']['id'] ?? 0);
+                if ($userId > 0) {
+                    $out .= '<a href="tg://user?id=' . $userId . '">' . $innerHtml . '</a>';
+                } else {
+                    $out .= $innerHtml;
+                }
+                break;
+            case 'blockquote':
+                $out .= '<blockquote>' . $innerHtml . '</blockquote>';
+                break;
+            default:
+                $out .= $innerHtml;
+                break;
+        }
+
+        $cursor = $end;
+        // Skip entities fully covered by this one.
+        while ($i + 1 < $n) {
+            $next = $valid[$i + 1];
+            $no = (int) ($next['offset'] ?? 0);
+            $nl = (int) ($next['length'] ?? 0);
+            if ($no >= $offset && ($no + $nl) <= $end) {
+                $i++;
+                continue;
+            }
+            break;
+        }
+        $i++;
+    }
+
+    if ($cursor < $total) {
+        $out .= htmlspecialchars(telegram_utf16_substr($text, $cursor), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    return $out;
+}
+
+/**
+ * Build HTML from a Telegram message/caption (Premium emoji → tg-emoji).
+ */
+function text_from_telegram_message($message): string
+{
+    if (!is_array($message)) {
+        return '';
+    }
+    if (isset($message['text']) && is_string($message['text'])) {
+        $entities = $message['entities'] ?? [];
+        return message_text_to_html($message['text'], is_array($entities) ? $entities : []);
+    }
+    if (isset($message['caption']) && is_string($message['caption'])) {
+        $entities = $message['caption_entities'] ?? [];
+        return message_text_to_html($message['caption'], is_array($entities) ? $entities : []);
+    }
+    return '';
+}
+
+function text_from_telegram_update($update): string
+{
+    if (!is_array($update)) {
+        return '';
+    }
+    return text_from_telegram_message($update['message'] ?? null);
+}
+
+/** textbot value with fallback (empty DB value uses fallback). */
+function textbot_get(string $id_text, string $fallback = ''): string
+{
+    global $datatextbot;
+    if (is_array($datatextbot) && isset($datatextbot[$id_text])) {
+        $val = (string) $datatextbot[$id_text];
+        if (trim(strip_tags($val)) !== '' || strpos($val, 'tg-emoji') !== false) {
+            return $val;
+        }
+    }
+    return $fallback;
+}
+
+/** Panel/category description as trusted HTML, or global textbot fallback. */
+function purchase_description_or_fallback($description, string $fallback_key, string $fallback_default): string
+{
+    if (is_string($description)) {
+        $trimmed = trim($description);
+        if ($trimmed !== '') {
+            // New admin HTML (Premium emoji / formatting) is trusted; legacy plain text is escaped.
+            if (strpos($trimmed, '<tg-emoji') !== false || preg_match('/<\/?[a-z][a-z0-9]*\b/i', $trimmed)) {
+                return $trimmed;
+            }
+            return htmlspecialchars($trimmed, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+    }
+    return textbot_get($fallback_key, $fallback_default);
+}
+
+function textbot_custom_volume_ask($price, $min, $max): string
+{
+    $tpl = textbot_get(
+        'text_custom_volume_ask',
+        "📌 حجم درخواستی خود را ارسال کنید.\n🔔قیمت هر گیگ حجم {price} تومان می باشد.\n🔔 حداقل حجم {min} گیگابایت و حداکثر {max} گیگابایت می باشد."
+    );
+    return strtr($tpl, [
+        '{price}' => (string) $price,
+        '{min}' => (string) $min,
+        '{max}' => (string) $max,
+    ]);
+}
+
+function textbot_custom_volume_invalid($min, $max): string
+{
+    $tpl = textbot_get(
+        'text_custom_volume_invalid',
+        "❌ حجم نامعتبر است.\n🔔 حداقل حجم {min} گیگابایت و حداکثر {max} گیگابایت می باشد"
+    );
+    return strtr($tpl, [
+        '{min}' => (string) $min,
+        '{max}' => (string) $max,
+    ]);
+}
+
+/** Strip HTML tags for inline keyboard button labels. */
+function strip_html_for_button_label(string $html): string
+{
+    $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    return trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
+}
+
+/**
+ * Plain button label + first custom emoji id from an admin message.
+ * @return array{text: string, emoji_id: string}
+ */
+function plain_text_and_custom_emoji_from_message($message): array
+{
+    $html = text_from_telegram_message($message);
+    $plain = strip_html_for_button_label($html);
+    $emojiId = '';
+    if (is_array($message)) {
+        $tmpUpdate = ['message' => $message];
+        $emojiId = extract_custom_emoji_id_from_update($tmpUpdate);
+    }
+    return ['text' => $plain, 'emoji_id' => $emojiId];
+}
+
+function save_textbot_from_update(string $id_text, $update): bool
+{
+    $html = text_from_telegram_update($update);
+    if ($html === '') {
+        return false;
+    }
+    $stripped = trim(strip_tags($html));
+    if ($stripped === '' && strpos($html, 'tg-emoji') === false) {
+        return false;
+    }
+    update('textbot', 'text', $html, 'id_text', $id_text);
+    return true;
+}
+
+/**
+ * Prompt admin to edit a textbot row: instruction + current HTML preview.
+ */
+function prompt_textbot_edit(int $from_id, string $id_text, string $step_name, $back_keyboard = null, string $extra_note = ''): void
+{
+    global $datatextbot, $textbotlang, $backadmin;
+    $keyboard = $back_keyboard ?? $backadmin;
+    $current = is_array($datatextbot) ? (string) ($datatextbot[$id_text] ?? '') : '';
+    $prompt = $textbotlang['Admin']['ManageUser']['ChangeTextGet'] ?? "📝 متن جدید را ارسال کنید:";
+    sendmessage($from_id, $prompt, $keyboard, 'HTML');
+    if ($current !== '') {
+        sendmessage($from_id, $current, null, 'HTML');
+    }
+    if ($extra_note !== '') {
+        sendmessage($from_id, $extra_note, null, 'HTML');
+    }
+    step($step_name, $from_id);
+}
+
+/** Inline keyboard: pick a panel for purchase-text editing. */
+function keyboard_panels_purchase_text_edit(string $callback_prefix): string
+{
+    $panels = select('marzban_panel', '*', null, null, 'fetchAll');
+    $rows = [];
+    if (is_array($panels)) {
+        foreach ($panels as $panel) {
+            if (!is_array($panel)) {
+                continue;
+            }
+            $name = (string) ($panel['name_panel'] ?? '');
+            $code = (string) ($panel['code_panel'] ?? '');
+            if ($name === '' || $code === '') {
+                continue;
+            }
+            $rows[] = [['text' => $name, 'callback_data' => $callback_prefix . $code]];
+        }
+    }
+    if ($rows === []) {
+        $rows[] = [['text' => '❌ پنلی یافت نشد', 'callback_data' => 'purchase_texts_back']];
+    }
+    $rows[] = [['text' => '🔙 بازگشت', 'callback_data' => 'purchase_texts_back']];
+    return json_encode(['inline_keyboard' => $rows], JSON_UNESCAPED_UNICODE);
+}
+
+/** Inline keyboard: pick a category for description editing. */
+function keyboard_categories_purchase_text_edit(string $callback_prefix): string
+{
+    $categories = select('category', '*', null, null, 'fetchAll');
+    $rows = [];
+    if (is_array($categories)) {
+        foreach ($categories as $cat) {
+            if (!is_array($cat)) {
+                continue;
+            }
+            $id = (int) ($cat['id'] ?? 0);
+            $remark = (string) ($cat['remark'] ?? '');
+            if ($id <= 0 || $remark === '') {
+                continue;
+            }
+            $rows[] = [['text' => $remark, 'callback_data' => $callback_prefix . $id]];
+        }
+    }
+    if ($rows === []) {
+        $rows[] = [['text' => '❌ دسته‌بندی یافت نشد', 'callback_data' => 'purchase_texts_back']];
+    }
+    $rows[] = [['text' => '🔙 بازگشت', 'callback_data' => 'purchase_texts_back']];
+    return json_encode(['inline_keyboard' => $rows], JSON_UNESCAPED_UNICODE);
 }
 
 /**

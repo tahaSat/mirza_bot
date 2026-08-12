@@ -2016,6 +2016,213 @@ $textday
 //_____________________[ text ]____________________________//
 elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['users']['selectoption'], $textbot, 'HTML');
+} elseif (($text == "🛒 متن‌های فرآیند خرید" || $datain == "purchase_texts_back") && $adminrulecheck['rule'] == "administrator") {
+    if ($datain == "purchase_texts_back") {
+        deletemessage($from_id, $message_id);
+    }
+    sendmessage($from_id, "🛒 متن‌های فرآیند خرید را انتخاب کنید:\n✨ برای ایموجی پرمیوم، متن را مستقیماً با ایموجی پرمیوم ارسال کنید.", $textbot_purchase, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "🔙 بازگشت به تنظیم متن" && $adminrulecheck['rule'] == "administrator") {
+    sendmessage($from_id, $textbotlang['users']['selectoption'], $textbot, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "متن انتخاب دسته‌بندی" && $adminrulecheck['rule'] == "administrator") {
+    prompt_textbot_edit($from_id, 'text_category_select', 'purchasetext_category_select', $backadmin, "💡 اگر توضیحات پنل خالی باشد، این متن نمایش داده می‌شود.\nمتغیر ندارد.");
+} elseif ($user['step'] == "purchasetext_category_select") {
+    if (!save_textbot_from_update('text_category_select', $update)) {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
+        return;
+    }
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "متن انتخاب سرویس" && $adminrulecheck['rule'] == "administrator") {
+    prompt_textbot_edit($from_id, 'text_service_select', 'purchasetext_service_select', $backadmin);
+} elseif ($user['step'] == "purchasetext_service_select") {
+    if (!save_textbot_from_update('text_service_select', $update)) {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
+        return;
+    }
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "متن انتخاب سرویس (اول)" && $adminrulecheck['rule'] == "administrator") {
+    prompt_textbot_edit($from_id, 'text_service_select_first', 'purchasetext_service_select_first', $backadmin, "💡 داخل دسته‌بندی (اگر توضیحات دسته خالی باشد) و لیست محصول اول از این متن استفاده می‌شود.");
+} elseif ($user['step'] == "purchasetext_service_select_first") {
+    if (!save_textbot_from_update('text_service_select_first', $update)) {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
+        return;
+    }
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "متن انتخاب مدت" && $adminrulecheck['rule'] == "administrator") {
+    prompt_textbot_edit($from_id, 'text_month_select', 'purchasetext_month_select', $backadmin);
+} elseif ($user['step'] == "purchasetext_month_select") {
+    if (!save_textbot_from_update('text_month_select', $update)) {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
+        return;
+    }
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "متن یادداشت خرید" && $adminrulecheck['rule'] == "administrator") {
+    prompt_textbot_edit($from_id, 'text_sell_notestep', 'purchasetext_sell_notestep', $backadmin);
+} elseif ($user['step'] == "purchasetext_sell_notestep") {
+    if (!save_textbot_from_update('text_sell_notestep', $update)) {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
+        return;
+    }
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "متن درخواست حجم سرویس دلخواه" && $adminrulecheck['rule'] == "administrator") {
+    prompt_textbot_edit($from_id, 'text_custom_volume_ask', 'purchasetext_custom_volume_ask', $backadmin, "متغیرها:\n<code>{price}</code> قیمت هر گیگ\n<code>{min}</code> حداقل حجم\n<code>{max}</code> حداکثر حجم");
+} elseif ($user['step'] == "purchasetext_custom_volume_ask") {
+    if (!save_textbot_from_update('text_custom_volume_ask', $update)) {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
+        return;
+    }
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "متن انتخاب مدت سرویس دلخواه" && $adminrulecheck['rule'] == "administrator") {
+    prompt_textbot_edit($from_id, 'text_custom_month_ask', 'purchasetext_custom_month_ask', $backadmin);
+} elseif ($user['step'] == "purchasetext_custom_month_ask") {
+    if (!save_textbot_from_update('text_custom_month_ask', $update)) {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
+        return;
+    }
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "متن حجم نامعتبر" && $adminrulecheck['rule'] == "administrator") {
+    prompt_textbot_edit($from_id, 'text_custom_volume_invalid', 'purchasetext_custom_volume_invalid', $backadmin, "متغیرها:\n<code>{min}</code> حداقل حجم\n<code>{max}</code> حداکثر حجم");
+} elseif ($user['step'] == "purchasetext_custom_volume_invalid") {
+    if (!save_textbot_from_update('text_custom_volume_invalid', $update)) {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
+        return;
+    }
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "متن انتخاب نام کاربری" && $adminrulecheck['rule'] == "administrator") {
+    prompt_textbot_edit($from_id, 'text_select_username', 'purchasetext_select_username', $backadmin);
+} elseif ($user['step'] == "purchasetext_select_username") {
+    if (!save_textbot_from_update('text_select_username', $update)) {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
+        return;
+    }
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "توضیحات پنل (پس از انتخاب)" && $adminrulecheck['rule'] == "administrator") {
+    sendmessage($from_id, "📌 پنلی که می‌خواهید توضیحاتش را ویرایش کنید انتخاب کنید:", keyboard_panels_purchase_text_edit('editpaneldesc_'), 'HTML');
+} elseif (preg_match('/^editpaneldesc_(.+)$/', (string) $datain, $m) && $adminrulecheck['rule'] == "administrator") {
+    $panel = select('marzban_panel', '*', 'code_panel', $m[1], 'select');
+    if (!$panel || !is_array($panel)) {
+        sendmessage($from_id, '❌ پنل یافت نشد.', $textbot_purchase, 'HTML');
+        return;
+    }
+    update('user', 'Processing_value', $m[1], 'id', $from_id);
+    $current = trim((string) ($panel['description'] ?? ''));
+    sendmessage($from_id, "📝 توضیحات جدید پنل «{$panel['name_panel']}» را ارسال کنید:\n💡 خالی بگذارید و کلمه <code>-</code> بفرستید تا پاک شود و متن پیش‌فرض دسته‌بندی استفاده شود.", $backadmin, 'HTML');
+    if ($current !== '') {
+        sendmessage($from_id, $current, null, 'HTML');
+    } else {
+        sendmessage($from_id, "⚠️ فعلاً توضیحی تنظیم نشده.", null, 'HTML');
+    }
+    step('edit_panel_description', $from_id);
+} elseif ($user['step'] == "edit_panel_description") {
+    $code = (string) ($user['Processing_value'] ?? '');
+    $panel = select('marzban_panel', '*', 'code_panel', $code, 'select');
+    if (!$panel || !is_array($panel)) {
+        sendmessage($from_id, '❌ پنل یافت نشد.', $textbot_purchase, 'HTML');
+        step('home', $from_id);
+        return;
+    }
+    if (trim((string) $text) === '-') {
+        update('marzban_panel', 'description', '', 'code_panel', $code);
+        sendmessage($from_id, '✅ توضیحات پنل پاک شد.', $textbot_purchase, 'HTML');
+        step('home', $from_id);
+        return;
+    }
+    $html = text_from_telegram_update($update);
+    if ($html === '') {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
+        return;
+    }
+    update('marzban_panel', 'description', $html, 'code_panel', $code);
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "متن دکمه سرویس دلخواه" && $adminrulecheck['rule'] == "administrator") {
+    sendmessage($from_id, "📌 پنلی که می‌خواهید متن دکمه سرویس دلخواه آن را ویرایش کنید انتخاب کنید:", keyboard_panels_purchase_text_edit('editpanelcustombtn_'), 'HTML');
+} elseif (preg_match('/^editpanelcustombtn_(.+)$/', (string) $datain, $m) && $adminrulecheck['rule'] == "administrator") {
+    $panel = select('marzban_panel', '*', 'code_panel', $m[1], 'select');
+    if (!$panel || !is_array($panel)) {
+        sendmessage($from_id, '❌ پنل یافت نشد.', $textbot_purchase, 'HTML');
+        return;
+    }
+    update('user', 'Processing_value', $m[1], 'id', $from_id);
+    $current = panel_custom_button_text($panel);
+    $emojiId = panel_custom_button_emoji_id($panel);
+    sendmessage($from_id, "📝 متن دکمه سرویس دلخواه پنل «{$panel['name_panel']}» را ارسال کنید:\n✨ اگر ایموجی پرمیوم بفرستید، روی دکمه هم نمایش داده می‌شود.\nبرای پاک کردن متن سفارشی، <code>-</code> بفرستید.", $backadmin, 'HTML');
+    sendmessage($from_id, $current . ($emojiId !== '' ? "\n🆔 <code>{$emojiId}</code>" : ''), null, 'HTML');
+    step('edit_panel_custom_btn', $from_id);
+} elseif ($user['step'] == "edit_panel_custom_btn") {
+    $code = (string) ($user['Processing_value'] ?? '');
+    $panel = select('marzban_panel', '*', 'code_panel', $code, 'select');
+    if (!$panel || !is_array($panel)) {
+        sendmessage($from_id, '❌ پنل یافت نشد.', $textbot_purchase, 'HTML');
+        step('home', $from_id);
+        return;
+    }
+    if (trim((string) $text) === '-') {
+        update('marzban_panel', 'customvolume_text', '', 'code_panel', $code);
+        update('marzban_panel', 'customvolume_emoji_id', '', 'code_panel', $code);
+        sendmessage($from_id, '✅ متن دکمه به پیش‌فرض برگشت.', $textbot_purchase, 'HTML');
+        step('home', $from_id);
+        return;
+    }
+    $parsed = plain_text_and_custom_emoji_from_message($update['message'] ?? null);
+    if ($parsed['text'] === '') {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
+        return;
+    }
+    update('marzban_panel', 'customvolume_text', $parsed['text'], 'code_panel', $code);
+    update('marzban_panel', 'customvolume_emoji_id', $parsed['emoji_id'], 'code_panel', $code);
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
+    step('home', $from_id);
+} elseif ($text == "توضیحات داخل دسته‌بندی" && $adminrulecheck['rule'] == "administrator") {
+    sendmessage($from_id, "📌 دسته‌بندی که می‌خواهید توضیحاتش را ویرایش کنید انتخاب کنید:", keyboard_categories_purchase_text_edit('editcategorydesc_'), 'HTML');
+} elseif (preg_match('/^editcategorydesc_(\d+)$/', (string) $datain, $m) && $adminrulecheck['rule'] == "administrator") {
+    $category = select('category', '*', 'id', $m[1], 'select');
+    if (!$category || !is_array($category)) {
+        sendmessage($from_id, '❌ دسته‌بندی یافت نشد.', $textbot_purchase, 'HTML');
+        return;
+    }
+    update('user', 'Processing_value', $m[1], 'id', $from_id);
+    $current = trim((string) ($category['description'] ?? ''));
+    $remark = htmlspecialchars((string) ($category['remark'] ?? ''), ENT_QUOTES, 'UTF-8');
+    sendmessage($from_id, "📝 توضیحات داخل دسته «{$remark}» را ارسال کنید:\n💡 برای پاک کردن، <code>-</code> بفرستید.", $backadmin, 'HTML');
+    if ($current !== '') {
+        sendmessage($from_id, $current, null, 'HTML');
+    } else {
+        sendmessage($from_id, "⚠️ فعلاً توضیحی تنظیم نشده.", null, 'HTML');
+    }
+    step('edit_category_description', $from_id);
+} elseif ($user['step'] == "edit_category_description") {
+    $catId = (string) ($user['Processing_value'] ?? '');
+    $category = select('category', '*', 'id', $catId, 'select');
+    if (!$category || !is_array($category)) {
+        sendmessage($from_id, '❌ دسته‌بندی یافت نشد.', $textbot_purchase, 'HTML');
+        step('home', $from_id);
+        return;
+    }
+    if (trim((string) $text) === '-') {
+        update('category', 'description', '', 'id', $catId);
+        sendmessage($from_id, '✅ توضیحات دسته پاک شد.', $textbot_purchase, 'HTML');
+        step('home', $from_id);
+        return;
+    }
+    $html = text_from_telegram_update($update);
+    if ($html === '') {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
+        return;
+    }
+    update('category', 'description', $html, 'id', $catId);
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
+    step('home', $from_id);
 } elseif ($text == "تنظیم متن شروع" && $adminrulecheck['rule'] == "administrator") {
     $textstart = $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_start']}</code>";
     sendmessage($from_id, $textstart, $backadmin, 'HTML');
@@ -2042,7 +2249,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_start");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_start");
     step('home', $from_id);
 } elseif ($text == "دکمه سرویس خریداری شده" && $adminrulecheck['rule'] == "administrator") {
     $textstart = $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_Purchased_services']}</code>";
@@ -2054,7 +2261,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_Purchased_services");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_Purchased_services");
     step('home', $from_id);
 } elseif ($text == "دکمه اکانت تست" && $adminrulecheck['rule'] == "administrator") {
     $textstart = $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_usertest']}</code>";
@@ -2066,7 +2273,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_usertest");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_usertest");
     step('home', $from_id);
 } elseif ($text == "متن دکمه 📚 آموزش" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_help']}</code>", $backadmin, 'HTML');
@@ -2077,7 +2284,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_help");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_help");
     step('home', $from_id);
 } elseif ($text == "متن درخواست نمایندگی" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['textrequestagent']}</code>", $backadmin, 'HTML');
@@ -2088,7 +2295,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "textrequestagent");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "textrequestagent");
     step('home', $from_id);
 } elseif ($text == "متن دکمه  نمایندگی" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['textpanelagent']}</code>", $backadmin, 'HTML');
@@ -2099,7 +2306,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "textpanelagent");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "textpanelagent");
     step('home', $from_id);
 } elseif ($text == "متن دکمه ☎️ پشتیبانی" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_support']}</code>", $backadmin, 'HTML');
@@ -2110,7 +2317,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_support");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_support");
     step('home', $from_id);
 } elseif ($text == "دکمه سوالات متداول" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_fq']}</code>", $backadmin, 'HTML');
@@ -2121,7 +2328,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_fq");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_fq");
     step('home', $from_id);
 } elseif ($text == "📝 تنظیم متن توضیحات سوالات متداول" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_dec_fq']}</code>", $backadmin, 'HTML');
@@ -2132,7 +2339,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_dec_fq");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_dec_fq");
     step('home', $from_id);
 } elseif ($text == "📝 تنظیم متن توضیحات عضویت اجباری" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_channel']}</code>", $backadmin, 'HTML');
@@ -2143,7 +2350,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_channel");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_channel");
     step('home', $from_id);
 } elseif ($text == "متن دکمه کیف پول" && $adminrulecheck['rule'] == "administrator") {
     $textstart = $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['accountwallet']}</code>";
@@ -2155,7 +2362,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "accountwallet");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "accountwallet");
     step('home', $from_id);
 } elseif ($text == "متن دکمه کد هدیه" && $adminrulecheck['rule'] == "administrator") {
     $textstart = $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_Discount']}</code>";
@@ -2167,7 +2374,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_Discount");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_Discount");
     step('home', $from_id);
 } elseif ($text == "دکمه افزایش موجودی" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_Add_Balance']}</code>", $backadmin, 'HTML');
@@ -2178,7 +2385,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_Add_Balance");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_Add_Balance");
     step('home', $from_id);
 } elseif ($text == "متن دکمه خرید اشتراک" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_sell']}</code>", $backadmin, 'HTML');
@@ -2189,7 +2396,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_sell");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_sell");
     step('home', $from_id);
 } elseif ($text == "متن دکمه زیرمجموعه گیری" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_affiliates']}</code>", $backadmin, 'HTML');
@@ -2200,7 +2407,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_affiliates");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_affiliates");
     step('home', $from_id);
 } elseif ($text == "متن دکمه لیست تعرفه" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_Tariff_list']}</code>", $backadmin, 'HTML');
@@ -2211,7 +2418,7 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_Tariff_list");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_Tariff_list");
     step('home', $from_id);
 } elseif ($text == "متن توضیحات لیست تعرفه" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_dec_Tariff_list']}</code>", $backadmin, 'HTML');
@@ -2222,22 +2429,19 @@ elseif ($text == "📝 تنظیم متن ربات" && $adminrulecheck['rule'] ==
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_dec_Tariff_list");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_dec_Tariff_list");
     step('home', $from_id);
 } elseif ($text == "متن انتخاب لوکیشن" && $adminrulecheck['rule'] == "administrator") {
-    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['textselectlocation']}</code>", $backadmin, 'HTML');
-    step('textselectlocation', $from_id);
+    prompt_textbot_edit($from_id, 'textselectlocation', 'textselectlocation', $backadmin);
 } elseif ($user['step'] == "textselectlocation") {
-    if (!$text) {
-        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot, 'HTML');
+    if (!save_textbot_from_update('textselectlocation', $update)) {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
         return;
     }
-    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "textselectlocation");
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
     step('home', $from_id);
 } elseif ($text == "متن پیش فاکتور" && $adminrulecheck['rule'] == "administrator") {
-    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_pishinvoice']}</code>", $backadmin, 'HTML');
-    sendmessage($from_id, "نام های فارسی متغییر : 
+    prompt_textbot_edit($from_id, 'text_pishinvoice', 'text_pishinvoice', $backadmin, "نام های فارسی متغییر : 
 username : نام کاربری کانفیگ 
 name_product : نام محصول
 Service_time : زمان سرویس
@@ -2246,15 +2450,13 @@ Volume : حجم سرویس
 userBalance : موجودی کاربر 
 note : یادداشت
 
-⚠️ حتما این نام ها باید داخل آکلاد باشند ", null, 'HTML');
-    step('text_pishinvoice', $from_id);
+⚠️ حتما این نام ها باید داخل آکلاد باشند ");
 } elseif ($user['step'] == "text_pishinvoice") {
-    if (!$text) {
-        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot, 'HTML');
+    if (!save_textbot_from_update('text_pishinvoice', $update)) {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $textbot_purchase, 'HTML');
         return;
     }
-    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_pishinvoice");
+    sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot_purchase, 'HTML');
     step('home', $from_id);
 } elseif ($text == "متن بعد خرید" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['textafterpay']}</code>", $backadmin, 'HTML');
@@ -2276,7 +2478,7 @@ links2 : لینک ساب بدون کپی شدن
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "textafterpay");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "textafterpay");
     step('home', $from_id);
 } elseif ($text == "متن بعد خرید ibsng" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['textafterpayibsng']}</code>", $backadmin, 'HTML');
@@ -2298,7 +2500,7 @@ links2 : لینک ساب بدون کپی شدن
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "textafterpayibsng");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "textafterpayibsng");
     step('home', $from_id);
 } elseif ($text == "متن کارت به کارت" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_cart']}</code>", $backadmin, 'HTML');
@@ -2314,7 +2516,7 @@ name_card : نام دارنده کارت
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_cart");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_cart");
     step('home', $from_id);
 } elseif ($text == "تنظیم متن کارت به کارت خودکار" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_cart_auto']}</code>", $backadmin, 'HTML');
@@ -2330,7 +2532,7 @@ name_card : نام دارنده کارت
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_cart_auto");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_cart_auto");
     step('home', $from_id);
 } elseif ($text == "متن بعد گرفتن اکانت تست" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['textaftertext']}</code>", $backadmin, 'HTML');
@@ -2352,7 +2554,7 @@ links2 : لینک ساب بدون کپی
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "textaftertext");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "textaftertext");
     step('home', $from_id);
 } elseif ($text == "متن بعد گرفتن اکانت دستی" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['textmanual']}</code>", $backadmin, 'HTML');
@@ -2377,7 +2579,7 @@ username : نام کاربری کانفیگ
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "crontest");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "crontest");
     step('home', $from_id);
 } elseif ($text == "متن بعد گرفتن اکانت دستی" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['textmanual']}</code>", $backadmin, 'HTML');
@@ -2395,7 +2597,7 @@ config : اطلاعات سرویس
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "textmanual");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "textmanual");
     step('home', $from_id);
 } elseif ($text == "متن بعد گرفتن اکانت WGDashboard" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_wgdashboard']}</code>", $backadmin, 'HTML');
@@ -2414,7 +2616,7 @@ volume : حجم سرویس
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_wgdashboard");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_wgdashboard");
     step('home', $from_id);
 } elseif ($text == "دکمه تمدید" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ChangeTextGet'] . "<code>{$datatextbot['text_extend']}</code>", $backadmin, 'HTML');
@@ -2425,7 +2627,7 @@ volume : حجم سرویس
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_extend");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_extend");
     step('home', $from_id);
 } elseif (preg_match('/sendmessageuser_(\w+)/', $datain, $dataget)) {
     $iduser = $dataget[1];
@@ -3591,7 +3793,7 @@ $caption";
     step('text_roll', $from_id);
 } elseif ($user['step'] == "text_roll") {
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_roll");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_roll");
     step('home', $from_id);
 } elseif ($text == "📣 گزارشات ربات" && $adminrulecheck['rule'] == "administrator") {
     $textreports = "📣در این بخش میتوانید آیدی عددی گروه را برای ارسال اعلان ارسال نمایید
@@ -8417,84 +8619,84 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
     step("getnamecarttocart", $from_id);
 } elseif ($user['step'] == "getnamecarttocart") {
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $CartManage, 'HTML');
-    update("textbot", "text", $text, "id_text", "carttocart");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "carttocart");
     step("home", $from_id);
 } elseif ($text == "🗂 نام درگاه nowpayment") {
     sendmessage($from_id, " 📌 نام درگاه را ارسال نمايید", $backadmin, 'HTML');
     step("getnamenowpayment", $from_id);
 } elseif ($user['step'] == "getnamenowpayment") {
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $nowpayment_setting_keyboard, 'HTML');
-    update("textbot", "text", $text, "id_text", "textsnowpayment");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "textsnowpayment");
     step("home", $from_id);
 } elseif ($text == "🗂 نام درگاه ریالی بدون احراز") {
     sendmessage($from_id, " 📌 نام درگاه را ارسال نمايید", $backadmin, 'HTML');
     step("getnamecarttopaynotverify", $from_id);
 } elseif ($user['step'] == "getnamecarttopaynotverify") {
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $CartManage, 'HTML');
-    update("textbot", "text", $text, "id_text", "textpaymentnotverify");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "textpaymentnotverify");
     step("home", $from_id);
 } elseif ($text == "🗂 نام درگاه   plisio") {
     sendmessage($from_id, " 📌 نام درگاه را ارسال نمايید", $backadmin, 'HTML');
     step("gettextnowpayment", $from_id);
 } elseif ($user['step'] == "gettextnowpayment") {
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $NowPaymentsManage, 'HTML');
-    update("textbot", "text", $text, "id_text", "textnowpayment");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "textnowpayment");
     step("home", $from_id);
 } elseif ($text == "🗂 نام درگاه رمز ارز آفلاین") {
     sendmessage($from_id, " 📌 نام درگاه را ارسال نمايید", $backadmin, 'HTML');
     step("gettextnowpaymentTRON", $from_id);
 } elseif ($user['step'] == "gettextnowpaymentTRON") {
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $tronnowpayments, 'HTML');
-    update("textbot", "text", $text, "id_text", "textnowpaymenttron");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "textnowpaymenttron");
     step("home", $from_id);
 } elseif ($text == "🗂 نام درگاه ارزی ریالی") {
     sendmessage($from_id, " 📌 نام درگاه را ارسال نمايید", $backadmin, 'HTML');
     step("gettextiranpay2", $from_id);
 } elseif ($user['step'] == "gettextiranpay2") {
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $Swapinokey, 'HTML');
-    update("textbot", "text", $text, "id_text", "iranpay2");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "iranpay2");
     step("home", $from_id);
 } elseif ($text == "🗂 نام درگاه استار") {
     sendmessage($from_id, " 📌 نام درگاه را ارسال نمايید", $backadmin, 'HTML');
     step("gettextstartelegram", $from_id);
 } elseif ($user['step'] == "gettextstartelegram") {
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $Swapinokey, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_star_telegram");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_star_telegram");
     step("home", $from_id);
 } elseif ($text == "🗂 نام درگاه ارزی ریالی دوم") {
     sendmessage($from_id, " 📌 نام درگاه را ارسال نمايید", $backadmin, 'HTML');
     step("gettextiranpay3", $from_id);
 } elseif ($user['step'] == "gettextiranpay3") {
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $trnado, 'HTML');
-    update("textbot", "text", $text, "id_text", "iranpay3");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "iranpay3");
     step("home", $from_id);
 } elseif ($text == "🗂 نام درگاه ارزی ریالی سوم") {
     sendmessage($from_id, " 📌 نام درگاه را ارسال نمايید", $backadmin, 'HTML');
     step("gettextiranpay1", $from_id);
 } elseif ($user['step'] == "gettextiranpay1") {
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $iranpaykeyboard, 'HTML');
-    update("textbot", "text", $text, "id_text", "iranpay1");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "iranpay1");
     step("home", $from_id);
 } elseif ($text == "🗂 نام درگاه آقای پرداخت") {
     sendmessage($from_id, " 📌 نام درگاه را ارسال نمايید", $backadmin, 'HTML');
     step("gettextaqayepardakht", $from_id);
 } elseif ($user['step'] == "gettextaqayepardakht") {
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $aqayepardakht, 'HTML');
-    update("textbot", "text", $text, "id_text", "aqayepardakht");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "aqayepardakht");
     step("home", $from_id);
 } elseif ($text == "🗂 نام درگاه زرین پال") {
     sendmessage($from_id, " 📌 نام درگاه را ارسال نمايید", $backadmin, 'HTML');
     step("gettextzarinpal", $from_id);
 } elseif ($user['step'] == "gettextzarinpal") {
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $keyboardzarinpal, 'HTML');
-    update("textbot", "text", $text, "id_text", "zarinpal");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "zarinpal");
     step("home", $from_id);
 } elseif ($text == "🗂 نام درگاه Tetraminator") {
     sendmessage($from_id, " 📌 نام درگاه را ارسال نمايید", $backadmin, 'HTML');
     step("gettexttetraminator", $from_id);
 } elseif ($user['step'] == "gettexttetraminator") {
     sendmessage($from_id, "✅  متن با موفقیت تنظیم گردید.", $keyboardtetraminator, 'HTML');
-    update("textbot", "text", $text, "id_text", "tetraminator");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "tetraminator");
     step("home", $from_id);
 } elseif ($text == "⚙️  اینباند اکانت غیرفعال" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['managepanel']['Inbound']['GetProtocol'], $keyboardprotocol, 'HTML');
@@ -11429,7 +11631,7 @@ if (isset($update["inline_query"])) {
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_wheel_luck");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_wheel_luck");
     step('home', $from_id);
 } elseif ($datain == "cartuserlist") {
     update("user", "pagenumber", "1", "id", $from_id);
@@ -12565,7 +12767,7 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['SaveText'], $textbot, 'HTML');
-    update("textbot", "text", $text, "id_text", "text_request_agent_dec");
+    update("textbot", "text", text_from_telegram_update($update), "id_text", "text_request_agent_dec");
     step('home', $from_id);
 } elseif (preg_match('/changestatusadmin_(\w+)/', $datain, $dataget)) {
     $id_invoice = $dataget[1];

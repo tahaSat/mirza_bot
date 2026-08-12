@@ -813,7 +813,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $textcustom = "⌛️ مدت زمان سرویس را انتخاب کنید
 📌 هر ماه معادل ۳۰ روز است
 ⚠️ فقط گزینه‌های زیر قابل انتخاب هستند";
-    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser'), 'html');
+    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) $text, $userbot), 'html');
     step('selectcustommonth', $from_id);
 } elseif (preg_match('/^custommonth_(\d+)$/', $datain, $dataget) && ($user['step'] == "selectcustommonth" || $user['step'] == "getvolumecustomuser" || $user['step'] == "getvolumecustomusername")) {
     $months = (int) $dataget[1];
@@ -877,7 +877,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $userdate = json_decode($user['Processing_value'], true);
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
     if ($user['step'] == "getvolumecustomusername") {
-        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser'), 'html');
+        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) ($userdate['volume'] ?? 0), $userbot), 'html');
         step('selectcustommonth', $from_id);
         return;
     } else {
@@ -890,7 +890,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $userdate = json_decode($user['Processing_value'], true);
     if ($user['step'] == "getvolumecustomuser") {
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
-        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser'), 'html');
+        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) ($userdate['volume'] ?? 0), $userbot), 'html');
         step('selectcustommonth', $from_id);
         return;
     }
@@ -1751,7 +1751,7 @@ $output
 📌 هر ماه معادل ۳۰ روز است
 ⚠️ فقط گزینه‌های زیر قابل انتخاب هستند";
     $backCb = "product_" . $nameloc['id_invoice'];
-    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonthextend_', $backCb), 'html');
+    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonthextend_', $backCb, (int) $text, $userbot), 'html');
     step('selectcustommonthextend', $from_id);
 } elseif (preg_match('/^custommonthextend_(\d+)$/', $datain, $dataget) && ($user['step'] == "selectcustommonthextend" || $user['step'] == "gettimecustomextend")) {
     $months = (int) $dataget[1];
@@ -1801,7 +1801,7 @@ $output
         $userdate = json_decode($user['Processing_value'], true);
         $nameloc = select("invoice", "*", "id_invoice", $userdate['id_invoice'], "select");
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
-        sendmessage($from_id, "⌛️ مدت زمان تمدید را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonthextend_', "product_" . $nameloc['id_invoice']), 'html');
+        sendmessage($from_id, "⌛️ مدت زمان تمدید را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonthextend_', "product_" . $nameloc['id_invoice'], (int) ($userdate['volume'] ?? 0), $userbot), 'html');
         step('selectcustommonthextend', $from_id);
         return;
     }

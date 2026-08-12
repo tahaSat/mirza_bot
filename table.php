@@ -451,6 +451,7 @@ try {
         addFieldToTable("marzban_panel", "version_panel", "0", "VARCHAR(60)");
         addFieldToTable("marzban_panel", "description", null, "TEXT");
         addFieldToTable("marzban_panel", "customvolume_text", null, "VARCHAR(200)");
+        addFieldToTable("marzban_panel", "customvolume_emoji_id", null, "VARCHAR(64)");
         $defaultCustomMonths = json_encode([
             ['months' => 1, 'magnifier' => 1],
             ['months' => 2, 'magnifier' => 1.8],
@@ -889,7 +890,16 @@ try {
         ['text_star_telegram', "💫 Star Telegram"],
         ['text_request_agent_dec', '📌 توضیحات خود را برای ثبت درخواست نمایندگی ارسال نمایید.'],
         ['text_extend', '♻️ تمدید سرویس'],
-        ['text_wgdashboard', $text_wgdashboard]
+        ['text_wgdashboard', $text_wgdashboard],
+        ['text_category_select', '📌 دسته بندی خود را انتخاب نمایید!'],
+        ['text_service_select', '🛍️ لطفاً سرویسی که می‌خواهید خریداری کنید را انتخاب کنید!'],
+        ['text_service_select_first', '🛍️ لطفاً سرویسی که می‌خواهید خریداری کنید را انتخاب کنید!'],
+        ['text_month_select', '📌 مدت زمان سرویس را انتخاب نمایید'],
+        ['text_custom_volume_ask', "📌 حجم درخواستی خود را ارسال کنید.\n🔔قیمت هر گیگ حجم {price} تومان می باشد.\n🔔 حداقل حجم {min} گیگابایت و حداکثر {max} گیگابایت می باشد."],
+        ['text_custom_month_ask', "⌛️ مدت زمان سرویس را انتخاب کنید\n📌 هر ماه معادل ۳۰ روز است\n⚠️ فقط گزینه‌های زیر قابل انتخاب هستند"],
+        ['text_custom_volume_invalid', "❌ حجم نامعتبر است.\n🔔 حداقل حجم {min} گیگابایت و حداکثر {max} گیگابایت می باشد"],
+        ['text_sell_notestep', "📌 یک یادداشت برای کانفیگ خود بنویسید.\n⚠️ این نام برای جستجو سریع تر در مدیریت سرویس ها می باشد\n🪪(مثال: علی ، احمد ، عمو ، مشتری شهرستان و...)"],
+        ['text_select_username', "يک نام کاربري دلخواه ارسال کنيد\n⚠️ نام کاربری باید بدون کاراکترهای اضافه مانند @ ، فاصله ، خط تیره باشد. \n⚠️ نام کاربری باید انگلیسی باشد.\n✅ نام کاربری های صحیح  : ali12  | mahdi  | ws1_ksdf\n❌ نام کاربری های نادرست :   ali_ |  tele@  |  _mahdi | محسن"],
     ];
     if (!$table_exists) {
         $result = $connect->query("CREATE TABLE textbot (

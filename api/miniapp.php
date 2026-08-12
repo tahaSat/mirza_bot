@@ -693,16 +693,18 @@ switch ($data['actions']) {
             $mainvolume = $mainvolume[$user_info['agent']];
             $maxvolume = json_decode($panel['maxvolume'], true);
             $maxvolume = $maxvolume[$user_info['agent']];
-            $maintime = json_decode($panel['maintime'], true);
-            $maintime = $maintime[$user_info['agent']];
-            $maxtime = json_decode($panel['maxtime'], true);
-            $maxtime = $maxtime[$user_info['agent']];
             $traffic_price = json_decode($panel['pricecustomvolume'], true);
             $traffic_price = $traffic_price[$user_info['agent']];
-            $time_price = json_decode($panel['pricecustomtime'], true);
-            $time_price = $time_price[$user_info['agent']];
+            if (($user_info['agent'] ?? '') === 'n') {
+                $traffic_price = agent_current_price_per_gb($user_info);
+            }
+            $monthsOpts = panel_custom_months($panel);
+            $time_months = isset($data['time_months']) ? intval($data['time_months']) : 0;
+            if ($time_months <= 0 && isset($data['time_days'])) {
+                $time_months = (int) round(intval($data['time_days']) / 30);
+            }
             if (intval($statuscustomvolume) == 1 && $panel['type'] != "Manualsale") {
-                $price = ($traffic_price * intval($data['traffic_gb'])) + ($time_price * intval($data['time_days']));
+                $price = panel_custom_service_price_for_user($panel, $user_info, intval($data['traffic_gb']), panel_custom_months_to_days($time_months));
             } else {
                 $price = false;
             }
@@ -713,8 +715,9 @@ switch ($data['actions']) {
                     'price' => $price,
                     'traffic_min' => intval($mainvolume),
                     'traffic_max' => intval($maxvolume),
-                    'time_min' => intval($maintime),
-                    'time_max' => intval($maxtime)
+                    'traffic_price_per_gb' => floatval($traffic_price),
+                    'months' => $monthsOpts,
+                    'days_per_month' => 30
                 )
             ]);
         } else {
@@ -760,22 +763,21 @@ switch ($data['actions']) {
             $mainvolume = $mainvolume[$user_info['agent']];
             $maxvolume = json_decode($panel['maxvolume'], true);
             $maxvolume = $maxvolume[$user_info['agent']];
-            $maintime = json_decode($panel['maintime'], true);
-            $maintime = $maintime[$user_info['agent']];
-            $maxtime = json_decode($panel['maxtime'], true);
-            $maxtime = $maxtime[$user_info['agent']];
             $customsrvice = $data['custom_service'];
-            $eextraprice = json_decode($panel['pricecustomvolume'], true);
-            $custompricevalue = $eextraprice[$user_info['agent']];
-            $eextraprice = json_decode($panel['pricecustomtime'], true);
-            $customtimevalueprice = $eextraprice[$user_info['agent']];
+            $gb = intval($customsrvice['traffic_gb']);
+            $time_months = isset($customsrvice['time_months']) ? intval($customsrvice['time_months']) : 0;
+            if ($time_months <= 0 && isset($customsrvice['time_days'])) {
+                $time_months = (int) round(intval($customsrvice['time_days']) / 30);
+            }
+            $days = panel_custom_months_to_days($time_months);
+            $price = panel_custom_service_price_for_user($panel, $user_info, $gb, $days);
             $product = array(
                 'code_product' => "customvolume",
                 'name_product' => $textbotlang['users']['customsellvolume']['title'],
-                'Volume_constraint' => $customsrvice['traffic_gb'],
-                'Service_time' => $customsrvice['time_days'],
+                'Volume_constraint' => $gb,
+                'Service_time' => $days,
                 'Location' => $panel['name_panel'],
-                'price_product' => ($customsrvice['traffic_gb'] * $custompricevalue) + ($customsrvice['time_days'] * $customtimevalueprice)
+                'price_product' => $price
             );
             if (intval($product['Volume_constraint']) > $maxvolume or intval($product['Volume_constraint']) < $mainvolume) {
                 http_response_code(500);
@@ -785,11 +787,11 @@ switch ($data['actions']) {
                 ));
                 return;
             }
-            if (intval($product['Service_time']) > $maxtime or intval($product['Service_time']) < $maintime) {
+            if ($price === null || !panel_custom_month_option($panel, $time_months)) {
                 http_response_code(500);
                 echo json_encode(array(
                     'status' => false,
-                    'msg' => "زمان نامعتبر است خرید را از اول انجام دهید"
+                    'msg' => "مدت ماه نامعتبر است خرید را از اول انجام دهید"
                 ));
                 return;
             }

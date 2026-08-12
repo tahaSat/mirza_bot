@@ -18,6 +18,18 @@ if (!$panel) {
     exit;
 }
 
+// Ensure custommonths column exists (migration for older DBs).
+try {
+    $cmCol = $pdo->query("SHOW COLUMNS FROM marzban_panel LIKE 'custommonths'");
+    if (!($cmCol && $cmCol->fetch(PDO::FETCH_ASSOC))) {
+        $pdo->exec("ALTER TABLE marzban_panel ADD COLUMN custommonths TEXT NULL");
+        $pdo->exec("UPDATE marzban_panel SET custommonths = " . $pdo->quote(panel_default_custommonths()) . " WHERE custommonths IS NULL OR custommonths = ''");
+        $panel = db_fetch($pdo, "SELECT * FROM marzban_panel WHERE id = ?", [$id]) ?: $panel;
+    }
+} catch (Throwable $e) {
+    // ignore — save handler skips missing column
+}
+
 $ptype = $panel['type'] ?? 'marzban';
 $features = panel_features_for_type($ptype);
 $isPasarguard = panel_is_pasarguard($panel);
@@ -103,12 +115,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         'priceextratime' => $panel['priceextratime'] ?? panel_default_price_json(),
         // Custom-service prices/limits: edit f only; n/n2 pricing comes from agent page.
         'pricecustomvolume' => panel_merge_agent_json_field_f_only($panel, 'pricecustomvolume', 'pricecustomvolume', '4000'),
-        'pricecustomtime' => panel_merge_agent_json_field_f_only($panel, 'pricecustomtime', 'pricecustomtime', '4000'),
+        'pricecustomtime' => $panel['pricecustomtime'] ?? panel_default_price_json(),
         'mainvolume' => panel_merge_agent_json_field_f_only($panel, 'mainvolume', 'mainvolume', '1'),
         'maxvolume' => panel_merge_agent_json_field_f_only($panel, 'maxvolume', 'maxvolume', '1000'),
-        'maintime' => panel_merge_agent_json_field_f_only($panel, 'maintime', 'maintime', '1'),
-        'maxtime' => panel_merge_agent_json_field_f_only($panel, 'maxtime', 'maxtime', '365'),
+        'maintime' => $panel['maintime'] ?? panel_default_volume_json(),
+        'maxtime' => $panel['maxtime'] ?? panel_default_max_json(),
     ];
+
+    if ($tabSaving === 'pricing') {
+        $mergedMonths = panel_merge_custommonths($panel, true);
+        if ($mergedMonths !== null) {
+            $data['custommonths'] = $mergedMonths;
+        }
+    } elseif (array_key_exists('custommonths', $panel)) {
+        $data['custommonths'] = $panel['custommonths'];
+    }
 
     if (array_key_exists('customvolume_text', $_POST)) {
         $btnText = trim((string) $_POST['customvolume_text']);
@@ -147,6 +168,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         unset($data['customvolume_text']);
     }
 
+    // Drop custommonths if column missing (older DBs before migration).
+    try {
+        $monthsCol = $pdo->query("SHOW COLUMNS FROM marzban_panel LIKE 'custommonths'");
+        if (!($monthsCol && $monthsCol->fetch(PDO::FETCH_ASSOC))) {
+            unset($data['custommonths']);
+        }
+    } catch (Throwable $e) {
+        unset($data['custommonths']);
+    }
+
     $clearLogin = $url !== ($panel['url_panel'] ?? '')
         || $data['username_panel'] !== ($panel['username_panel'] ?? '')
         || $data['password_panel'] !== ($panel['password_panel'] ?? '');
@@ -174,12 +205,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
 $panel = db_fetch($pdo, "SELECT * FROM marzban_panel WHERE id = ?", [$id]);
 $stats = panel_invoice_stats($pdo, $panel['name_panel']);
 $priceCustomVol = panel_decode_agent_json($panel['pricecustomvolume'] ?? '', '4000');
-$priceCustomTime = panel_decode_agent_json($panel['pricecustomtime'] ?? '', '4000');
 $mainVolume = panel_decode_agent_json($panel['mainvolume'] ?? '', '1');
 $maxVolume = panel_decode_agent_json($panel['maxvolume'] ?? '', '1000');
-$mainTime = panel_decode_agent_json($panel['maintime'] ?? '', '1');
-$maxTime = panel_decode_agent_json($panel['maxtime'] ?? '', '365');
 $customVolume = panel_decode_agent_json($panel['customvolume'] ?? '', '0');
+$customMonthsRows = [];
+if (!empty($panel['custommonths'])) {
+    $decodedMonths = json_decode((string) $panel['custommonths'], true);
+    if (is_array($decodedMonths)) {
+        foreach ($decodedMonths as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $m = (int) ($row['months'] ?? 0);
+            $x = (float) ($row['magnifier'] ?? 0);
+            if ($m >= 1 && $x > 0) {
+                $customMonthsRows[] = ['months' => $m, 'magnifier' => $x];
+            }
+        }
+    }
+}
+if ($customMonthsRows === []) {
+    $customMonthsRows = [
+        ['months' => 1, 'magnifier' => 1],
+        ['months' => 2, 'magnifier' => 1.8],
+        ['months' => 3, 'magnifier' => 2.5],
+    ];
+}
 $hideUsers = panel_parse_hide_users($panel['hide_user'] ?? null);
 
 $tabs = [
@@ -539,16 +590,13 @@ include __DIR__ . '/inc/layout_head.php';
           <small class="cf">اگر خالی باشد، متن پیش‌فرض «⚙️ سرویس دلخواه» استفاده می‌شود.</small>
         </div>
         <div class="notice" style="margin-bottom:14px;font-size:.85rem;color:var(--mute)">
-          قیمت‌های زیر فقط برای کاربران عادی (f) است. برای n و n2 از <a href="agents.php">صفحه نماینده</a> استفاده کنید.
+          قیمت هر گیگ فقط برای کاربران عادی (f) است. برای n و n2 از <a href="agents.php">صفحه نماینده</a> استفاده کنید.
+          قیمت نهایی = حجم (GB) × قیمت هر گیگ × ضریب ماه. هر ماه = ۳۰ روز.
         </div>
         <div class="form-grid">
           <div class="field">
             <label>قیمت هر گیگ (تومان)</label>
             <input type="number" name="pricecustomvolume_f" class="input" min="0" value="<?= htmlspecialchars($priceCustomVol['f']) ?>">
-          </div>
-          <div class="field">
-            <label>قیمت هر روز (تومان)</label>
-            <input type="number" name="pricecustomtime_f" class="input" min="0" value="<?= htmlspecialchars($priceCustomTime['f']) ?>">
           </div>
           <div class="field">
             <label>حداقل حجم (GB)</label>
@@ -558,17 +606,64 @@ include __DIR__ . '/inc/layout_head.php';
             <label>حداکثر حجم (GB)</label>
             <input type="number" name="maxvolume_f" class="input" min="0" value="<?= htmlspecialchars($maxVolume['f']) ?>">
           </div>
-          <div class="field">
-            <label>حداقل زمان (روز)</label>
-            <input type="number" name="maintime_f" class="input" min="0" value="<?= htmlspecialchars($mainTime['f']) ?>">
+        </div>
+        <div style="margin-top:18px">
+          <label style="display:block;margin-bottom:8px;font-weight:600">گزینه‌های ماه</label>
+          <small class="cf" style="display:block;margin-bottom:10px">هر ردیف یک مدت قابل انتخاب در ربات است. ضریب روی قیمت پایه حجم اعمال می‌شود (مثلاً ۱۰GB × ۴۰۰۰ × ۱.۸).</small>
+          <div id="custommonths-rows">
+            <?php foreach ($customMonthsRows as $idx => $cm): ?>
+              <div class="form-grid custommonths-row" style="margin-bottom:8px;align-items:end">
+                <div class="field">
+                  <label>تعداد ماه</label>
+                  <input type="number" name="custommonths_months[]" class="input" min="1" step="1" required
+                    value="<?= (int) $cm['months'] ?>">
+                </div>
+                <div class="field">
+                  <label>ضریب قیمت (magnifier)</label>
+                  <input type="number" name="custommonths_magnifier[]" class="input" min="0.01" step="0.01" required
+                    value="<?= htmlspecialchars((string) $cm['magnifier']) ?>">
+                </div>
+                <div class="field" style="display:flex;align-items:end">
+                  <button type="button" class="btn btn-ghost custommonths-remove" <?= count($customMonthsRows) <= 1 ? 'disabled' : '' ?>>حذف</button>
+                </div>
+              </div>
+            <?php endforeach; ?>
           </div>
-          <div class="field">
-            <label>حداکثر زمان (روز)</label>
-            <input type="number" name="maxtime_f" class="input" min="0" value="<?= htmlspecialchars($maxTime['f']) ?>">
-          </div>
+          <button type="button" class="btn btn-ghost" id="custommonths-add" style="margin-top:6px">+ افزودن ماه</button>
         </div>
       </div>
     </div>
+    <script>
+    (function () {
+      var wrap = document.getElementById('custommonths-rows');
+      var addBtn = document.getElementById('custommonths-add');
+      if (!wrap || !addBtn) return;
+      function refreshRemove() {
+        var rows = wrap.querySelectorAll('.custommonths-row');
+        rows.forEach(function (row) {
+          var btn = row.querySelector('.custommonths-remove');
+          if (btn) btn.disabled = rows.length <= 1;
+        });
+      }
+      addBtn.addEventListener('click', function () {
+        var first = wrap.querySelector('.custommonths-row');
+        if (!first) return;
+        var clone = first.cloneNode(true);
+        clone.querySelectorAll('input').forEach(function (inp) { inp.value = ''; });
+        wrap.appendChild(clone);
+        refreshRemove();
+      });
+      wrap.addEventListener('click', function (e) {
+        var btn = e.target.closest('.custommonths-remove');
+        if (!btn || btn.disabled) return;
+        var row = btn.closest('.custommonths-row');
+        if (row && wrap.querySelectorAll('.custommonths-row').length > 1) {
+          row.remove();
+          refreshRemove();
+        }
+      });
+    })();
+    </script>
   <?php endif; ?>
 
   <?php if ($tab === 'advanced'): ?>

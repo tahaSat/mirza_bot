@@ -1696,6 +1696,131 @@ function panel_custom_button_text($panel): string
     return $text !== '' ? $text : $default;
 }
 
+/** Default month options for سرویس دلخواه (1 month = 30 days). */
+function panel_default_custommonths_list(): array
+{
+    return [
+        ['months' => 1, 'magnifier' => 1.0],
+        ['months' => 2, 'magnifier' => 1.8],
+        ['months' => 3, 'magnifier' => 2.5],
+    ];
+}
+
+/**
+ * Decode and validate marzban_panel.custommonths JSON.
+ * @return list<array{months:int,magnifier:float}>
+ */
+function panel_custom_months($panel): array
+{
+    $raw = is_array($panel) ? ($panel['custommonths'] ?? null) : null;
+    if (!$raw) {
+        return panel_default_custommonths_list();
+    }
+    $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
+    if (!is_array($decoded) || $decoded === []) {
+        return panel_default_custommonths_list();
+    }
+    $seen = [];
+    $out = [];
+    foreach ($decoded as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $months = (int) ($row['months'] ?? $row['m'] ?? 0);
+        $mag = (float) ($row['magnifier'] ?? $row['x'] ?? 0);
+        if ($months < 1 || $mag <= 0 || isset($seen[$months])) {
+            continue;
+        }
+        $seen[$months] = true;
+        $out[] = ['months' => $months, 'magnifier' => $mag];
+    }
+    if ($out === []) {
+        return panel_default_custommonths_list();
+    }
+    usort($out, static function ($a, $b) {
+        return $a['months'] <=> $b['months'];
+    });
+    return $out;
+}
+
+/** @return array{months:int,magnifier:float}|null */
+function panel_custom_month_option($panel, int $months): ?array
+{
+    if ($months < 1) {
+        return null;
+    }
+    foreach (panel_custom_months($panel) as $opt) {
+        if ((int) $opt['months'] === $months) {
+            return $opt;
+        }
+    }
+    return null;
+}
+
+/** Service length in days for a custom-month option. */
+function panel_custom_months_to_days(int $months): int
+{
+    return max(0, $months) * 30;
+}
+
+/**
+ * Price for custom service: GB × price_per_GB × magnifier(months).
+ * Returns null if months is not an allowed option.
+ */
+function panel_custom_service_price(int $gb, int $months, float $pricePerGb, $panel): ?int
+{
+    $opt = panel_custom_month_option($panel, $months);
+    if ($opt === null || $gb < 0 || $pricePerGb < 0) {
+        return null;
+    }
+    return (int) round($gb * $pricePerGb * (float) $opt['magnifier']);
+}
+
+/**
+ * Resolve custom service price for a user (agent n uses wholesale GB cost × magnifier).
+ * $days must equal months×30 for a configured month option.
+ */
+function panel_custom_service_price_for_user($panel, $user, int $gb, int $days): ?int
+{
+    $months = (int) round($days / 30);
+    $opt = panel_custom_month_option($panel, $months);
+    if ($opt === null || panel_custom_months_to_days($months) !== $days) {
+        return null;
+    }
+    $agent = is_array($user) ? (string) ($user['agent'] ?? 'f') : 'f';
+    if ($agent === 'n' && is_array($user)) {
+        return (int) round(agent_wholesale_cost($user, $gb) * (float) $opt['magnifier']);
+    }
+    $pricePerGb = (float) panel_agent_field($panel, 'pricecustomvolume', $agent, '4000');
+    return panel_custom_service_price($gb, $months, $pricePerGb, $panel);
+}
+
+/**
+ * Inline keyboard of configured month options.
+ * Callback: {$prefix}{months} e.g. custommonth_2
+ */
+function KeyboardCustomMonths($panel, string $prefix = 'custommonth_', string $backCallback = 'backuser'): string
+{
+    global $textbotlang;
+    $keyboard = ['inline_keyboard' => []];
+    $row = [];
+    foreach (panel_custom_months($panel) as $opt) {
+        $m = (int) $opt['months'];
+        $row[] = ['text' => $m . ' ماه', 'callback_data' => $prefix . $m];
+        if (count($row) >= 3) {
+            $keyboard['inline_keyboard'][] = $row;
+            $row = [];
+        }
+    }
+    if ($row !== []) {
+        $keyboard['inline_keyboard'][] = $row;
+    }
+    $keyboard['inline_keyboard'][] = [
+        ['text' => $textbotlang['users']['stateus']['backinfo'] ?? '🏠 بازگشت', 'callback_data' => $backCallback],
+    ];
+    return json_encode($keyboard);
+}
+
 function category_decode_agent_json(?string $json, string $default = '0'): array
 {
     if (!$json) {

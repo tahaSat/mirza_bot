@@ -379,7 +379,8 @@ try {
         version_panel varchar(60) NOT NULL,
         customvolume TEXT NULL,
         hide_user TEXT NULL,
-        description TEXT NULL)
+        description TEXT NULL,
+        custommonths TEXT NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
         if (!$result) {
             echo "table marzban_panel" . mysqli_error($connect);
@@ -450,6 +451,12 @@ try {
         addFieldToTable("marzban_panel", "version_panel", "0", "VARCHAR(60)");
         addFieldToTable("marzban_panel", "description", null, "TEXT");
         addFieldToTable("marzban_panel", "customvolume_text", null, "VARCHAR(200)");
+        $defaultCustomMonths = json_encode([
+            ['months' => 1, 'magnifier' => 1],
+            ['months' => 2, 'magnifier' => 1.8],
+            ['months' => 3, 'magnifier' => 2.5],
+        ], JSON_UNESCAPED_UNICODE);
+        addFieldToTable("marzban_panel", "custommonths", $defaultCustomMonths, "TEXT");
         $max_stmt = $connect->query("SELECT MAX(CAST(SUBSTRING(code_panel, 3) AS UNSIGNED)) as max_num FROM marzban_panel WHERE code_panel LIKE '7e%'");
         $max_row = $max_stmt->fetch_assoc();
         $next_num = $max_row['max_num'] ? (int) $max_row['max_num'] + 1 : 15;

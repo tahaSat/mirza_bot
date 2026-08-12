@@ -66,6 +66,51 @@ function panel_default_customvolume(): string
     return json_encode(['f' => '0', 'n' => '0', 'n2' => '0'], JSON_UNESCAPED_UNICODE);
 }
 
+function panel_default_custommonths(): string
+{
+    return json_encode([
+        ['months' => 1, 'magnifier' => 1],
+        ['months' => 2, 'magnifier' => 1.8],
+        ['months' => 3, 'magnifier' => 2.5],
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+/**
+ * Normalize POST month/magnifier rows into a JSON string for marzban_panel.custommonths.
+ * Returns null when the pricing form did not submit month fields (preserve existing).
+ */
+function panel_merge_custommonths(array $panel, bool $inForm = false): ?string
+{
+    if (!$inForm || !isset($_POST['custommonths_months']) || !is_array($_POST['custommonths_months'])) {
+        return array_key_exists('custommonths', $panel) ? (string) ($panel['custommonths'] ?? '') : panel_default_custommonths();
+    }
+    $monthsIn = $_POST['custommonths_months'];
+    $magsIn = isset($_POST['custommonths_magnifier']) && is_array($_POST['custommonths_magnifier'])
+        ? $_POST['custommonths_magnifier']
+        : [];
+    $seen = [];
+    $out = [];
+    foreach ($monthsIn as $i => $mRaw) {
+        $months = (int) $mRaw;
+        $mag = isset($magsIn[$i]) ? (float) str_replace(',', '.', (string) $magsIn[$i]) : 0.0;
+        if ($months < 1 || $mag <= 0) {
+            continue;
+        }
+        if (isset($seen[$months])) {
+            continue;
+        }
+        $seen[$months] = true;
+        $out[] = ['months' => $months, 'magnifier' => $mag];
+    }
+    usort($out, static function ($a, $b) {
+        return $a['months'] <=> $b['months'];
+    });
+    if ($out === []) {
+        return panel_default_custommonths();
+    }
+    return json_encode($out, JSON_UNESCAPED_UNICODE);
+}
+
 function panel_decode_agent_json(?string $json, string $default = '0'): array
 {
     if (!$json) {
@@ -141,44 +186,94 @@ function panel_insert_defaults(PDO $pdo, array $in): int
     $price = panel_default_price_json();
     $volMain = panel_default_volume_json();
     $volMax = panel_default_max_json();
+    $customMonths = panel_default_custommonths();
 
-    db_query(
-        $pdo,
-        "INSERT INTO marzban_panel (
-            code_panel, name_panel, sublink, config, MethodUsername, TestAccount, status, limit_panel,
-            namecustom, Methodextend, type, conecton, inboundid, agent, inbound_deactive, inboundstatus,
-            url_panel, username_panel, password_panel, time_usertest, val_usertest, linksubx,
-            priceextravolume, priceextratime, pricecustomvolume, pricecustomtime,
-            mainvolume, maxvolume, maintime, maxtime, status_extend, subvip, changeloc, customvolume,
-            on_hold_test, version_panel, priceChangeloc
-        ) VALUES (
-            ?, ?, 'onsublink', 'offconfig', 'آیدی عددی + حروف و عدد رندوم', 'ONTestAccount', 'active', ?,
-            'none', 'ریست حجم و زمان', ?, 'offconecton', '1', 'all', '0', 'offinbounddisable',
-            ?, ?, ?, '1', '100', ?,
-            ?, ?, ?, ?,
-            ?, ?, ?, ?,
-            'on_extend', 'offsubvip', 'offchangeloc', ?, '1', '0', '0'
-        )",
-        [
-            $code,
-            $name,
-            $limit,
-            $type,
-            $url,
-            $username,
-            $password,
-            $url !== 'null' && $url !== '' ? $url : '',
-            $price,
-            $price,
-            $price,
-            $price,
-            $volMain,
-            $volMax,
-            $volMain,
-            $volMax,
-            panel_default_customvolume(),
-        ]
-    );
+    $hasCustomMonths = false;
+    try {
+        $cmCol = $pdo->query("SHOW COLUMNS FROM marzban_panel LIKE 'custommonths'");
+        $hasCustomMonths = (bool) ($cmCol && $cmCol->fetch(PDO::FETCH_ASSOC));
+    } catch (Throwable $e) {
+        $hasCustomMonths = false;
+    }
+
+    if ($hasCustomMonths) {
+        db_query(
+            $pdo,
+            "INSERT INTO marzban_panel (
+                code_panel, name_panel, sublink, config, MethodUsername, TestAccount, status, limit_panel,
+                namecustom, Methodextend, type, conecton, inboundid, agent, inbound_deactive, inboundstatus,
+                url_panel, username_panel, password_panel, time_usertest, val_usertest, linksubx,
+                priceextravolume, priceextratime, pricecustomvolume, pricecustomtime,
+                mainvolume, maxvolume, maintime, maxtime, status_extend, subvip, changeloc, customvolume,
+                on_hold_test, version_panel, priceChangeloc, custommonths
+            ) VALUES (
+                ?, ?, 'onsublink', 'offconfig', 'آیدی عددی + حروف و عدد رندوم', 'ONTestAccount', 'active', ?,
+                'none', 'ریست حجم و زمان', ?, 'offconecton', '1', 'all', '0', 'offinbounddisable',
+                ?, ?, ?, '1', '100', ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                'on_extend', 'offsubvip', 'offchangeloc', ?, '1', '0', '0', ?
+            )",
+            [
+                $code,
+                $name,
+                $limit,
+                $type,
+                $url,
+                $username,
+                $password,
+                $url !== 'null' && $url !== '' ? $url : '',
+                $price,
+                $price,
+                $price,
+                $price,
+                $volMain,
+                $volMax,
+                $volMain,
+                $volMax,
+                panel_default_customvolume(),
+                $customMonths,
+            ]
+        );
+    } else {
+        db_query(
+            $pdo,
+            "INSERT INTO marzban_panel (
+                code_panel, name_panel, sublink, config, MethodUsername, TestAccount, status, limit_panel,
+                namecustom, Methodextend, type, conecton, inboundid, agent, inbound_deactive, inboundstatus,
+                url_panel, username_panel, password_panel, time_usertest, val_usertest, linksubx,
+                priceextravolume, priceextratime, pricecustomvolume, pricecustomtime,
+                mainvolume, maxvolume, maintime, maxtime, status_extend, subvip, changeloc, customvolume,
+                on_hold_test, version_panel, priceChangeloc
+            ) VALUES (
+                ?, ?, 'onsublink', 'offconfig', 'آیدی عددی + حروف و عدد رندوم', 'ONTestAccount', 'active', ?,
+                'none', 'ریست حجم و زمان', ?, 'offconecton', '1', 'all', '0', 'offinbounddisable',
+                ?, ?, ?, '1', '100', ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                'on_extend', 'offsubvip', 'offchangeloc', ?, '1', '0', '0'
+            )",
+            [
+                $code,
+                $name,
+                $limit,
+                $type,
+                $url,
+                $username,
+                $password,
+                $url !== 'null' && $url !== '' ? $url : '',
+                $price,
+                $price,
+                $price,
+                $price,
+                $volMain,
+                $volMax,
+                $volMain,
+                $volMax,
+                panel_default_customvolume(),
+            ]
+        );
+    }
 
     return (int) $pdo->lastInsertId();
 }

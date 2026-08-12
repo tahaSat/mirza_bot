@@ -9622,37 +9622,13 @@ trojan://xyz", $backadmin, 'HTML');
     update("user", "Processing_value", $userdata['namepanel'], "id", $from_id);
     step('home', $from_id);
 } elseif ($text == "⏳ قیمت زمان دلخواه" && $adminrulecheck['rule'] == "administrator") {
-    sendmessage($from_id, "📌 قیمت زمان دلخواه برای این پنل را ارسال نمایید.", $backadmin, 'HTML');
-    step('GetPriceExtratime', $from_id);
+    sendmessage($from_id, "📌 گزینه‌های ماه و ضریب قیمت سرویس دلخواه را از پنل وب تنظیم کنید:\n<code>/panel/panel.php</code> → تب «سرویس دلخواه»\n\nقیمت نهایی = حجم (GB) × قیمت هر گیگ × ضریب ماه (هر ماه = ۳۰ روز).", $backadmin, 'HTML');
+    step('home', $from_id);
 } elseif ($user['step'] == "GetPriceExtratime") {
-    if (!ctype_digit($text)) {
-        sendmessage($from_id, $textbotlang['Admin']['Balance']['Invalidprice'], $backadmin, 'HTML');
-        return;
-    }
-    savedata("clear", "namepanel", $user['Processing_value']);
-    savedata("save", "price", $text);
-    sendmessage($from_id, $textbotlang['users']['Extra_volume']['gettypeextra'] . "\n" . "⚠️ در صورتی که می خواهید قیمت برای تمامی گروه های کاربری تنظیم شود متن <code>all</code> را ارسال کنید", $backuser, 'HTML');
-    step('gettypeextratimecustom', $from_id);
+    sendmessage($from_id, "📌 تنظیم قیمت روزانه سرویس دلخواه حذف شده است. از پنل وب گزینه‌های ماه و ضریب را تنظیم کنید.", $backadmin, 'HTML');
+    step('home', $from_id);
 } elseif ($user['step'] == "gettypeextratimecustom") {
-    $agentst = ["n", "n2", "f", "all"];
-    if (!in_array($text, $agentst)) {
-        sendmessage($from_id, $textbotlang['Admin']['agent']['invalidtypeagent'], $backadmin, 'HTML');
-        return;
-    }
-    $userdata = json_decode($user['Processing_value'], true);
-    $typepanel = select("marzban_panel", "*", "name_panel", $userdata['namepanel'], "select");
-    outtypepanel($typepanel['type'], $textbotlang['users']['Extra_volume']['ChangedPrice']);
-    $eextraprice = json_decode($typepanel['pricecustomtime'], true);
-    if ($text == 'all') {
-        $eextraprice["f"] = $userdata['price'];
-        $eextraprice["n"] = $userdata['price'];
-        $eextraprice["n2"] = $userdata['price'];
-    } else {
-        $eextraprice[$text] = $userdata['price'];
-    }
-    $eextraprice = json_encode($eextraprice);
-    update("marzban_panel", "pricecustomtime", $eextraprice, "name_panel", $userdata['namepanel']);
-    update("user", "Processing_value", $userdata['namepanel'], "id", $from_id);
+    sendmessage($from_id, "📌 تنظیم قیمت روزانه سرویس دلخواه حذف شده است. از پنل وب گزینه‌های ماه و ضریب را تنظیم کنید.", $backadmin, 'HTML');
     step('home', $from_id);
 } elseif ($text == "🔒 نمایش کارت به کارت پس از اولین پرداخت" && $adminrulecheck['rule'] == "administrator") {
     $paymentverify = select("PaySetting", "ValuePay", "NamePay", "checkpaycartfirst", "select")['ValuePay'];
@@ -12264,43 +12240,10 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, "✅ قیمت با موفقیت تنظیم شد", $keyboardadmin, 'HTML');
     step("home", $from_id);
 } elseif ($text == "⏳ تنظیم سریع قیمت زمان") {
-    sendmessage($from_id, "📌 قبل ارسال اطلاعات متن زیر را مطالعه فرمایید . 
-۱ - این قابلیت برای سرویس دلخواه می باشد.
-۲ - در صورتی که تمامی پنل های شما یک قیمت هستند و بجای تنظیم تک تک قیمت ها می توانید با استفاده از این قابلیت بصورت یکجا قیمت ها را تنظیم نمایید.
-۳ - با تنظیم قیمت در این بخش قابل بازگشت نیست.
-
-
-جهت تنظیم قیمت ابتدا قیمت گروه f را ارسال نمایید.", $backadmin, 'HTML');
-    step("getpriceftime", $from_id);
-} elseif ($user['step'] == "getpriceftime") {
-    if (!ctype_digit($text)) {
-        sendmessage($from_id, $textbotlang['Admin']['agent']['invalidvlue'], $backadmin, 'HTML');
-        return;
-    }
-    savedata("clear", "pricef", $text);
-    sendmessage($from_id, "📌 قیمت گروه n را ارسال نمایید.", $backadmin, 'HTML');
-    step("getpricnntime", $from_id);
-} elseif ($user['step'] == "getpricnntime") {
-    if (!ctype_digit($text)) {
-        sendmessage($from_id, $textbotlang['Admin']['agent']['invalidvlue'], $backadmin, 'HTML');
-        return;
-    }
-    savedata("save", "pricen", $text);
-    sendmessage($from_id, "📌 قیمت گروه n2 را ارسال نمایید.", $backadmin, 'HTML');
-    step("getpricnn2time", $from_id);
-} elseif ($user['step'] == "getpricnn2time") {
-    if (!ctype_digit($text)) {
-        sendmessage($from_id, $textbotlang['Admin']['agent']['invalidvlue'], $backadmin, 'HTML');
-        return;
-    }
-    $userdata = json_decode($user['Processing_value'], true);
-    $pricelist = json_encode(array(
-        'f' => $userdata['pricef'],
-        'n' => $userdata['pricen'],
-        'n2' => $text
-    ));
-    update("marzban_panel", "pricecustomtime", $pricelist, null, null);
-    sendmessage($from_id, "✅ قیمت با موفقیت تنظیم شد", $keyboardadmin, 'HTML');
+    sendmessage($from_id, "📌 تنظیم سریع قیمت روزانه سرویس دلخواه حذف شده است.\nگزینه‌های ماه و ضریب قیمت را از پنل وب → تب «سرویس دلخواه» تنظیم کنید.\nقیمت نهایی = GB × قیمت هر گیگ × ضریب ماه.", $keyboardadmin, 'HTML');
+    step("home", $from_id);
+} elseif ($user['step'] == "getpriceftime" || $user['step'] == "getpricnntime" || $user['step'] == "getpricnn2time") {
+    sendmessage($from_id, "📌 تنظیم قیمت روزانه سرویس دلخواه حذف شده است. از پنل وب گزینه‌های ماه و ضریب را تنظیم کنید.", $keyboardadmin, 'HTML');
     step("home", $from_id);
 } elseif ($datain == "changeloclimit") {
     sendmessage($from_id, "📌 یک گزینه را انتخاب نمایید.

@@ -1535,10 +1535,6 @@ $textconnect
     $mainvolume = $mainvolume[$user['agent']];
     $maxvolume = json_decode($marzban_list_get['maxvolume'], true);
     $maxvolume = $maxvolume[$user['agent']];
-    $maintime = json_decode($marzban_list_get['maintime'], true);
-    $maintime = $maintime[$user['agent']];
-    $maxtime = json_decode($marzban_list_get['maxtime'], true);
-    $maxtime = $maxtime[$user['agent']];
     if (!ctype_digit($text)) {
         sendmessage($from_id, $textbotlang['Admin']['Product']['Invalidvolume'], $backuser, 'HTML');
         return;
@@ -1548,14 +1544,65 @@ $textconnect
         sendmessage($from_id, $texttime, $backuser, 'HTML');
         return;
     }
-    $eextraprice = json_decode($marzban_list_get['pricecustomtime'], true);
-    $customtimevalueprice = $eextraprice[$user['agent']];
     savedata("save", "volume", $text);
-    $textcustom = "⌛️ زمان سرویس خود را انتخاب نمایید 
-📌 تعرفه هر روز  : $customtimevalueprice  تومان
-⚠️ حداقل زمان $maintime روز  و حداکثر $maxtime روز  می توانید تهیه کنید";
-    sendmessage($from_id, $textcustom, $backuser, 'html');
-    step('getvolumecustomuserforextend', $from_id);
+    $textcustom = "⌛️ مدت زمان تمدید را انتخاب کنید
+📌 هر ماه معادل ۳۰ روز است
+⚠️ فقط گزینه‌های زیر قابل انتخاب هستند";
+    $backCb = "product_" . $nameloc['id_invoice'];
+    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonthextend_', $backCb), 'html');
+    step('selectcustommonthextend', $from_id);
+} elseif (preg_match('/^custommonthextend_(\d+)$/', $datain, $dataget) && ($user['step'] == "selectcustommonthextend" || $user['step'] == "getvolumecustomuserforextend")) {
+    $months = (int) $dataget[1];
+    $userdate = json_decode($user['Processing_value'], true);
+    $nameloc = select("invoice", "*", "id_invoice", $userdate['id_invoice'], "select");
+    $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
+    if (!$marzban_list_get || !panel_custom_month_option($marzban_list_get, $months)) {
+        sendmessage($from_id, "❌ مدت انتخاب‌شده نامعتبر است.", $backuser, 'HTML');
+        return;
+    }
+    $gb = (int) ($userdate['volume'] ?? 0);
+    $days = panel_custom_months_to_days($months);
+    $price = panel_custom_service_price_for_user($marzban_list_get, $user, $gb, $days);
+    if ($price === null) {
+        sendmessage($from_id, "❌ مدت انتخاب‌شده نامعتبر است.", $keyboard, 'HTML');
+        return;
+    }
+    $product['name_product'] = $nameloc['name_product'];
+    $product['code_product'] = "customvolume";
+    $product['note'] = "";
+    $product['price_product'] = $price;
+    $product['Service_time'] = $days;
+    $product['Volume_constraint'] = $gb;
+    step("home", $from_id);
+    savedata("save", "time", $product['Service_time']);
+    savedata("save", "data_limit", $product['Volume_constraint']);
+    savedata("save", "price_product", $product['price_product']);
+    savedata("save", "code_product", $product['code_product']);
+    $keyboardextend = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => $textbotlang['users']['extend']['confirm'], 'callback_data' => "confirmserivce"],
+                ['text' => $textbotlang['users']['extend']['discount'], 'callback_data' => "discountextend"],
+            ],
+            [
+                ['text' => "🏠 بازگشت به اطلاعات سرویس", 'callback_data' => "product_" . $nameloc['id_invoice']]
+            ]
+        ]
+    ]);
+    if (intval($product['Service_time']) == 0)
+        $product['Service_time'] = $textbotlang['users']['stateus']['Unlimited'];
+    $textextend = "📜 فاکتور تمدید شما برای نام کاربری {$nameloc['username']} ایجاد شد.
+        
+🛍 نام محصول :{$product['name_product']}
+💸 مبلغ تمدید :{$product['price_product']}
+⏱ مدت زمان تمدید :{$product['Service_time']} روز
+🔋 حجم تمدید :{$product['Volume_constraint']} گیگ
+✍️ توضیحات : {$product['note']}
+💸 موجودی کیف پول : {$user['Balance']}
+
+✅ برای تایید و تمدید سرویس روی دکمه زیر کلیک کنید";
+    deletemessage($from_id, $message_id);
+    sendmessage($from_id, $textextend, $keyboardextend, 'HTML');
 } elseif (preg_match('/productextendmonths_(\w+)/', $datain, $dataget)) {
     $monthenumber = $dataget[1];
     $userdate = json_decode($user['Processing_value'], true);
@@ -1600,19 +1647,10 @@ $textconnect
     $nameloc = select("invoice", "*", "id_invoice", $userdate['id_invoice'], "select");
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
     if ($user['step'] == "getvolumecustomuserforextend") {
-        if (!ctype_digit($text)) {
-            sendmessage($from_id, $textbotlang['Admin']['Product']['Invalidtime'], $backuser, 'HTML');
-            return;
-        }
-        $maintime = json_decode($marzban_list_get['maintime'], true);
-        $maintime = $maintime[$user['agent']];
-        $maxtime = json_decode($marzban_list_get['maxtime'], true);
-        $maxtime = $maxtime[$user['agent']];
-        if (intval($text) > intval($maxtime) || intval($text) < intval($maintime)) {
-            $texttime = "❌ زمان ارسال شده نامعتبر است . زمان باید بین $maintime روز تا $maxtime روز باشد";
-            sendmessage($from_id, $texttime, $backuser, 'HTML');
-            return;
-        }
+        $backCb = "product_" . $nameloc['id_invoice'];
+        sendmessage($from_id, "⌛️ مدت زمان تمدید را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonthextend_', $backCb), 'html');
+        step('selectcustommonthextend', $from_id);
+        return;
     } elseif ($datain == "exntedagei") {
         $stmt = $pdo->prepare("SELECT value FROM service_other WHERE username = :username AND type = 'extend_user' AND status = 'paid' ORDER BY time DESC");
         $stmt->execute([
@@ -1638,18 +1676,9 @@ $textconnect
     } else {
         $codeproduct = $dataget[1];
     }
-    $eextraprice = json_decode($marzban_list_get['pricecustomvolume'], true);
-    $custompricevalue = $eextraprice[$user['agent']];
-    $eextraprice = json_decode($marzban_list_get['pricecustomtime'], true);
-    $customtimevalueprice = $eextraprice[$user['agent']];
     if ($user['step'] == "getvolumecustomuserforextend") {
-        $product['name_product'] = $nameloc['name_product'];
-        $product['code_product'] = "customvolume";
-        $product['note'] = "";
-        $product['price_product'] = (intval($userdate['volume']) * $custompricevalue) + ($text * $customtimevalueprice);
-        $product['Service_time'] = $text;
-        $product['Volume_constraint'] = $userdate['volume'];
-        step("home", $from_id);
+        // Handled above (redirect to month buttons)
+        return;
     } else {
         $accessSql = agent_product_access_sql($user['agent'], $from_id);
         $stmt = $pdo->prepare("SELECT * FROM product WHERE (Location = :service_location OR Location = '/all') AND {$accessSql} AND code_product = :code_product");
@@ -1760,16 +1789,16 @@ $textconnect
         }
     }
     sendmessage($from_id, "🤩 کد تخفیف شما درست بود و  {$SellDiscountlimit['price']} درصد تخفیف روی فاکتور شما اعمال شد.", $keyboard, 'HTML');
-    $eextraprice = json_decode($marzban_list_get['pricecustomvolume'], true);
-    $custompricevalue = $eextraprice[$user['agent']];
-    $eextraprice = json_decode($marzban_list_get['pricecustomtime'], true);
-    $customtimevalueprice = $eextraprice[$user['agent']];
-    if ($nameloc['name_product'] == "🛍 حجم دلخواه" || $nameloc['name_product'] == "⚙️ سرویس دلخواه") {
+    if ($nameloc['name_product'] == "🛍 حجم دلخواه" || $nameloc['name_product'] == "⚙️ سرویس دلخواه" || ($userdate['code_product'] ?? '') === 'customvolume') {
         $info_product['code_product'] = "pre";
         $info_product['name_product'] = $nameloc['name_product'];
-        $info_product['price_product'] = ($userdate['data_limit'] * $custompricevalue) + ($userdate['time'] * $customtimevalueprice);
         $info_product['Service_time'] = $userdate['time'];
         $info_product['Volume_constraint'] = $userdate['data_limit'];
+        $info_product['price_product'] = panel_custom_service_price_for_user($marzban_list_get, $user, (int) $userdate['data_limit'], (int) $userdate['time']);
+        if ($info_product['price_product'] === null) {
+            sendmessage($from_id, "❌ مدت سرویس نامعتبر است.", $keyboard, 'HTML');
+            return;
+        }
     } else {
         $stmt = $pdo->prepare("SELECT * FROM product WHERE code_product = :code_product AND (Location = :Location or Location = '/all') LIMIT 1");
         $stmt->bindParam(':code_product', $userdate['code_product'], PDO::PARAM_STR);
@@ -1820,17 +1849,17 @@ $textconnect
         sendmessage($from_id, "❌ امکان تمدید در این پنل وجود ندارد", null, 'html');
         return;
     }
-    $eextraprice = json_decode($marzban_list_get['pricecustomvolume'], true);
-    $custompricevalue = $eextraprice[$user['agent']];
-    $eextraprice = json_decode($marzban_list_get['pricecustomtime'], true);
-    $customtimevalueprice = $eextraprice[$user['agent']];
     $randomString = bin2hex(random_bytes(2));
-    if ($nameloc['name_product'] == "🛍 حجم دلخواه" || $nameloc['name_product'] == "⚙️ سرویس دلخواه") {
+    if ($nameloc['name_product'] == "🛍 حجم دلخواه" || $nameloc['name_product'] == "⚙️ سرویس دلخواه" || ($userdata['code_product'] ?? '') === 'customvolume') {
         $prodcut['code_product'] = "custom_volume";
         $prodcut['name_product'] = $nameloc['name_product'];
-        $prodcut['price_product'] = ($userdata['data_limit'] * $custompricevalue) + ($userdata['time'] * $customtimevalueprice);
         $prodcut['Service_time'] = $userdata['time'];
         $prodcut['Volume_constraint'] = $userdata['data_limit'];
+        $prodcut['price_product'] = panel_custom_service_price_for_user($marzban_list_get, $user, (int) $userdata['data_limit'], (int) $userdata['time']);
+        if ($prodcut['price_product'] === null) {
+            sendmessage($from_id, "❌ مدت سرویس نامعتبر است.", $keyboard, 'HTML');
+            return;
+        }
         $prodcut['inbounds'] = $marzban_list_get['inboundid'];
     } else {
         $accessSql = agent_product_access_sql($user['agent'], $from_id);
@@ -4106,8 +4135,6 @@ $textinvite
     }
     $mainvolume = panel_agent_field($marzban_list_get, 'mainvolume', $user['agent'], '1');
     $maxvolume = panel_agent_field($marzban_list_get, 'maxvolume', $user['agent'], '1000');
-    $maintime = panel_agent_field($marzban_list_get, 'maintime', $user['agent'], '1');
-    $maxtime = panel_agent_field($marzban_list_get, 'maxtime', $user['agent'], '365');
     if ($text > intval($maxvolume) || $text < intval($mainvolume)) {
         $texttime = "❌ حجم نامعتبر است.\n🔔 حداقل حجم $mainvolume گیگابایت و حداکثر $maxvolume گیگابایت می باشد";
         sendmessage($from_id, $texttime, $backuser, 'HTML');
@@ -4117,36 +4144,84 @@ $textinvite
         sendmessage($from_id, $textbotlang['Admin']['Product']['Invalidvolume'], $backuser, 'HTML');
         return;
     }
-    $customtimevalueprice = panel_agent_field($marzban_list_get, 'pricecustomtime', $user['agent'], '4000');
     update("user", "Processing_value_one", $text, "id", $from_id);
-    $textcustom = "⌛️ زمان سرویس خود را انتخاب نمایید 
-📌 تعرفه هر روز  : $customtimevalueprice  تومان
-⚠️ حداقل زمان $maintime روز  و حداکثر $maxtime روز  می توانید تهیه کنید";
-    sendmessage($from_id, $textcustom, $backuser, 'html');
-    if ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
-        step('getvolumecustomusername', $from_id);
-    } else {
-        step('getvolumecustomuser', $from_id);
+    $textcustom = "⌛️ مدت زمان سرویس را انتخاب کنید
+📌 هر ماه معادل ۳۰ روز است
+⚠️ فقط گزینه‌های زیر قابل انتخاب هستند";
+    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser'), 'html');
+    step('selectcustommonth', $from_id);
+} elseif (preg_match('/^custommonth_(\d+)$/', $datain, $dataget) && ($user['step'] == "selectcustommonth" || $user['step'] == "getvolumecustomuser" || $user['step'] == "getvolumecustomusername")) {
+    $months = (int) $dataget[1];
+    $userdate = json_decode($user['Processing_value'], true);
+    $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
+    if (!$marzban_list_get || !panel_custom_month_option($marzban_list_get, $months)) {
+        sendmessage($from_id, "❌ مدت انتخاب‌شده نامعتبر است.", $backuser, 'HTML');
+        return;
     }
+    $gb = (int) $user['Processing_value_one'];
+    $days = panel_custom_months_to_days($months);
+    $customvalue = "customvolume_" . $days . "_" . $gb;
+    update("user", "Processing_value_one", $customvalue, "id", $from_id);
+    deletemessage($from_id, $message_id);
+    if ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
+        step('endstepusers', $from_id);
+        sendmessage($from_id, $textbotlang['users']['selectusername'], $backuser, 'html');
+        return;
+    }
+    $loc = $customvalue;
+    $info_product['Volume_constraint'] = $gb;
+    $info_product['name_product'] = panel_custom_button_text($marzban_list_get);
+    $info_product['code_product'] = $textbotlang['users']['customsellvolume']['title'];
+    $info_product['Service_time'] = $days;
+    $info_product['price_product'] = panel_custom_service_price_for_user($marzban_list_get, $user, $gb, $days);
+    if ($info_product['price_product'] === null) {
+        sendmessage($from_id, "❌ مدت انتخاب‌شده نامعتبر است.", $keyboard, 'HTML');
+        return;
+    }
+    if (($user['agent'] ?? '') !== 'n' && intval($user['pricediscount']) != 0) {
+        $resultper = ($info_product['price_product'] * $user['pricediscount']) / 100;
+        $info_product['price_product'] = $info_product['price_product'] - $resultper;
+    }
+    $randomString = bin2hex(random_bytes(2));
+    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, '', $marzban_list_get['namecustom'], $user['namecustom']);
+    $username_ac = strtolower($username_ac);
+    $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
+    $random_number = rand(1000000, 9999999);
+    if (isset($DataUserOut['username']) || in_array($username_ac, $usernameinvoice)) {
+        $username_ac = $random_number . "_" . $username_ac;
+    }
+    if (isset($username_ac))
+        update("user", "Processing_value_tow", $username_ac, "id", $from_id);
+    if (intval($info_product['Volume_constraint']) == 0)
+        $info_product['Volume_constraint'] = $textbotlang['users']['stateus']['Unlimited'];
+    if (intval($info_product['Service_time']) == 0)
+        $info_product['Service_time'] = $textbotlang['users']['stateus']['Unlimited'];
+    $info_product_price_product = number_format($info_product['price_product']);
+    $userBalance = number_format($user['Balance']);
+    $replacements = [
+        '{username}' => $username_ac,
+        '{name_product}' => $info_product['name_product'],
+        '{Service_time}' => $info_product['Service_time'],
+        '{note}' => $info_product['note'] ?? '',
+        '{price}' => $info_product_price_product,
+        '{Volume}' => $info_product['Volume_constraint'],
+        '{userBalance}' => $userBalance
+    ];
+    $textin = strtr($datatextbot['text_pishinvoice'], $replacements);
+    if (intval($info_product['Volume_constraint']) == 0) {
+        $textin = str_replace('گیگ', "", $textin);
+    }
+    sendmessage($from_id, $textin, $payment, 'HTML');
+    step('payment', $from_id);
 } elseif ($user['step'] == "getvolumecustomusername" || preg_match('/^prodcutservices_(.*)/', $datain, $dataget)) {
     $prodcut = $dataget[1];
     $userdate = json_decode($user['Processing_value'], true);
     if ($user['step'] == "getvolumecustomusername") {
-        if (!ctype_digit($text)) {
-            sendmessage($from_id, $textbotlang['Admin']['Product']['Invalidtime'], $backuser, 'HTML');
-            return;
-        }
+        // Legacy free-text days path — redirect to month buttons
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
-        $maintime = panel_agent_field($marzban_list_get, 'maintime', $user['agent'], '1');
-        $maxtime = panel_agent_field($marzban_list_get, 'maxtime', $user['agent'], '365');
-        if (intval($text) > intval($maxtime) || intval($text) < intval($maintime)) {
-            $texttime = "❌ زمان ارسال شده نامعتبر است . زمان باید بین $maintime روز تا $maxtime روز باشد";
-            sendmessage($from_id, $texttime, $backuser, 'HTML');
-            return;
-        }
-        $customvalue = "customvolume_" . $text . "_" . $user['Processing_value_one'];
-        update("user", "Processing_value_one", $customvalue, "id", $from_id);
-        step('endstepusers', $from_id);
+        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser'), 'html');
+        step('selectcustommonth', $from_id);
+        return;
     } else {
         update("user", "Processing_value_one", $prodcut, "id", $from_id);
         step('endstepuser', $from_id);
@@ -4156,19 +4231,10 @@ $textinvite
 } elseif ($user['step'] == "endstepuser" || $user['step'] == "endstepusers" || preg_match('/prodcutservice_(.*)/', $datain, $dataget) || $user['step'] == "getvolumecustomuser") {
     $userdate = json_decode($user['Processing_value'], true);
     if ($user['step'] == "getvolumecustomuser") {
-        if (!ctype_digit($text)) {
-            sendmessage($from_id, $textbotlang['Admin']['customvolume']['invalidtime'], $backuser, 'HTML');
-            return;
-        }
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
-        $maintime = panel_agent_field($marzban_list_get, 'maintime', $user['agent'], '1');
-        $maxtime = panel_agent_field($marzban_list_get, 'maxtime', $user['agent'], '365');
-        if (intval($text) > intval($maxtime) || intval($text) < intval($maintime)) {
-            $texttime = "❌ زمان ارسال شده نامعتبر است . زمان باید بین $maintime روز تا $maxtime روز باشد";
-            sendmessage($from_id, $texttime, $backuser, 'HTML');
-            return;
-        }
-        $prodcut = "customvolume_" . $text . "_" . $user['Processing_value_one'];
+        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser'), 'html');
+        step('selectcustommonth', $from_id);
+        return;
     } elseif ($user['step'] == "endstepusers" || $user['step'] == "endstepuser") {
         $prodcut = $user['Processing_value_one'];
     } else {
@@ -4190,15 +4256,17 @@ $textinvite
         $loc = $prodcut;
     }
     update("user", "Processing_value_one", $loc, "id", $from_id);
-    $custompricevalue = panel_agent_field($marzban_list_get, 'pricecustomvolume', $user['agent'], '4000');
-    $customtimevalueprice = panel_agent_field($marzban_list_get, 'pricecustomtime', $user['agent'], '4000');
     $parts = explode("_", $loc);
     if ($parts[0] == "customvolume") {
         $info_product['Volume_constraint'] = $parts[2];
         $info_product['name_product'] = panel_custom_button_text($marzban_list_get);
         $info_product['code_product'] = $textbotlang['users']['customsellvolume']['title'];
         $info_product['Service_time'] = $parts[1];
-        $info_product['price_product'] = ($parts[2] * $custompricevalue) + ($parts[1] * $customtimevalueprice);
+        $info_product['price_product'] = panel_custom_service_price_for_user($marzban_list_get, $user, (int) $parts[2], (int) $parts[1]);
+        if ($info_product['price_product'] === null) {
+            sendmessage($from_id, "❌ مدت سرویس نامعتبر است. خرید را از اول انجام دهید.", $keyboard, 'HTML');
+            return;
+        }
     } else {
         $info_product = mysqli_fetch_assoc(mysqli_query($connect, "SELECT * FROM product WHERE code_product = '$loc' AND (Location = '{$userdate['name_panel']}'or Location = '/all') LIMIT 1"));
     }
@@ -4206,9 +4274,9 @@ $textinvite
         sendmessage($from_id, "❌ خطایی در تایید  انجام شده است لطفا مراحل پرداخت را مجددا انجام دهید", $keyboard, 'HTML');
         return;
     }
-    if (($user['agent'] ?? '') === 'n') {
+    if (($user['agent'] ?? '') === 'n' && ($parts[0] ?? '') != "customvolume") {
         $info_product['price_product'] = agent_wholesale_cost($user, (int) ($info_product['Volume_constraint'] ?? 0));
-    } elseif (intval($user['pricediscount']) != 0) {
+    } elseif (($user['agent'] ?? '') !== 'n' && intval($user['pricediscount']) != 0) {
         $resultper = ($info_product['price_product'] * $user['pricediscount']) / 100;
         $info_product['price_product'] = $info_product['price_product'] - $resultper;
     }
@@ -4262,14 +4330,16 @@ $textinvite
         return;
     }
     $category = category_from_processing($userdate);
-    $custompricevalue = panel_agent_field($marzban_list_get, 'pricecustomvolume', $user['agent'], '4000');
-    $customtimevalueprice = panel_agent_field($marzban_list_get, 'pricecustomtime', $user['agent'], '4000');
     if ($parts[0] == "customvolume") {
         $info_product['Volume_constraint'] = $parts[2];
         $info_product['name_product'] = panel_custom_button_text($marzban_list_get);
         $info_product['code_product'] = "customvolume";
         $info_product['Service_time'] = $parts[1];
-        $info_product['price_product'] = ($parts[2] * $custompricevalue) + ($parts[1] * $customtimevalueprice);
+        $info_product['price_product'] = panel_custom_service_price_for_user($marzban_list_get, $user, (int) $parts[2], (int) $parts[1]);
+        if ($info_product['price_product'] === null) {
+            sendmessage($from_id, "❌ مدت سرویس نامعتبر است. خرید را از اول انجام دهید.", $keyboard, 'HTML');
+            return;
+        }
         $info_product['data_limit_reset'] = "no_reset";
     } else {
         $stmt = $pdo->prepare("SELECT * FROM product WHERE code_product = :code_product AND (Location = :location OR Location = '/all') LIMIT 1");
@@ -4715,16 +4785,16 @@ $textonebuy
     sendmessage($from_id, "🤩 کد تخفیف شما درست بود و  {$SellDiscountlimit['price']} درصد تخفیف روی فاکتور شما اعمال شد.", null, 'HTML');
     step('payment', $from_id);
     $parts = explode("_", $user['Processing_value_one']);
-    $eextraprice = json_decode($marzban_list_get['pricecustomvolume'], true);
-    $custompricevalue = $eextraprice[$user['agent']];
-    $eextraprice = json_decode($marzban_list_get['pricecustomtime'], true);
-    $customtimevalueprice = $eextraprice[$user['agent']];
     if ($parts[0] == "customvolume") {
         $info_product['Volume_constraint'] = $parts[2];
         $info_product['name_product'] = $textbotlang['users']['customsellvolume']['title'];
         $info_product['code_product'] = $textbotlang['users']['customsellvolume']['title'];
         $info_product['Service_time'] = $parts[1];
-        $info_product['price_product'] = ($parts[2] * $custompricevalue) + ($parts[1] * $customtimevalueprice);
+        $info_product['price_product'] = panel_custom_service_price_for_user($marzban_list_get, $user, (int) $parts[2], (int) $parts[1]);
+        if ($info_product['price_product'] === null) {
+            sendmessage($from_id, "❌ مدت سرویس نامعتبر است.", $keyboard, 'HTML');
+            return;
+        }
     } else {
         $info_product = mysqli_fetch_assoc(mysqli_query($connect, "SELECT * FROM product WHERE code_product = '{$user['Processing_value_one']}' AND (Location = '{$userdate['name_panel']}'or Location = '/all') LIMIT 1"));
     }
@@ -4826,16 +4896,10 @@ $textonebuy
     step('gettimecustomvolom', $from_id);
 } elseif ($user['step'] == "gettimecustomvolom") {
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
-    $eextraprice = json_decode($marzban_list_get['pricecustomtime'], true);
-    $customtimevalueprice = $eextraprice[$user['agent']];
     $mainvolume = json_decode($marzban_list_get['mainvolume'], true);
     $mainvolume = $mainvolume[$user['agent']];
     $maxvolume = json_decode($marzban_list_get['maxvolume'], true);
     $maxvolume = $maxvolume[$user['agent']];
-    $maintime = json_decode($marzban_list_get['maintime'], true);
-    $maintime = $maintime[$user['agent']];
-    $maxtime = json_decode($marzban_list_get['maxtime'], true);
-    $maxtime = $maxtime[$user['agent']];
     if ($text > intval($maxvolume) || $text < intval($mainvolume)) {
         $texttime = "❌ حجم نامعتبر است.\n🔔 حداقل حجم $mainvolume گیگابایت و حداکثر $maxvolume گیگابایت می باشد";
         sendmessage($from_id, $texttime, $backuser, 'HTML');
@@ -4846,36 +4910,68 @@ $textonebuy
         return;
     }
     update("user", "Processing_value_one", $text, "id", $from_id);
-    $textcustom = "⌛️ زمان سرویس خود را انتخاب نمایید 
-📌 تعرفه هر روز  : $customtimevalueprice  تومان
-⚠️ حداقل زمان $maintime روز  و حداکثر $maxtime روز  می توانید تهیه کنید";
-    sendmessage($from_id, $textcustom, $backuser, 'html');
+    $textcustom = "⌛️ مدت زمان سرویس را انتخاب کنید
+📌 هر ماه معادل ۳۰ روز است
+⚠️ فقط گزینه‌های زیر قابل انتخاب هستند";
+    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonthom_', 'backuser'), 'html');
+    step('selectcustommonthom', $from_id);
+} elseif (preg_match('/^custommonthom_(\d+)$/', $datain, $dataget) && ($user['step'] == "selectcustommonthom" || $user['step'] == "getvolumecustomuserom" || $user['step'] == "getvolumecustomusernameom")) {
+    $months = (int) $dataget[1];
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
-    if ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
-        step('getvolumecustomusernameom', $from_id);
-    } else {
-        step('getvolumecustomuserom', $from_id);
+    if (!$marzban_list_get || !panel_custom_month_option($marzban_list_get, $months)) {
+        sendmessage($from_id, "❌ مدت انتخاب‌شده نامعتبر است.", $backuser, 'HTML');
+        return;
     }
+    $gb = (int) $user['Processing_value_one'];
+    $days = panel_custom_months_to_days($months);
+    $customvalue = "customvolume_" . $days . "_" . $gb;
+    update("user", "Processing_value_one", $customvalue, "id", $from_id);
+    deletemessage($from_id, $message_id);
+    if ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
+        step('endstepusersom', $from_id);
+        sendmessage($from_id, $textbotlang['users']['selectusername'], $backuser, 'html');
+        return;
+    }
+    $loc = $customvalue;
+    $info_product['Volume_constraint'] = $gb;
+    $info_product['name_product'] = panel_custom_button_text($marzban_list_get);
+    $info_product['code_product'] = $textbotlang['users']['customsellvolume']['title'];
+    $info_product['Service_time'] = $days;
+    $info_product['price_product'] = panel_custom_service_price_for_user($marzban_list_get, $user, $gb, $days);
+    if ($info_product['price_product'] === null) {
+        sendmessage($from_id, "❌ مدت انتخاب‌شده نامعتبر است.", $keyboard, 'HTML');
+        return;
+    }
+    $randomString = bin2hex(random_bytes(2));
+    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, '', $marzban_list_get['namecustom'], $user['namecustom']);
+    $username_ac = strtolower($username_ac);
+    update("user", "Processing_value_tow", $username_ac, "id", $from_id);
+    if ($info_product['Volume_constraint'] == 0)
+        $info_product['Volume_constraint'] = $textbotlang['users']['stateus']['Unlimited'];
+    if ($info_product['Service_time'] == 0)
+        $info_product['Service_time'] = $textbotlang['users']['stateus']['Unlimited'];
+    $info_product['price_product'] = intval($info_product['price_product']) * intval($user['Processing_value_four']);
+    $price_product_format = number_format($info_product['price_product']);
+    $userbalancepish = number_format($user['Balance']);
+    $textin = "
+📇 پیش فاکتور شما:
+👤 نام کاربری: <code>$username_ac</code>
+🔐 نام سرویس: {$info_product['name_product']}
+⏱ مدت زمان: {$info_product['Service_time']} روز
+🔋 حجم سرویس : {$info_product['Volume_constraint']} گیگ
+💸 مبلغ قابل پرداخت : $price_product_format تومان
+💰 موجودی کیف پول : $userbalancepish تومان
+    
+✅ برای تایید و پرداخت روی دکمه زیر کلیک کنید";
+    sendmessage($from_id, $textin, $payment, 'HTML');
+    step('payment', $from_id);
 } elseif ($user['step'] == "getvolumecustomusernameom" || preg_match('/^prodcutservicesom_(.*)/', $datain, $dataget)) {
     $prodcut = $dataget[1];
     if ($user['step'] == "getvolumecustomusernameom") {
-        if (!ctype_digit($text)) {
-            sendmessage($from_id, $textbotlang['Admin']['customvolume']['invalidtime'], $backuser, 'HTML');
-            return;
-        }
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
-        $maintime = json_decode($marzban_list_get['maintime'], true);
-        $maintime = $maintime[$user['agent']];
-        $maxtime = json_decode($marzban_list_get['maxtime'], true);
-        $maxtime = $maxtime[$user['agent']];
-        if (intval($text) > intval($maxtime) || intval($text) < intval($maintime)) {
-            $texttime = "❌ زمان ارسال شده نامعتبر است . زمان باید بین $maintime روز تا $maxtime روز باشد";
-            sendmessage($from_id, $texttime, $backuser, 'HTML');
-            return;
-        }
-        $customvalue = "customvolume_" . $text . "_" . $user['Processing_value_one'];
-        update("user", "Processing_value_one", $customvalue, "id", $from_id);
-        step('endstepusersom', $from_id);
+        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonthom_', 'backuser'), 'html');
+        step('selectcustommonthom', $from_id);
+        return;
     } else {
         update("user", "Processing_value_one", $prodcut, "id", $from_id);
         step('endstepuserom', $from_id);
@@ -4883,21 +4979,10 @@ $textonebuy
     sendmessage($from_id, $textbotlang['users']['selectusername'], $backuser, 'html');
 } elseif ($user['step'] == "endstepuserom" || $user['step'] == "endstepusersom" || preg_match('/prodcutserviceom_(.*)/', $datain, $dataget) || $user['step'] == "getvolumecustomuserom") {
     if ($user['step'] == "getvolumecustomuserom") {
-        if (!ctype_digit($text)) {
-            sendmessage($from_id, $textbotlang['Admin']['customvolume']['invalidtime'], $backuser, 'HTML');
-            return;
-        }
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
-        $maintime = json_decode($marzban_list_get['maintime'], true);
-        $maintime = $maintime[$user['agent']];
-        $maxtime = json_decode($marzban_list_get['maxtime'], true);
-        $maxtime = $maxtime[$user['agent']];
-        if (intval($text) > $maxtime || intval($text) < $maintime) {
-            $texttime = "❌ زمان ارسال شده نامعتبر است . زمان باید بین $maintime روز تا $maxtime روز باشد";
-            sendmessage($from_id, $texttime, $backuser, 'HTML');
-            return;
-        }
-        $prodcut = "customvolume_" . $text . "_" . $user['Processing_value_one'];
+        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonthom_', 'backuser'), 'html');
+        step('selectcustommonthom', $from_id);
+        return;
     } elseif ($user['step'] == "endstepusersom" || $user['step'] == "endstepuserom") {
         $prodcut = $user['Processing_value_one'];
     } else {
@@ -4914,17 +4999,17 @@ $textonebuy
         $loc = $prodcut;
     }
     update("user", "Processing_value_one", $loc, "id", $from_id);
-    $eextraprice = json_decode($marzban_list_get['pricecustomvolume'], true);
-    $custompricevalue = $eextraprice[$user['agent']];
-    $eextraprice = json_decode($marzban_list_get['pricecustomtime'], true);
-    $customtimevalueprice = $eextraprice[$user['agent']];
     $parts = explode("_", $loc);
     if ($parts[0] == "customvolume") {
         $info_product['Volume_constraint'] = $parts[2];
         $info_product['name_product'] = $textbotlang['users']['customsellvolume']['title'];
         $info_product['code_product'] = $textbotlang['users']['customsellvolume']['title'];
         $info_product['Service_time'] = $parts[1];
-        $info_product['price_product'] = ($parts[2] * $custompricevalue) + ($parts[1] * $customtimevalueprice);
+        $info_product['price_product'] = panel_custom_service_price_for_user($marzban_list_get, $user, (int) $parts[2], (int) $parts[1]);
+        if ($info_product['price_product'] === null) {
+            sendmessage($from_id, "❌ مدت سرویس نامعتبر است.", $keyboard, 'HTML');
+            return;
+        }
     } else {
         $info_product = mysqli_fetch_assoc(mysqli_query($connect, "SELECT * FROM product WHERE code_product = '$loc' AND (Location = '{$user['Processing_value']}'or Location = '/all') LIMIT 1"));
     }
@@ -4954,17 +5039,17 @@ $textonebuy
     step('payments', $from_id);
 } elseif ($user['step'] == "payments" && $datain == "confirmandgetservice") {
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
-    $eextraprice = json_decode($marzban_list_get['pricecustomvolume'], true);
-    $custompricevalue = $eextraprice[$user['agent']];
-    $eextraprice = json_decode($marzban_list_get['pricecustomtime'], true);
-    $customtimevalueprice = $eextraprice[$user['agent']];
     $parts = explode("_", $user['Processing_value_one']);
     if ($parts[0] == "customvolume") {
         $info_product['Volume_constraint'] = $parts[2];
         $info_product['name_product'] = $textbotlang['users']['customsellvolume']['title'];
         $info_product['code_product'] = "customvolume";
         $info_product['Service_time'] = $parts[1];
-        $info_product['price_product'] = ($parts[2] * $custompricevalue) + ($parts[1] * $customtimevalueprice);
+        $info_product['price_product'] = panel_custom_service_price_for_user($marzban_list_get, $user, (int) $parts[2], (int) $parts[1]);
+        if ($info_product['price_product'] === null) {
+            sendmessage($from_id, "❌ مدت سرویس نامعتبر است.", $keyboard, 'HTML');
+            return;
+        }
         $info_product['data_limit_reset'] = "no_reset";
     } else {
         $info_product = mysqli_fetch_assoc(mysqli_query($connect, "SELECT * FROM product WHERE code_product = '{$user['Processing_value_one']}' AND (Location = '{$user['Processing_value']}'  or Location = '/all') LIMIT 1"));
@@ -6403,17 +6488,17 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
         $service_other = json_decode($service_other['value'], true);
         $nameloc = select("invoice", "*", "username", $usernamepanel, "select");
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
-        $eextraprice = json_decode($marzban_list_get['pricecustomvolume'], true);
-        $custompricevalue = $eextraprice[$user['agent']];
-        $eextraprice = json_decode($marzban_list_get['pricecustomtime'], true);
-        $customtimevalueprice = $eextraprice[$user['agent']];
         $codeproduct = $service_other['code_product'];
         if ($codeproduct == "custom_volume") {
             $prodcut['code_product'] = "custom_volume";
             $prodcut['name_product'] = $nameloc['name_product'];
-            $prodcut['price_product'] = ($service_other['volumebuy'] * $custompricevalue) + ($nameloc['Service_time'] * $customtimevalueprice);
             $prodcut['Service_time'] = $service_other['Service_time'];
             $prodcut['Volume_constraint'] = $service_other['volumebuy'];
+            $daysForPrice = (int) ($service_other['Service_time'] ?? $nameloc['Service_time']);
+            $prodcut['price_product'] = panel_custom_service_price_for_user($marzban_list_get, $user, (int) $service_other['volumebuy'], $daysForPrice);
+            if ($prodcut['price_product'] === null) {
+                $prodcut['price_product'] = 0;
+            }
         } else {
             $nameloc = select("invoice", "*", "username", $usernamepanel, "select");
             $prodcut = mysqli_fetch_assoc(mysqli_query($connect, "SELECT * FROM product WHERE (Location = '{$nameloc['Service_location']}' OR Location = '/all') AND " . agent_product_access_sql($user['agent'], $from_id) . " AND code_product = '$codeproduct'"));
@@ -6599,17 +6684,16 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
         $service_other = json_decode($service_other['value'], true);
         $nameloc = select("invoice", "*", "username", $usernamepanel, "select");
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
-        $eextraprice = json_decode($marzban_list_get['pricecustomvolume'], true);
-        $custompricevalue = $eextraprice[$user['agent']];
-        $eextraprice = json_decode($marzban_list_get['pricecustomtime'], true);
-        $customtimevalueprice = $eextraprice[$user['agent']];
         $codeproduct = $service_other['code_product'];
         if ($codeproduct == "custom_volume") {
             $prodcut['code_product'] = "custom_volume";
             $prodcut['name_product'] = $nameloc['name_product'];
-            $prodcut['price_product'] = ($service_other['volumebuy'] * $custompricevalue) + ($service_other['Service_time'] * $customtimevalueprice);
             $prodcut['Service_time'] = $service_other['Service_time'];
             $prodcut['Volume_constraint'] = $service_other['volumebuy'];
+            $prodcut['price_product'] = panel_custom_service_price_for_user($marzban_list_get, $user, (int) $service_other['volumebuy'], (int) $service_other['Service_time']);
+            if ($prodcut['price_product'] === null) {
+                $prodcut['price_product'] = 0;
+            }
         } else {
             $nameloc = select("invoice", "*", "username", $usernamepanel, "select");
             $prodcut = mysqli_fetch_assoc(mysqli_query($connect, "SELECT * FROM product WHERE (Location = '{$nameloc['Service_location']}' OR Location = '/all') AND " . agent_product_access_sql($user['agent'], $from_id) . " AND code_product = '$codeproduct'"));

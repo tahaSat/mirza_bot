@@ -84,9 +84,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         'time_usertest' => array_key_exists('time_usertest', $_POST) ? trim($_POST['time_usertest']) : ($panel['time_usertest'] ?? '1'),
         'val_usertest' => array_key_exists('val_usertest', $_POST) ? trim($_POST['val_usertest']) : ($panel['val_usertest'] ?? '100'),
         'inbound_deactive' => array_key_exists('inbound_deactive', $_POST) ? trim($_POST['inbound_deactive']) : ($panel['inbound_deactive'] ?? '0'),
-        'priceChangeloc' => array_key_exists('priceChangeloc', $_POST)
-            ? trim($_POST['priceChangeloc'])
-            : ($panel['priceChangeloc'] ?? '0'),
+        // Extra volume/time/changeloc prices are unused in panel UI — keep stored values.
+        'priceChangeloc' => $panel['priceChangeloc'] ?? '0',
         'status' => $toggle('status_active', 'status', 'active', 'disable'),
         'TestAccount' => $toggle('test_on', 'TestAccount', 'ONTestAccount', 'OFFTestAccount'),
         'status_extend' => $toggle('extend_on', 'status_extend', 'on_extend', 'off_extend'),
@@ -100,14 +99,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         'version_panel' => $toggle('version_panel_on', 'version_panel', '1', '0'),
         'customvolume' => panel_merge_customvolume($panel, $tabSaving === 'pricing'),
         'hide_user' => $hideJson,
-        'priceextravolume' => panel_merge_agent_json_field($panel, 'priceextravolume', 'priceextravolume'),
-        'priceextratime' => panel_merge_agent_json_field($panel, 'priceextratime', 'priceextratime'),
-        'pricecustomvolume' => panel_merge_agent_json_field($panel, 'pricecustomvolume', 'pricecustomvolume'),
-        'pricecustomtime' => panel_merge_agent_json_field($panel, 'pricecustomtime', 'pricecustomtime'),
-        'mainvolume' => panel_merge_agent_json_field($panel, 'mainvolume', 'mainvolume'),
-        'maxvolume' => panel_merge_agent_json_field($panel, 'maxvolume', 'maxvolume'),
-        'maintime' => panel_merge_agent_json_field($panel, 'maintime', 'maintime'),
-        'maxtime' => panel_merge_agent_json_field($panel, 'maxtime', 'maxtime'),
+        'priceextravolume' => $panel['priceextravolume'] ?? panel_default_price_json(),
+        'priceextratime' => $panel['priceextratime'] ?? panel_default_price_json(),
+        // Custom-service prices/limits: edit f only; n/n2 pricing comes from agent page.
+        'pricecustomvolume' => panel_merge_agent_json_field_f_only($panel, 'pricecustomvolume', 'pricecustomvolume', '4000'),
+        'pricecustomtime' => panel_merge_agent_json_field_f_only($panel, 'pricecustomtime', 'pricecustomtime', '4000'),
+        'mainvolume' => panel_merge_agent_json_field_f_only($panel, 'mainvolume', 'mainvolume', '1'),
+        'maxvolume' => panel_merge_agent_json_field_f_only($panel, 'maxvolume', 'maxvolume', '1000'),
+        'maintime' => panel_merge_agent_json_field_f_only($panel, 'maintime', 'maintime', '1'),
+        'maxtime' => panel_merge_agent_json_field_f_only($panel, 'maxtime', 'maxtime', '365'),
     ];
 
     if (array_key_exists('customvolume_text', $_POST)) {
@@ -173,8 +173,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
 
 $panel = db_fetch($pdo, "SELECT * FROM marzban_panel WHERE id = ?", [$id]);
 $stats = panel_invoice_stats($pdo, $panel['name_panel']);
-$priceExtra = panel_decode_agent_json($panel['priceextravolume'] ?? '');
-$priceExtraTime = panel_decode_agent_json($panel['priceextratime'] ?? '');
 $priceCustomVol = panel_decode_agent_json($panel['pricecustomvolume'] ?? '', '4000');
 $priceCustomTime = panel_decode_agent_json($panel['pricecustomtime'] ?? '', '4000');
 $mainVolume = panel_decode_agent_json($panel['mainvolume'] ?? '', '1');
@@ -188,7 +186,7 @@ $tabs = [
     'connection' => 'اتصال',
     'features' => 'قابلیت‌ها',
     'account' => 'اکانت و تست',
-    'pricing' => 'قیمت‌گذاری',
+    'pricing' => 'سرویس دلخواه',
     'advanced' => 'پیشرفته',
     'reports' => 'گزارشات',
 ];
@@ -516,47 +514,16 @@ include __DIR__ . '/inc/layout_head.php';
   <?php endif; ?>
 
   <?php if ($tab === 'pricing'): ?>
-    <div class="card" style="margin-bottom:16px">
-      <div class="card-head"><div class="card-title">قیمت‌گذاری (تومان / واحد)</div><div class="card-subtitle">مقادیر جدا برای گروه‌های f، n، n2</div></div>
-      <div class="card-body">
-        <?php
-        $priceRows = [
-            ['قیمت حجم اضافه', 'priceextravolume', $priceExtra],
-            ['قیمت زمان اضافه', 'priceextratime', $priceExtraTime],
-        ];
-        ?>
-        <div class="tbl-wrap">
-          <table class="tbl">
-            <thead><tr><th>عنوان</th><th>f</th><th>n</th><th>n2</th></tr></thead>
-            <tbody>
-              <?php foreach ($priceRows as [$title, $prefix, $vals]): ?>
-                <tr>
-                  <td class="cs"><?= htmlspecialchars($title) ?></td>
-                  <td><input type="number" name="<?= $prefix ?>_f" class="input" style="min-width:90px" value="<?= htmlspecialchars($vals['f']) ?>"></td>
-                  <td><input type="number" name="<?= $prefix ?>_n" class="input" style="min-width:90px" value="<?= htmlspecialchars($vals['n']) ?>"></td>
-                  <td><input type="number" name="<?= $prefix ?>_n2" class="input" style="min-width:90px" value="<?= htmlspecialchars($vals['n2']) ?>"></td>
-                </tr>
-              <?php endforeach; ?>
-              <tr>
-                <td class="cs">قیمت تغییر لوکیشن</td>
-                <td colspan="3"><input type="number" name="priceChangeloc" class="input" value="<?= htmlspecialchars($panel['priceChangeloc'] ?? '0') ?>"></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
     <div class="card">
       <div class="card-head">
         <div class="card-title">سرویس دلخواه</div>
-        <div class="card-subtitle">فعال‌سازی، قیمت هر گیگ/روز و متن دکمه کنار دسته‌بندی‌ها</div>
+        <div class="card-subtitle">فعال‌سازی برای کاربران عادی (f) و متن دکمه کنار دسته‌بندی‌ها. قیمت n/n2 از صفحه نماینده تنظیم می‌شود.</div>
       </div>
       <div class="card-body">
         <div class="field" style="margin-bottom:14px">
           <label>فعال برای گروه‌های کاربری</label>
           <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px">
-            <?php foreach (['f' => 'گروه f', 'n' => 'گروه n', 'n2' => 'گروه n2'] as $k => $label): ?>
+            <?php foreach (['f' => 'کاربر عادی (f)', 'n' => 'نماینده (n)', 'n2' => 'نماینده پیشرفته (n2)'] as $k => $label): ?>
               <label style="display:flex;align-items:center;gap:6px;font-size:.85rem">
                 <input type="checkbox" name="custom_<?= $k ?>" value="1" <?= ($customVolume[$k] ?? '0') === '1' ? 'checked' : '' ?>>
                 <?= htmlspecialchars($label) ?>
@@ -569,32 +536,36 @@ include __DIR__ . '/inc/layout_head.php';
           <input type="text" name="customvolume_text" class="input" maxlength="200"
             value="<?= htmlspecialchars($panel['customvolume_text'] ?? '') ?>"
             placeholder="⚙️ سرویس دلخواه">
-          <small class="cf">اگر خالی باشد، متن پیش‌فرض «⚙️ سرویس دلخواه» استفاده می‌شود. این دکمه کنار دسته‌بندی‌ها نشان داده می‌شود.</small>
+          <small class="cf">اگر خالی باشد، متن پیش‌فرض «⚙️ سرویس دلخواه» استفاده می‌شود.</small>
         </div>
-        <?php
-        $customRows = [
-            ['قیمت هر گیگ (تومان)', 'pricecustomvolume', $priceCustomVol],
-            ['قیمت هر روز (تومان)', 'pricecustomtime', $priceCustomTime],
-            ['حداقل حجم (GB)', 'mainvolume', $mainVolume],
-            ['حداکثر حجم (GB)', 'maxvolume', $maxVolume],
-            ['حداقل زمان (روز)', 'maintime', $mainTime],
-            ['حداکثر زمان (روز)', 'maxtime', $maxTime],
-        ];
-        ?>
-        <div class="tbl-wrap">
-          <table class="tbl">
-            <thead><tr><th>عنوان</th><th>f</th><th>n</th><th>n2</th></tr></thead>
-            <tbody>
-              <?php foreach ($customRows as [$title, $prefix, $vals]): ?>
-                <tr>
-                  <td class="cs"><?= htmlspecialchars($title) ?></td>
-                  <td><input type="number" name="<?= $prefix ?>_f" class="input" style="min-width:90px" value="<?= htmlspecialchars($vals['f']) ?>"></td>
-                  <td><input type="number" name="<?= $prefix ?>_n" class="input" style="min-width:90px" value="<?= htmlspecialchars($vals['n']) ?>"></td>
-                  <td><input type="number" name="<?= $prefix ?>_n2" class="input" style="min-width:90px" value="<?= htmlspecialchars($vals['n2']) ?>"></td>
-                </tr>
-              <?php endforeach; ?>
-            </tbody>
-          </table>
+        <div class="notice" style="margin-bottom:14px;font-size:.85rem;color:var(--mute)">
+          قیمت‌های زیر فقط برای کاربران عادی (f) است. برای n و n2 از <a href="agents.php">صفحه نماینده</a> استفاده کنید.
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label>قیمت هر گیگ (تومان)</label>
+            <input type="number" name="pricecustomvolume_f" class="input" min="0" value="<?= htmlspecialchars($priceCustomVol['f']) ?>">
+          </div>
+          <div class="field">
+            <label>قیمت هر روز (تومان)</label>
+            <input type="number" name="pricecustomtime_f" class="input" min="0" value="<?= htmlspecialchars($priceCustomTime['f']) ?>">
+          </div>
+          <div class="field">
+            <label>حداقل حجم (GB)</label>
+            <input type="number" name="mainvolume_f" class="input" min="0" value="<?= htmlspecialchars($mainVolume['f']) ?>">
+          </div>
+          <div class="field">
+            <label>حداکثر حجم (GB)</label>
+            <input type="number" name="maxvolume_f" class="input" min="0" value="<?= htmlspecialchars($maxVolume['f']) ?>">
+          </div>
+          <div class="field">
+            <label>حداقل زمان (روز)</label>
+            <input type="number" name="maintime_f" class="input" min="0" value="<?= htmlspecialchars($mainTime['f']) ?>">
+          </div>
+          <div class="field">
+            <label>حداکثر زمان (روز)</label>
+            <input type="number" name="maxtime_f" class="input" min="0" value="<?= htmlspecialchars($maxTime['f']) ?>">
+          </div>
         </div>
       </div>
     </div>

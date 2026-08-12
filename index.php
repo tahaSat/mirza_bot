@@ -1492,10 +1492,15 @@ $textconnect
         $productextend = ['inline_keyboard' => []];
         $statusshowprice = select("shopSetting", "*", "Namevalue", "statusshowprice", "select")['value'];
         foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
-            $hide_panel = json_decode($result['hide_panel'], true);
-            if (in_array($nameloc['Service_location'], $hide_panel))
+            $hide_panel = json_decode($result['hide_panel'] ?? '[]', true);
+            if (!is_array($hide_panel)) {
+                $hide_panel = [];
+            }
+            if (in_array($nameloc['Service_location'], $hide_panel, true))
                 continue;
-            if (intval($user['pricediscount']) != 0) {
+            if (($user['agent'] ?? '') === 'n') {
+                $result['price_product'] = agent_wholesale_cost($user, (int) ($result['Volume_constraint'] ?? 0));
+            } elseif (intval($user['pricediscount']) != 0) {
                 $resultper = ($result['price_product'] * $user['pricediscount']) / 100;
                 $result['price_product'] = $result['price_product'] - $resultper;
             }
@@ -4015,13 +4020,28 @@ $textinvite
     $categoryMessage = (!empty($category['description']) && is_string($category['description']))
         ? htmlspecialchars(trim($category['description']), ENT_QUOTES, 'UTF-8')
         : $defaultCategoryMessage;
-    $userdate = json_decode($user['Processing_value'], true);
-    if (isset($userdate['monthproduct'])) {
-        $query = "SELECT * FROM product WHERE (Location = '{$userdate['name_panel']}' OR Location = '/all') AND " . agent_product_access_sql($user['agent'], $from_id) . " AND category = '$categorynames' AND Service_time = '{$userdate['monthproduct']}'";
-    } else {
-        $query = "SELECT * FROM product WHERE (Location = '{$userdate['name_panel']}' OR Location = '/all') AND " . agent_product_access_sql($user['agent'], $from_id) . " AND category = '$categorynames'";
+    $userFresh = select("user", "*", "id", $from_id, "select");
+    $userdate = json_decode(is_array($userFresh) ? ($userFresh['Processing_value'] ?? '{}') : '{}', true);
+    if (!is_array($userdate) || empty($userdate['name_panel'])) {
+        sendmessage($from_id, "❌ خطایی رخ داده است مراحل خرید را از اول انجام دهید", $keyboard, 'HTML');
+        step("home", $from_id);
+        return;
     }
-    $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
+    $panelName = $userdate['name_panel'];
+    $categoryEsc = addslashes($categorynames);
+    $panelEsc = addslashes($panelName);
+    if (isset($userdate['monthproduct'])) {
+        $monthEsc = addslashes((string) $userdate['monthproduct']);
+        $query = "SELECT * FROM product WHERE (Location = '{$panelEsc}' OR Location = '/all') AND " . agent_product_access_sql($user['agent'], $from_id) . " AND category = '{$categoryEsc}' AND Service_time = '{$monthEsc}'";
+    } else {
+        $query = "SELECT * FROM product WHERE (Location = '{$panelEsc}' OR Location = '/all') AND " . agent_product_access_sql($user['agent'], $from_id) . " AND category = '{$categoryEsc}'";
+    }
+    $marzban_list_get = select("marzban_panel", "*", "name_panel", $panelName, "select");
+    if (!$marzban_list_get || !is_array($marzban_list_get)) {
+        sendmessage($from_id, "❌ پنل یافت نشد. مراحل خرید را از اول انجام دهید", $keyboard, 'HTML');
+        step("home", $from_id);
+        return;
+    }
     if ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
         $datakeyboard = "prodcutservices_";
     } else {

@@ -1401,7 +1401,8 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
 {
     global $pdo, $textbotlang, $from_id, $user;
     $product = ['inline_keyboard' => []];
-    $statusshowprice = select("shopSetting", "*", "Namevalue", "statusshowprice", "select")['value'];
+    $shopShow = select("shopSetting", "*", "Namevalue", "statusshowprice", "select");
+    $statusshowprice = is_array($shopShow) ? ($shopShow['value'] ?? '') : '';
     $stmt = $pdo->prepare($query);
     $stmt->execute();
     if ($valuetow != null) {
@@ -1411,9 +1412,13 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
     }
     $isAgentN = (($user['agent'] ?? '') === 'n');
     foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
-        $hide_panel = json_decode($result['hide_panel'], true);
-        if (in_array($location, $hide_panel))
+        $hide_panel = json_decode($result['hide_panel'] ?? '[]', true);
+        if (!is_array($hide_panel)) {
+            $hide_panel = [];
+        }
+        if (in_array($location, $hide_panel, true)) {
             continue;
+        }
         $stmts2 = $pdo->prepare("SELECT * FROM invoice WHERE Status != 'Unpaid' AND id_user = :id_user");
         $stmts2->bindValue(':id_user', $from_id);
         $stmts2->execute();
@@ -1460,8 +1465,21 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
         $stmts->bindParam(':location', $location, PDO::PARAM_STR);
         $stmts->bindParam(':category', $row['remark'], PDO::PARAM_STR);
         $stmts->execute();
-        if ($stmts->rowCount() == 0)
+        $visibleCount = 0;
+        foreach ($stmts->fetchAll(PDO::FETCH_ASSOC) as $prodRow) {
+            $hide_panel = json_decode($prodRow['hide_panel'] ?? '[]', true);
+            if (!is_array($hide_panel)) {
+                $hide_panel = [];
+            }
+            if (in_array($location, $hide_panel, true)) {
+                continue;
+            }
+            $visibleCount++;
+            break;
+        }
+        if ($visibleCount === 0) {
             continue;
+        }
         $list_category['inline_keyboard'][] = [['text' => $row['remark'], 'callback_data' => "categorynames_" . $row['id']]];
     }
     $panel = select("marzban_panel", "*", "name_panel", $location, "select");

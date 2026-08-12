@@ -202,20 +202,32 @@ $KeyboardBalance = json_encode([
 
 function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $statuscustom = false, $backuser = "backuser", $valuetow = null, $customvolume = "customsellvolume")
 {
-    global $pdo, $textbotlang;
+    global $pdo, $textbotlang, $userbot;
     $product = ['inline_keyboard' => []];
-    $statusshowprice = select("shopSetting", "*", "Namevalue", "statusshowprice", "select")['value'];
+    $shopShow = select("shopSetting", "*", "Namevalue", "statusshowprice", "select");
+    $statusshowprice = is_array($shopShow) ? ($shopShow['value'] ?? '') : '';
     $stmt = $pdo->prepare($query);
     $stmt->execute();
     $valuetow = $valuetow != null ? "-$valuetow" : "";
+    $ownerIsAgentN = is_array($userbot) && (($userbot['agent'] ?? '') === 'n');
     foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
         $productlist = readJsonFileIfExists('product.json');
         $productlist_name = readJsonFileIfExists('product_name.json');
-        if (isset($productlist[$result['code_product']])) $result['price_product'] = $productlist[$result['code_product']];
+        $hasRetailOverride = isset($productlist[$result['code_product']]);
+        if ($hasRetailOverride) {
+            $result['price_product'] = $productlist[$result['code_product']];
+        } elseif ($ownerIsAgentN) {
+            $result['price_product'] = agent_wholesale_cost($userbot, (int) ($result['Volume_constraint'] ?? 0));
+        }
         $result['name_product'] = empty($productlist_name[$result['code_product']]) ? $result['name_product'] : $productlist_name[$result['code_product']];
-        $hide_panel = json_decode($result['hide_panel'], true);
-        if (in_array($location, $hide_panel)) continue;
-        if (intval($pricediscount) != 0) {
+        $hide_panel = json_decode($result['hide_panel'] ?? '[]', true);
+        if (!is_array($hide_panel)) {
+            $hide_panel = [];
+        }
+        if (in_array($location, $hide_panel, true)) {
+            continue;
+        }
+        if (!$ownerIsAgentN && intval($pricediscount) != 0) {
             $resultper = ($result['price_product'] * $pricediscount) / 100;
             $result['price_product'] = $result['price_product'] - $resultper;
         }
@@ -257,7 +269,21 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
         $stmts->bindParam(':location', $location, PDO::PARAM_STR);
         $stmts->bindParam(':category', $row['remark'], PDO::PARAM_STR);
         $stmts->execute();
-        if ($stmts->rowCount() == 0) continue;
+        $visibleCount = 0;
+        foreach ($stmts->fetchAll(PDO::FETCH_ASSOC) as $prodRow) {
+            $hide_panel = json_decode($prodRow['hide_panel'] ?? '[]', true);
+            if (!is_array($hide_panel)) {
+                $hide_panel = [];
+            }
+            if (in_array($location, $hide_panel, true)) {
+                continue;
+            }
+            $visibleCount++;
+            break;
+        }
+        if ($visibleCount === 0) {
+            continue;
+        }
         $list_category['inline_keyboard'][] = [['text' => $row['remark'], 'callback_data' => "categorynames_" . $row['id']]];
     }
     $panel = select("marzban_panel", "*", "name_panel", $location, "select");

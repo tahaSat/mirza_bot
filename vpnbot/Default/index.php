@@ -690,6 +690,9 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         return;
     }
     $eextraprice = panel_agent_field($marzban_list_get, 'pricecustomvolume', $userbot['agent'], '4000');
+    if (($userbot['agent'] ?? '') === 'n') {
+        $eextraprice = agent_current_price_per_gb($userbot);
+    }
     $mainvolume = panel_agent_field($marzban_list_get, 'mainvolume', $userbot['agent'], '1');
     $maxvolume = panel_agent_field($marzban_list_get, 'maxvolume', $userbot['agent'], '1000');
     $textcustom = "📌 حجم درخواستی خود را ارسال کنید.
@@ -763,9 +766,23 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $categoryMessage = (!empty($category['description']) && is_string($category['description']))
         ? htmlspecialchars(trim($category['description']), ENT_QUOTES, 'UTF-8')
         : "🛍️ لطفاً سرویسی که می‌خواهید خریداری کنید را انتخاب کنید!";
-    $userdate = json_decode($user['Processing_value'], true);
-    $locationproduct = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "seelct");
-    $query = "SELECT * FROM product WHERE (Location = '{$locationproduct['name_panel']}' OR Location = '/all') AND category = '$categorynames' AND " . agent_product_access_sql($userbot['agent'], $dataBase['id_user']) . " ";
+    $userFresh = select("user", "*", "id", $from_id, "select");
+    $userdate = json_decode(is_array($userFresh) ? ($userFresh['Processing_value'] ?? '{}') : '{}', true);
+    if (!is_array($userdate) || empty($userdate['name_panel'])) {
+        sendmessage($from_id, "❌ خطایی رخ داده است مراحل خرید را از اول انجام دهید", $keyboard, 'HTML');
+        step("home", $from_id);
+        return;
+    }
+    $panelName = $userdate['name_panel'];
+    $locationproduct = select("marzban_panel", "*", "name_panel", $panelName, "select");
+    if (!$locationproduct || !is_array($locationproduct)) {
+        sendmessage($from_id, "❌ پنل یافت نشد. مراحل خرید را از اول انجام دهید", $keyboard, 'HTML');
+        step("home", $from_id);
+        return;
+    }
+    $categoryEsc = addslashes($categorynames);
+    $panelEsc = addslashes($panelName);
+    $query = "SELECT * FROM product WHERE (Location = '{$panelEsc}' OR Location = '/all') AND category = '{$categoryEsc}' AND " . agent_product_access_sql($userbot['agent'], $dataBase['id_user']) . " ";
     $statuscustom = false;
     if ($locationproduct['MethodUsername'] == $textbotlang['users']['customusername'] || $locationproduct['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
         $keyboarddata = "selectproductbuyy_";
@@ -874,6 +891,8 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         $productlist = json_decode(file_get_contents('product.json'), true);
         if (isset($productlist[$product['code_product']])) {
             $product['price_product'] = $productlist[$product['code_product']];
+        } elseif (($userbot['agent'] ?? '') === 'n') {
+            $product['price_product'] = agent_wholesale_cost($userbot, (int) ($product['Volume_constraint'] ?? 0));
         }
         $datapish = array(
             "Volume_constraint" => $product['Volume_constraint'],
@@ -885,6 +904,9 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     } else {
         $custompricevalue = panel_agent_field($marzban_list_get, 'pricecustomvolume', $userbot['agent'], '4000');
         $customtimevalueprice = panel_agent_field($marzban_list_get, 'pricecustomtime', $userbot['agent'], '4000');
+        if (($userbot['agent'] ?? '') === 'n') {
+            $custompricevalue = agent_current_price_per_gb($userbot);
+        }
         $datapish = array(
             "Volume_constraint" => $userdate['volume'],
             "name_product" => panel_custom_button_text($marzban_list_get),
@@ -964,6 +986,8 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         $productlist = json_decode(file_get_contents('product.json'), true);
         if (isset($productlist[$product['code_product']])) {
             $product['price_product'] = $productlist[$product['code_product']];
+        } elseif (($userbot['agent'] ?? '') === 'n') {
+            $product['price_product'] = agent_wholesale_cost($userbot, (int) ($product['Volume_constraint'] ?? 0));
         }
         $pricevalue = $product['price_product'];
         $datafactor = array(
@@ -980,6 +1004,10 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         $customtimevalueprice = $setting['pricetime'];
         $custompricevalueBot = $setting['minpricevolume'];
         $customtimevaluepriceBot = $setting['minpricetime'];
+        if (($userbot['agent'] ?? '') === 'n') {
+            $custompricevalue = agent_current_price_per_gb($userbot);
+            $custompricevalueBot = $custompricevalue;
+        }
         $datafactor = array(
             "Volume_constraint" => $userdate['volume'],
             "name_product" => $textbotlang['users']['customsellvolume']['title'],
@@ -1728,6 +1756,8 @@ $output
         $productlist = json_decode(file_get_contents('product.json'), true);
         if (isset($productlist[$product['code_product']])) {
             $product['price_product'] = $productlist[$product['code_product']];
+        } elseif (($userbot['agent'] ?? '') === 'n') {
+            $product['price_product'] = agent_wholesale_cost($userbot, (int) ($product['Volume_constraint'] ?? 0));
         }
         $datapish = array(
             "Volume_constraint" => $product['Volume_constraint'],
@@ -1777,6 +1807,8 @@ $output
         $priceproductmain = $product['price_product'];
         if (isset($productlist[$product['code_product']])) {
             $product['price_product'] = $productlist[$product['code_product']];
+        } elseif (($userbot['agent'] ?? '') === 'n') {
+            $product['price_product'] = agent_wholesale_cost($userbot, (int) ($product['Volume_constraint'] ?? 0));
         }
         $datafactor = array(
             "Volume_constraint" => $product['Volume_constraint'],
@@ -1791,6 +1823,10 @@ $output
         $customtimevalueprice = $setting['pricetime'];
         $custompricevalueBot = $setting['minpricevolume'];
         $customtimevaluepriceBot = $setting['minpricetime'];
+        if (($userbot['agent'] ?? '') === 'n') {
+            $custompricevalue = agent_current_price_per_gb($userbot);
+            $custompricevalueBot = $custompricevalue;
+        }
         $datafactor = array(
             "Volume_constraint" => $userdate['volume'],
             "name_product" => $textbotlang['users']['customsellvolume']['title'],

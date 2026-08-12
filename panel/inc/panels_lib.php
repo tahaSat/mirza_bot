@@ -316,6 +316,27 @@ function panel_merge_agent_json_field(array $panel, string $field, string $prefi
     ]);
 }
 
+/**
+ * Update only the end-user (f) value from the panel form.
+ * n / n2 stay as stored (agent pricing comes from the agent page).
+ */
+function panel_merge_agent_json_field_f_only(array $panel, string $field, string $prefix, string $default = '0'): string
+{
+    $current = panel_decode_agent_json($panel[$field] ?? null, $default);
+    if (!isset($_POST[$prefix . '_f']) && !isset($_POST[$prefix])) {
+        return panel_encode_agent_json($current);
+    }
+    $f = trim((string) ($_POST[$prefix . '_f'] ?? $_POST[$prefix] ?? $current['f']));
+    if ($f === '') {
+        $f = $default;
+    }
+    return panel_encode_agent_json([
+        'f' => $f,
+        'n' => $current['n'] ?? $default,
+        'n2' => $current['n2'] ?? $default,
+    ]);
+}
+
 function panel_merge_customvolume(array $panel, bool $inForm = false): string
 {
     if (!$inForm && !array_key_exists('custom_f', $_POST)) {

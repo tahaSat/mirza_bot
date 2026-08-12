@@ -3,10 +3,10 @@ require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
 require_auth();
 
-function category_column_exists(PDO $pdo, string $column): bool
+function category_column_exists(PDO $pdo, string $column, bool $refresh = false): bool
 {
   static $cache = [];
-  if (array_key_exists($column, $cache)) {
+  if (!$refresh && array_key_exists($column, $cache)) {
     return $cache[$column];
   }
   try {
@@ -18,8 +18,41 @@ function category_column_exists(PDO $pdo, string $column): bool
   return $cache[$column];
 }
 
-$hasDescriptionCol = category_column_exists($pdo, 'description');
-$hasStatusCol = category_column_exists($pdo, 'status');
+/** Create missing category columns used by the panel (table.php is not run by the bot webhook). */
+function category_ensure_schema(PDO $pdo): void
+{
+  static $done = false;
+  if ($done) {
+    return;
+  }
+  $done = true;
+  $columns = [
+    'status' => "VARCHAR(20) NOT NULL DEFAULT 'active'",
+    'description' => "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL",
+  ];
+  foreach ($columns as $col => $def) {
+    if (category_column_exists($pdo, $col, true)) {
+      continue;
+    }
+    try {
+      $pdo->exec("ALTER TABLE category ADD `$col` $def");
+      category_column_exists($pdo, $col, true);
+    } catch (Throwable $e) {
+      // column may already exist under race, or insufficient privileges
+    }
+  }
+  if (category_column_exists($pdo, 'status', true)) {
+    try {
+      $pdo->exec("UPDATE category SET status = 'active' WHERE status IS NULL OR status = ''");
+    } catch (Throwable $e) {
+    }
+  }
+}
+
+category_ensure_schema($pdo);
+
+$hasDescriptionCol = category_column_exists($pdo, 'description', true);
+$hasStatusCol = category_column_exists($pdo, 'status', true);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add') {
   csrf_check_post();
@@ -173,7 +206,7 @@ function category_row_is_active(array $c): bool
 
 <?php if (!$hasStatusCol): ?>
 <div class="card fade-up" style="margin-bottom:14px;border-color:#f0ad4e">
-  <p style="margin:0;color:var(--mute);font-size:.9rem">ستون وضعیت روی <code>category</code> هنوز نیست. فایل <code>sql/add_category_status.sql</code> را اجرا کنید یا یک بار وب‌هوک ربات را صدا بزنید.</p>
+  <p style="margin:0;color:var(--mute);font-size:.9rem">ستون وضعیت روی <code>category</code> هنوز ساخته نشد. صفحه را رفرش کنید، یا <code>/table.php</code> را در مرورگر باز کنید (اجرای ربات به‌تنهایی این ستون را نمی‌سازد).</p>
 </div>
 <?php endif; ?>
 

@@ -3893,8 +3893,7 @@ $textinvite
                 } else {
                     $datakeyboard = "prodcutservice_";
                 }
-                // Custom sell only after a category is chosen
-                $statuscustom = false;
+                $statuscustom = panel_custom_enabled($marzban_list_get, (string) $user['agent']);
                 $textproduct = $textbotlang['users']['sell']['Service-select-first'];
                 if ($datain == "buy") {
                     Editmessagetext($from_id, $message_id, $textproduct, KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom));
@@ -3987,8 +3986,7 @@ $textinvite
             } else {
                 $datakeyboard = "prodcutservice_";
             }
-            // Custom sell only after a category is chosen
-            $statuscustom = false;
+            $statuscustom = panel_custom_enabled($marzban_list_get, (string) $user['agent']);
             if (isset($userdate['nameconfig'])) {
                 $back = "buybacktow";
             } else {
@@ -4008,7 +4006,7 @@ $textinvite
     }
 } elseif (preg_match('/^categorynames_(.*)/', $datain, $dataget)) {
     $category = select("category", "*", "id", $dataget[1], "select");
-    if (!$category || empty($category['remark'])) {
+    if (!$category || empty($category['remark']) || !category_is_active($category)) {
         return;
     }
     $categorynames = $category['remark'];
@@ -4029,8 +4027,8 @@ $textinvite
     } else {
         $datakeyboard = "prodcutservice_";
     }
-    $statuscustom = category_custom_enabled($category, $user['agent'], $marzban_list_get['type'] ?? null);
-    // n2: custom volume only if category is in whitelist (category_custom_enabled still applies)
+    $statuscustom = false;
+    // n2: products only; custom service is offered on the category keyboard from panel settings
     Editmessagetext($from_id, $message_id, $categoryMessage, KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom));
 } elseif (preg_match('/^productmonth_(\w+)/', $datain, $dataget)) {
     $monthenumber = $dataget[1];
@@ -4063,17 +4061,16 @@ $textinvite
 } elseif ($datain == "customsellvolume") {
     $userdate = json_decode($user['Processing_value'], true);
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
-    $category = category_from_processing($userdate);
-    if (!$category || !category_custom_enabled($category, $user['agent'], $marzban_list_get['type'] ?? null)) {
-        sendmessage($from_id, "❌ سرویس دلخواه برای این دسته‌بندی فعال نیست.", $backuser, 'HTML');
+    if (!$marzban_list_get || !panel_custom_enabled($marzban_list_get, (string) $user['agent'])) {
+        sendmessage($from_id, "❌ سرویس دلخواه برای این پنل فعال نیست.", $backuser, 'HTML');
         return;
     }
-    $custompricevalue = category_agent_field($category, 'pricecustomvolume', $user['agent'], '4000');
+    $custompricevalue = panel_agent_field($marzban_list_get, 'pricecustomvolume', $user['agent'], '4000');
     if (($user['agent'] ?? '') === 'n') {
         $custompricevalue = agent_current_price_per_gb($user);
     }
-    $mainvolume = category_agent_field($category, 'mainvolume', $user['agent'], '1');
-    $maxvolume = category_agent_field($category, 'maxvolume', $user['agent'], '1000');
+    $mainvolume = panel_agent_field($marzban_list_get, 'mainvolume', $user['agent'], '1');
+    $maxvolume = panel_agent_field($marzban_list_get, 'maxvolume', $user['agent'], '1000');
     $textcustom = "📌 حجم درخواستی خود را ارسال کنید.
 🔔قیمت هر گیگ حجم $custompricevalue تومان می باشد.
 🔔 حداقل حجم $mainvolume گیگابایت و حداکثر $maxvolume گیگابایت می باشد.";
@@ -4083,15 +4080,14 @@ $textinvite
 } elseif ($user['step'] == "gettimecustomvol") {
     $userdate = json_decode($user['Processing_value'], true);
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
-    $category = category_from_processing($userdate);
-    if (!$category) {
-        sendmessage($from_id, "❌ ابتدا یک دسته‌بندی انتخاب کنید.", $backuser, 'HTML');
+    if (!$marzban_list_get) {
+        sendmessage($from_id, "❌ پنل یافت نشد.", $backuser, 'HTML');
         return;
     }
-    $mainvolume = category_agent_field($category, 'mainvolume', $user['agent'], '1');
-    $maxvolume = category_agent_field($category, 'maxvolume', $user['agent'], '1000');
-    $maintime = category_agent_field($category, 'maintime', $user['agent'], '1');
-    $maxtime = category_agent_field($category, 'maxtime', $user['agent'], '365');
+    $mainvolume = panel_agent_field($marzban_list_get, 'mainvolume', $user['agent'], '1');
+    $maxvolume = panel_agent_field($marzban_list_get, 'maxvolume', $user['agent'], '1000');
+    $maintime = panel_agent_field($marzban_list_get, 'maintime', $user['agent'], '1');
+    $maxtime = panel_agent_field($marzban_list_get, 'maxtime', $user['agent'], '365');
     if ($text > intval($maxvolume) || $text < intval($mainvolume)) {
         $texttime = "❌ حجم نامعتبر است.\n🔔 حداقل حجم $mainvolume گیگابایت و حداکثر $maxvolume گیگابایت می باشد";
         sendmessage($from_id, $texttime, $backuser, 'HTML');
@@ -4101,7 +4097,7 @@ $textinvite
         sendmessage($from_id, $textbotlang['Admin']['Product']['Invalidvolume'], $backuser, 'HTML');
         return;
     }
-    $customtimevalueprice = category_agent_field($category, 'pricecustomtime', $user['agent'], '4000');
+    $customtimevalueprice = panel_agent_field($marzban_list_get, 'pricecustomtime', $user['agent'], '4000');
     update("user", "Processing_value_one", $text, "id", $from_id);
     $textcustom = "⌛️ زمان سرویس خود را انتخاب نمایید 
 📌 تعرفه هر روز  : $customtimevalueprice  تومان
@@ -4120,9 +4116,9 @@ $textinvite
             sendmessage($from_id, $textbotlang['Admin']['Product']['Invalidtime'], $backuser, 'HTML');
             return;
         }
-        $category = category_from_processing($userdate);
-        $maintime = category_agent_field($category, 'maintime', $user['agent'], '1');
-        $maxtime = category_agent_field($category, 'maxtime', $user['agent'], '365');
+        $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
+        $maintime = panel_agent_field($marzban_list_get, 'maintime', $user['agent'], '1');
+        $maxtime = panel_agent_field($marzban_list_get, 'maxtime', $user['agent'], '365');
         if (intval($text) > intval($maxtime) || intval($text) < intval($maintime)) {
             $texttime = "❌ زمان ارسال شده نامعتبر است . زمان باید بین $maintime روز تا $maxtime روز باشد";
             sendmessage($from_id, $texttime, $backuser, 'HTML');
@@ -4144,9 +4140,9 @@ $textinvite
             sendmessage($from_id, $textbotlang['Admin']['customvolume']['invalidtime'], $backuser, 'HTML');
             return;
         }
-        $category = category_from_processing($userdate);
-        $maintime = category_agent_field($category, 'maintime', $user['agent'], '1');
-        $maxtime = category_agent_field($category, 'maxtime', $user['agent'], '365');
+        $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
+        $maintime = panel_agent_field($marzban_list_get, 'maintime', $user['agent'], '1');
+        $maxtime = panel_agent_field($marzban_list_get, 'maxtime', $user['agent'], '365');
         if (intval($text) > intval($maxtime) || intval($text) < intval($maintime)) {
             $texttime = "❌ زمان ارسال شده نامعتبر است . زمان باید بین $maintime روز تا $maxtime روز باشد";
             sendmessage($from_id, $texttime, $backuser, 'HTML');
@@ -4174,13 +4170,12 @@ $textinvite
         $loc = $prodcut;
     }
     update("user", "Processing_value_one", $loc, "id", $from_id);
-    $category = category_from_processing($userdate);
-    $custompricevalue = category_agent_field($category, 'pricecustomvolume', $user['agent'], '4000');
-    $customtimevalueprice = category_agent_field($category, 'pricecustomtime', $user['agent'], '4000');
+    $custompricevalue = panel_agent_field($marzban_list_get, 'pricecustomvolume', $user['agent'], '4000');
+    $customtimevalueprice = panel_agent_field($marzban_list_get, 'pricecustomtime', $user['agent'], '4000');
     $parts = explode("_", $loc);
     if ($parts[0] == "customvolume") {
         $info_product['Volume_constraint'] = $parts[2];
-        $info_product['name_product'] = $textbotlang['users']['customsellvolume']['title'];
+        $info_product['name_product'] = panel_custom_button_text($marzban_list_get);
         $info_product['code_product'] = $textbotlang['users']['customsellvolume']['title'];
         $info_product['Service_time'] = $parts[1];
         $info_product['price_product'] = ($parts[2] * $custompricevalue) + ($parts[1] * $customtimevalueprice);
@@ -4247,11 +4242,11 @@ $textinvite
         return;
     }
     $category = category_from_processing($userdate);
-    $custompricevalue = category_agent_field($category, 'pricecustomvolume', $user['agent'], '4000');
-    $customtimevalueprice = category_agent_field($category, 'pricecustomtime', $user['agent'], '4000');
+    $custompricevalue = panel_agent_field($marzban_list_get, 'pricecustomvolume', $user['agent'], '4000');
+    $customtimevalueprice = panel_agent_field($marzban_list_get, 'pricecustomtime', $user['agent'], '4000');
     if ($parts[0] == "customvolume") {
         $info_product['Volume_constraint'] = $parts[2];
-        $info_product['name_product'] = $textbotlang['users']['customsellvolume']['title'];
+        $info_product['name_product'] = panel_custom_button_text($marzban_list_get);
         $info_product['code_product'] = "customvolume";
         $info_product['Service_time'] = $parts[1];
         $info_product['price_product'] = ($parts[2] * $custompricevalue) + ($parts[1] * $customtimevalueprice);
@@ -4795,8 +4790,8 @@ $textonebuy
     } else {
         $datakeyboard = "prodcutserviceom_";
     }
-    // Custom sell is category-scoped in the normal buy flow
-    $statuscustom = false;
+    // Custom sell is offered from panel settings
+    $statuscustom = panel_custom_enabled($marzban_list_get, (string) $user['agent']);
     $query = "SELECT * FROM product WHERE (Location = '$location' OR Location = '/all')AND " . agent_product_access_sql($user['agent'], $from_id) . "";
     Editmessagetext($from_id, $message_id, $textbotlang['users']['sell']['Service-select'], KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom, "backuser", null, "customsellvolumeom"));
 } elseif ($datain == "customsellvolumeom") {

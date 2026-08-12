@@ -449,6 +449,7 @@ try {
         addFieldToTable("marzban_panel", "config", "offconfig", "VARCHAR(50)");
         addFieldToTable("marzban_panel", "version_panel", "0", "VARCHAR(60)");
         addFieldToTable("marzban_panel", "description", null, "TEXT");
+        addFieldToTable("marzban_panel", "customvolume_text", null, "VARCHAR(200)");
         $max_stmt = $connect->query("SELECT MAX(CAST(SUBSTRING(code_panel, 3) AS UNSIGNED)) as max_num FROM marzban_panel WHERE code_panel LIKE '7e%'");
         $max_row = $max_stmt->fetch_assoc();
         $next_num = $max_row['max_num'] ? (int) $max_row['max_num'] + 1 : 15;
@@ -1653,6 +1654,7 @@ try {
         $result = $connect->query("CREATE TABLE category (
         id INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         remark varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin  NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
         description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL,
         customvolume TEXT NULL,
         pricecustomvolume TEXT NULL,
@@ -1667,6 +1669,7 @@ try {
         }
     } else {
         $categoryColumns = [
+            'status' => "VARCHAR(20) NOT NULL DEFAULT 'active'",
             'description' => "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL",
             'customvolume' => "TEXT NULL",
             'pricecustomvolume' => "TEXT NULL",
@@ -1682,6 +1685,7 @@ try {
                 $connect->query("ALTER TABLE category ADD `$col` $def");
             }
         }
+        $connect->query("UPDATE category SET status = 'active' WHERE status IS NULL OR status = ''");
         // Seed defaults for null custom fields (silent)
         $connect->query("UPDATE category SET customvolume = '$catCustomOff' WHERE customvolume IS NULL OR customvolume = ''");
         $connect->query("UPDATE category SET pricecustomvolume = '$catPrice' WHERE pricecustomvolume IS NULL OR pricecustomvolume = ''");

@@ -1434,8 +1434,11 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
             ['text' => $result['name_product'], 'callback_data' => "{$datakeyboard}{$result['code_product']}{$valuetow}"]
         ];
     }
-    if ($statuscustom)
-        $product['inline_keyboard'][] = [['text' => $textbotlang['users']['customsellvolume']['title'], 'callback_data' => $customvolume]];
+    if ($statuscustom) {
+        $panelRow = select("marzban_panel", "*", "name_panel", $location, "select");
+        $btnText = panel_custom_button_text(is_array($panelRow) ? $panelRow : []);
+        $product['inline_keyboard'][] = [['text' => $btnText, 'callback_data' => $customvolume]];
+    }
     $product['inline_keyboard'][] = [
         ['text' => $textbotlang['users']['stateus']['backinfo'], 'callback_data' => $backuser],
     ];
@@ -1450,6 +1453,9 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
     $stmt->execute();
     $list_category = ['inline_keyboard' => [],];
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        if (!category_is_active($row)) {
+            continue;
+        }
         $stmts = $pdo->prepare("SELECT * FROM product WHERE (Location = :location OR Location = '/all') AND category = :category AND {$accessSql}");
         $stmts->bindParam(':location', $location, PDO::PARAM_STR);
         $stmts->bindParam(':category', $row['remark'], PDO::PARAM_STR);
@@ -1457,6 +1463,12 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
         if ($stmts->rowCount() == 0)
             continue;
         $list_category['inline_keyboard'][] = [['text' => $row['remark'], 'callback_data' => "categorynames_" . $row['id']]];
+    }
+    $panel = select("marzban_panel", "*", "name_panel", $location, "select");
+    if (is_array($panel) && panel_custom_enabled($panel, (string) $agent)) {
+        $list_category['inline_keyboard'][] = [
+            ['text' => panel_custom_button_text($panel), 'callback_data' => "customsellvolume"],
+        ];
     }
     $list_category['inline_keyboard'][] = [
         ['text' => "▶️ بازگشت به منوی قبل", "callback_data" => $backuser],

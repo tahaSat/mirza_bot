@@ -286,9 +286,12 @@ function panel_toggle_keys_for_tab(string $tab): array
     }
     if ($tab === 'features') {
         return [
-            'test_on', 'extend_on', 'custom_f', 'custom_n', 'custom_n2', 'config_on', 'sublink_on',
+            'test_on', 'extend_on', 'config_on', 'sublink_on',
             'conecton_on', 'on_hold_test', 'changeloc_on', 'subvip_on', 'inbound_disable_on', 'version_panel_on',
         ];
+    }
+    if ($tab === 'pricing') {
+        return ['custom_f', 'custom_n', 'custom_n2'];
     }
     return [];
 }

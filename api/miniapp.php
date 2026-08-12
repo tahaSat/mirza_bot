@@ -418,6 +418,9 @@ switch ($data['actions']) {
                 return;
             }
             while ($result = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                if (!category_is_active($result)) {
+                    continue;
+                }
                 $stmts = $pdo->prepare("SELECT * FROM product WHERE (Location = :location OR Location = '/all') AND category = :category AND agent = :agent");
                 $stmts->bindParam(':location', $panel['name_panel'], PDO::PARAM_STR);
                 $stmts->bindParam(':category', $result['remark'], PDO::PARAM_STR);

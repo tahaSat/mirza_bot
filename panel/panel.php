@@ -98,18 +98,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         'subvip' => $toggle('subvip_on', 'subvip', 'onsubvip', 'offsubvip'),
         'inboundstatus' => $toggle('inbound_disable_on', 'inboundstatus', 'oninbounddisable', 'offinbounddisable'),
         'version_panel' => $toggle('version_panel_on', 'version_panel', '1', '0'),
-        // Custom volume/time sell moved to categories — keep existing panel values untouched.
-        'customvolume' => $panel['customvolume'] ?? panel_default_customvolume(),
+        'customvolume' => panel_merge_customvolume($panel, $tabSaving === 'pricing'),
         'hide_user' => $hideJson,
         'priceextravolume' => panel_merge_agent_json_field($panel, 'priceextravolume', 'priceextravolume'),
         'priceextratime' => panel_merge_agent_json_field($panel, 'priceextratime', 'priceextratime'),
-        'pricecustomvolume' => $panel['pricecustomvolume'] ?? panel_default_price_json(),
-        'pricecustomtime' => $panel['pricecustomtime'] ?? panel_default_price_json(),
-        'mainvolume' => $panel['mainvolume'] ?? panel_encode_agent_json(['f' => '1', 'n' => '1', 'n2' => '1']),
-        'maxvolume' => $panel['maxvolume'] ?? panel_encode_agent_json(['f' => '1000', 'n' => '1000', 'n2' => '1000']),
-        'maintime' => $panel['maintime'] ?? panel_encode_agent_json(['f' => '1', 'n' => '1', 'n2' => '1']),
-        'maxtime' => $panel['maxtime'] ?? panel_encode_agent_json(['f' => '365', 'n' => '365', 'n2' => '365']),
+        'pricecustomvolume' => panel_merge_agent_json_field($panel, 'pricecustomvolume', 'pricecustomvolume'),
+        'pricecustomtime' => panel_merge_agent_json_field($panel, 'pricecustomtime', 'pricecustomtime'),
+        'mainvolume' => panel_merge_agent_json_field($panel, 'mainvolume', 'mainvolume'),
+        'maxvolume' => panel_merge_agent_json_field($panel, 'maxvolume', 'maxvolume'),
+        'maintime' => panel_merge_agent_json_field($panel, 'maintime', 'maintime'),
+        'maxtime' => panel_merge_agent_json_field($panel, 'maxtime', 'maxtime'),
     ];
+
+    if (array_key_exists('customvolume_text', $_POST)) {
+        $btnText = trim((string) $_POST['customvolume_text']);
+        $data['customvolume_text'] = $btnText !== '' ? $btnText : null;
+    } else {
+        $data['customvolume_text'] = $panel['customvolume_text'] ?? null;
+    }
 
     if (array_key_exists('pasarguard_group_ids', $_POST)) {
         $data['inbounds'] = $parsedGroups;
@@ -129,6 +135,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         }
     } catch (Throwable $e) {
         // column missing — skip
+    }
+
+    // Drop customvolume_text if column missing (older DBs).
+    try {
+        $btnCol = $pdo->query("SHOW COLUMNS FROM marzban_panel LIKE 'customvolume_text'");
+        if (!($btnCol && $btnCol->fetch(PDO::FETCH_ASSOC))) {
+            unset($data['customvolume_text']);
+        }
+    } catch (Throwable $e) {
+        unset($data['customvolume_text']);
     }
 
     $clearLogin = $url !== ($panel['url_panel'] ?? '')
@@ -159,6 +175,13 @@ $panel = db_fetch($pdo, "SELECT * FROM marzban_panel WHERE id = ?", [$id]);
 $stats = panel_invoice_stats($pdo, $panel['name_panel']);
 $priceExtra = panel_decode_agent_json($panel['priceextravolume'] ?? '');
 $priceExtraTime = panel_decode_agent_json($panel['priceextratime'] ?? '');
+$priceCustomVol = panel_decode_agent_json($panel['pricecustomvolume'] ?? '', '4000');
+$priceCustomTime = panel_decode_agent_json($panel['pricecustomtime'] ?? '', '4000');
+$mainVolume = panel_decode_agent_json($panel['mainvolume'] ?? '', '1');
+$maxVolume = panel_decode_agent_json($panel['maxvolume'] ?? '', '1000');
+$mainTime = panel_decode_agent_json($panel['maintime'] ?? '', '1');
+$maxTime = panel_decode_agent_json($panel['maxtime'] ?? '', '365');
+$customVolume = panel_decode_agent_json($panel['customvolume'] ?? '', '0');
 $hideUsers = panel_parse_hide_users($panel['hide_user'] ?? null);
 
 $tabs = [
@@ -493,7 +516,7 @@ include __DIR__ . '/inc/layout_head.php';
   <?php endif; ?>
 
   <?php if ($tab === 'pricing'): ?>
-    <div class="card">
+    <div class="card" style="margin-bottom:16px">
       <div class="card-head"><div class="card-title">قیمت‌گذاری (تومان / واحد)</div><div class="card-subtitle">مقادیر جدا برای گروه‌های f، n، n2</div></div>
       <div class="card-body">
         <?php
@@ -502,7 +525,6 @@ include __DIR__ . '/inc/layout_head.php';
             ['قیمت زمان اضافه', 'priceextratime', $priceExtraTime],
         ];
         ?>
-        <div class="notice" style="margin-bottom:12px;font-size:.85rem;color:var(--mute)">قیمت و فعال‌سازی «سرویس دلخواه» از بخش <a href="categories.php">دسته‌بندی‌ها</a> تنظیم می‌شود.</div>
         <div class="tbl-wrap">
           <table class="tbl">
             <thead><tr><th>عنوان</th><th>f</th><th>n</th><th>n2</th></tr></thead>
@@ -519,6 +541,58 @@ include __DIR__ . '/inc/layout_head.php';
                 <td class="cs">قیمت تغییر لوکیشن</td>
                 <td colspan="3"><input type="number" name="priceChangeloc" class="input" value="<?= htmlspecialchars($panel['priceChangeloc'] ?? '0') ?>"></td>
               </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">سرویس دلخواه</div>
+        <div class="card-subtitle">فعال‌سازی، قیمت هر گیگ/روز و متن دکمه کنار دسته‌بندی‌ها</div>
+      </div>
+      <div class="card-body">
+        <div class="field" style="margin-bottom:14px">
+          <label>فعال برای گروه‌های کاربری</label>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px">
+            <?php foreach (['f' => 'گروه f', 'n' => 'گروه n', 'n2' => 'گروه n2'] as $k => $label): ?>
+              <label style="display:flex;align-items:center;gap:6px;font-size:.85rem">
+                <input type="checkbox" name="custom_<?= $k ?>" value="1" <?= ($customVolume[$k] ?? '0') === '1' ? 'checked' : '' ?>>
+                <?= htmlspecialchars($label) ?>
+              </label>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>متن دکمه در ربات</label>
+          <input type="text" name="customvolume_text" class="input" maxlength="200"
+            value="<?= htmlspecialchars($panel['customvolume_text'] ?? '') ?>"
+            placeholder="⚙️ سرویس دلخواه">
+          <small class="cf">اگر خالی باشد، متن پیش‌فرض «⚙️ سرویس دلخواه» استفاده می‌شود. این دکمه کنار دسته‌بندی‌ها نشان داده می‌شود.</small>
+        </div>
+        <?php
+        $customRows = [
+            ['قیمت هر گیگ (تومان)', 'pricecustomvolume', $priceCustomVol],
+            ['قیمت هر روز (تومان)', 'pricecustomtime', $priceCustomTime],
+            ['حداقل حجم (GB)', 'mainvolume', $mainVolume],
+            ['حداکثر حجم (GB)', 'maxvolume', $maxVolume],
+            ['حداقل زمان (روز)', 'maintime', $mainTime],
+            ['حداکثر زمان (روز)', 'maxtime', $maxTime],
+        ];
+        ?>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead><tr><th>عنوان</th><th>f</th><th>n</th><th>n2</th></tr></thead>
+            <tbody>
+              <?php foreach ($customRows as [$title, $prefix, $vals]): ?>
+                <tr>
+                  <td class="cs"><?= htmlspecialchars($title) ?></td>
+                  <td><input type="number" name="<?= $prefix ?>_f" class="input" style="min-width:90px" value="<?= htmlspecialchars($vals['f']) ?>"></td>
+                  <td><input type="number" name="<?= $prefix ?>_n" class="input" style="min-width:90px" value="<?= htmlspecialchars($vals['n']) ?>"></td>
+                  <td><input type="number" name="<?= $prefix ?>_n2" class="input" style="min-width:90px" value="<?= htmlspecialchars($vals['n2']) ?>"></td>
+                </tr>
+              <?php endforeach; ?>
             </tbody>
           </table>
         </div>

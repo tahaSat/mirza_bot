@@ -1655,6 +1655,47 @@ function cronCleanupUsertestAccounts(): void
 /**
  * Decode category/panel style agent JSON: {"f":"...","n":"...","n2":"..."}.
  */
+/** Read an agent-scoped JSON field from a marzban_panel row. */
+function panel_agent_field($panel, string $field, string $agent, string $default = '0'): string
+{
+    if (!is_array($panel)) {
+        return $default;
+    }
+    $decoded = json_decode((string) ($panel[$field] ?? ''), true);
+    if (!is_array($decoded)) {
+        return $default;
+    }
+    $agent = $agent !== '' ? $agent : 'f';
+    if (isset($decoded[$agent]) && $decoded[$agent] !== '' && $decoded[$agent] !== null) {
+        return (string) $decoded[$agent];
+    }
+    return (string) ($decoded['f'] ?? $default);
+}
+
+/** Custom volume/time sell is enabled on this panel for the given agent. */
+function panel_custom_enabled($panel, string $agent): bool
+{
+    if (!is_array($panel)) {
+        return false;
+    }
+    if (($panel['type'] ?? '') === 'Manualsale') {
+        return false;
+    }
+    return panel_agent_field($panel, 'customvolume', $agent, '0') === '1';
+}
+
+/** Button label for custom service on the buy keyboard. */
+function panel_custom_button_text($panel): string
+{
+    global $textbotlang;
+    $default = $textbotlang['users']['customsellvolume']['title'] ?? '⚙️ سرویس دلخواه';
+    if (!is_array($panel)) {
+        return $default;
+    }
+    $text = trim((string) ($panel['customvolume_text'] ?? ''));
+    return $text !== '' ? $text : $default;
+}
+
 function category_decode_agent_json(?string $json, string $default = '0'): array
 {
     if (!$json) {
@@ -1699,6 +1740,16 @@ function category_custom_enabled($category, string $agent, $panelType = null): b
         return false;
     }
     return category_agent_field($category, 'customvolume', $agent, '0') === '1';
+}
+
+/** Whether a category is visible in the purchase flow. Missing/empty status counts as active. */
+function category_is_active($category): bool
+{
+    if (!is_array($category)) {
+        return false;
+    }
+    $status = $category['status'] ?? 'active';
+    return $status === '' || $status === 'active';
 }
 
 /** Load category saved during buy flow (categorynames_*). */

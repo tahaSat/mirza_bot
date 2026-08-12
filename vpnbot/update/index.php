@@ -642,7 +642,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         $marzban_list_get = $locationproduct;
         if ($productnotexits != 0 and $setting['show_product'] == false) {
             if ($settingmain['statuscategorygenral'] == "offcategorys") {
-                $statuscustom = false;
+                $statuscustom = panel_custom_enabled($marzban_list_get, (string) $userbot['agent']);
                 if ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
                     $keyboarddata = "selectproductbuyy_";
                 } else {
@@ -685,14 +685,13 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
 } elseif ($datain == "customvolumebuy") {
     $userdate = json_decode($user['Processing_value'], true);
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
-    $category = category_from_processing($userdate);
-    if (!$category || !category_custom_enabled($category, $userbot['agent'], $marzban_list_get['type'] ?? null)) {
-        sendmessage($from_id, "❌ سرویس دلخواه برای این دسته‌بندی فعال نیست.", $backuser, 'HTML');
+    if (!$marzban_list_get || !panel_custom_enabled($marzban_list_get, (string) $userbot['agent'])) {
+        sendmessage($from_id, "❌ سرویس دلخواه برای این پنل فعال نیست.", $backuser, 'HTML');
         return;
     }
-    $eextraprice = category_agent_field($category, 'pricecustomvolume', $userbot['agent'], '4000');
-    $mainvolume = category_agent_field($category, 'mainvolume', $userbot['agent'], '1');
-    $maxvolume = category_agent_field($category, 'maxvolume', $userbot['agent'], '1000');
+    $eextraprice = panel_agent_field($marzban_list_get, 'pricecustomvolume', $userbot['agent'], '4000');
+    $mainvolume = panel_agent_field($marzban_list_get, 'mainvolume', $userbot['agent'], '1');
+    $maxvolume = panel_agent_field($marzban_list_get, 'maxvolume', $userbot['agent'], '1000');
     $textcustom = "📌 حجم درخواستی خود را ارسال کنید.
 🔔قیمت هر گیگ حجم $eextraprice تومان می باشد.
 🔔 حداقل حجم $mainvolume گیگابایت و حداکثر $maxvolume گیگابایت می باشد.";
@@ -721,7 +720,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $productnotexits = $stmt->rowCount();
     if ($productnotexits != 0 and $setting['show_product'] == false) {
         if ($settingmain['statuscategorygenral'] == "offcategorys") {
-            $statuscustom = false;
+            $statuscustom = panel_custom_enabled($locationproduct, (string) $userbot['agent']);
             if ($locationproduct['MethodUsername'] == $textbotlang['users']['customusername'] || $locationproduct['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
                 $keyboarddata = "selectproductbuyy_";
             } else {
@@ -756,7 +755,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     }
 } elseif (preg_match('/^categorynames_(.*)/', $datain, $dataget)) {
     $category = select("category", "*", "id", $dataget[1], "select");
-    if (!$category || empty($category['remark'])) {
+    if (!$category || empty($category['remark']) || !category_is_active($category)) {
         return;
     }
     $categorynames = $category['remark'];
@@ -767,7 +766,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $userdate = json_decode($user['Processing_value'], true);
     $locationproduct = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "seelct");
     $query = "SELECT * FROM product WHERE (Location = '{$locationproduct['name_panel']}' OR Location = '/all') AND category = '$categorynames' AND " . agent_product_access_sql($userbot['agent'], $dataBase['id_user']) . " ";
-    $statuscustom = category_custom_enabled($category, $userbot['agent'], $locationproduct['type'] ?? null);
+    $statuscustom = false;
     if ($locationproduct['MethodUsername'] == $textbotlang['users']['customusername'] || $locationproduct['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
         $keyboarddata = "selectproductbuyy_";
     } else {
@@ -778,15 +777,14 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
 } elseif ($user['step'] == "gettimecustomvol") {
     $userdate = json_decode($user['Processing_value'], true);
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
-    $category = category_from_processing($userdate);
-    if (!$category) {
-        sendmessage($from_id, "❌ ابتدا یک دسته‌بندی انتخاب کنید.", $backuser, 'HTML');
+    if (!$marzban_list_get) {
+        sendmessage($from_id, "❌ پنل یافت نشد.", $backuser, 'HTML');
         return;
     }
-    $mainvolume = category_agent_field($category, 'mainvolume', $userbot['agent'], '1');
-    $maxvolume = category_agent_field($category, 'maxvolume', $userbot['agent'], '1000');
-    $maintime = category_agent_field($category, 'maintime', $userbot['agent'], '1');
-    $maxtime = category_agent_field($category, 'maxtime', $userbot['agent'], '365');
+    $mainvolume = panel_agent_field($marzban_list_get, 'mainvolume', $userbot['agent'], '1');
+    $maxvolume = panel_agent_field($marzban_list_get, 'maxvolume', $userbot['agent'], '1000');
+    $maintime = panel_agent_field($marzban_list_get, 'maintime', $userbot['agent'], '1');
+    $maxtime = panel_agent_field($marzban_list_get, 'maxtime', $userbot['agent'], '365');
     if ($text > intval($maxvolume) || $text < intval($mainvolume)) {
         $texttime = "❌ حجم نامعتبر است.\n🔔 حداقل حجم $mainvolume گیگابایت و حداکثر $maxvolume گیگابایت می باشد";
         sendmessage($from_id, $texttime, $backuser, 'HTML');
@@ -796,7 +794,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         sendmessage($from_id, $textbotlang['Admin']['Product']['Invalidvolume'], $backuser, 'HTML');
         return;
     }
-    $customtimevalueprice = category_agent_field($category, 'pricecustomtime', $userbot['agent'], '4000');
+    $customtimevalueprice = panel_agent_field($marzban_list_get, 'pricecustomtime', $userbot['agent'], '4000');
     savedata("save", "volume", $text);
     $textcustom = "⌛️ زمان سرویس خود را انتخاب نمایید 
 📌 تعرفه هر روز  : $customtimevalueprice  تومان
@@ -815,9 +813,8 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
             sendmessage($from_id, $textbotlang['Admin']['Product']['Invalidtime'], $backuser, 'HTML');
             return;
         }
-        $category = category_from_processing($userdate);
-        $maintime = category_agent_field($category, 'maintime', $userbot['agent'], '1');
-        $maxtime = category_agent_field($category, 'maxtime', $userbot['agent'], '365');
+        $maintime = panel_agent_field($marzban_list_get, 'maintime', $userbot['agent'], '1');
+        $maxtime = panel_agent_field($marzban_list_get, 'maxtime', $userbot['agent'], '365');
         if (intval($text) > intval($maxtime) || intval($text) < intval($maintime)) {
             $texttime = "❌ زمان ارسال شده نامعتبر است . زمان باید بین $maintime روز تا $maxtime روز باشد";
             sendmessage($from_id, $texttime, $backuser, 'HTML');
@@ -838,9 +835,9 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
             sendmessage($from_id, "زمان نامعتبر است", $backuser, 'HTML');
             return;
         }
-        $category = category_from_processing($userdate);
-        $maintime = category_agent_field($category, 'maintime', $userbot['agent'], '1');
-        $maxtime = category_agent_field($category, 'maxtime', $userbot['agent'], '365');
+        $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
+        $maintime = panel_agent_field($marzban_list_get, 'maintime', $userbot['agent'], '1');
+        $maxtime = panel_agent_field($marzban_list_get, 'maxtime', $userbot['agent'], '365');
         if (intval($text) > intval($maxtime) || intval($text) < intval($maintime)) {
             $texttime = "❌ زمان ارسال شده نامعتبر است . زمان باید بین $maintime روز تا $maxtime روز باشد";
             sendmessage($from_id, $texttime, $backuser, 'HTML');
@@ -886,12 +883,11 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
             "price_product" => $product['price_product']
         );
     } else {
-        $category = category_from_processing($userdate);
-        $custompricevalue = category_agent_field($category, 'pricecustomvolume', $userbot['agent'], '4000');
-        $customtimevalueprice = category_agent_field($category, 'pricecustomtime', $userbot['agent'], '4000');
+        $custompricevalue = panel_agent_field($marzban_list_get, 'pricecustomvolume', $userbot['agent'], '4000');
+        $customtimevalueprice = panel_agent_field($marzban_list_get, 'pricecustomtime', $userbot['agent'], '4000');
         $datapish = array(
             "Volume_constraint" => $userdate['volume'],
-            "name_product" => $textbotlang['users']['customsellvolume']['title'],
+            "name_product" => panel_custom_button_text($marzban_list_get),
             "code_product" => "customvolume",
             "Service_time" => $userdate['time'],
             "price_product" => ($userdate['volume'] * $custompricevalue) + ($userdate['time'] * $customtimevalueprice)

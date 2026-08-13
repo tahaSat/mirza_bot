@@ -581,6 +581,181 @@ function updatePaymentMessageId($response, $orderId)
     update("Payment_report", "message_id", intval($response['result']['message_id']), "id_order", $orderId);
     return true;
 }
+
+/** Unpaid payment invoices are valid for 24 hours. */
+function paymentInvoiceTtlSeconds()
+{
+    return 86400;
+}
+
+function paymentInvoiceExpiredMessage()
+{
+    return "❗زمان این تراکنش به پایان رسیده و امکان پرداخت این تراکنش وجود ندارد.\nلطفاً مجدداً فاکتور ایجاد نمایید.";
+}
+
+/**
+ * Parse Payment_report.time (Y/m/d H:i:s) or unix timestamp string into unix time.
+ */
+function paymentReportCreatedAt($payment)
+{
+    if (!is_array($payment) || empty($payment['time'])) {
+        return 0;
+    }
+    $raw = trim((string) $payment['time']);
+    if ($raw === '') {
+        return 0;
+    }
+    if (ctype_digit($raw)) {
+        return (int) $raw;
+    }
+    $normalized = str_replace('/', '-', $raw);
+    $ts = strtotime($normalized);
+    return $ts === false ? 0 : (int) $ts;
+}
+
+/**
+ * Parse invoice.time_sell (usually unix timestamp) into unix time.
+ */
+function invoiceCreatedAt($invoice)
+{
+    if (!is_array($invoice) || !isset($invoice['time_sell']) || $invoice['time_sell'] === '' || $invoice['time_sell'] === null) {
+        return 0;
+    }
+    $raw = trim((string) $invoice['time_sell']);
+    if (ctype_digit($raw)) {
+        return (int) $raw;
+    }
+    $normalized = str_replace('/', '-', $raw);
+    $ts = strtotime($normalized);
+    return $ts === false ? 0 : (int) $ts;
+}
+
+function isTimestampPastPaymentTtl($createdAt, $now = null)
+{
+    $createdAt = (int) $createdAt;
+    if ($createdAt <= 0) {
+        return false;
+    }
+    $now = $now === null ? time() : (int) $now;
+    return ($now - $createdAt) >= paymentInvoiceTtlSeconds();
+}
+
+function isPaymentReportExpiredOrPastTtl($payment)
+{
+    if (!is_array($payment)) {
+        return true;
+    }
+    $status = (string) ($payment['payment_Status'] ?? '');
+    if ($status === 'expire') {
+        return true;
+    }
+    if ($status === 'Unpaid' && isTimestampPastPaymentTtl(paymentReportCreatedAt($payment))) {
+        return true;
+    }
+    return false;
+}
+
+function isUnpaidInvoicePastTtl($invoice)
+{
+    if (!is_array($invoice)) {
+        return false;
+    }
+    $status = strtolower((string) ($invoice['Status'] ?? ''));
+    if ($status !== 'unpaid') {
+        return false;
+    }
+    return isTimestampPastPaymentTtl(invoiceCreatedAt($invoice));
+}
+
+/**
+ * If an unpaid Payment_report is past TTL, mark it expire (and linked unpaid invoice).
+ * Returns true when the payment may still be completed.
+ */
+function ensurePaymentReportActive($payment)
+{
+    if (!is_array($payment) || empty($payment['id_order'])) {
+        return false;
+    }
+    $status = (string) ($payment['payment_Status'] ?? '');
+    if (in_array($status, ['paid', 'waiting', 'reject'], true)) {
+        return $status !== 'reject';
+    }
+    if ($status === 'expire') {
+        return false;
+    }
+    if ($status === 'Unpaid' && isTimestampPastPaymentTtl(paymentReportCreatedAt($payment))) {
+        expirePaymentReportRow($payment);
+        return false;
+    }
+    return true;
+}
+
+function expirePaymentReportLinkedInvoice($payment)
+{
+    if (!is_array($payment) || empty($payment['id_invoice'])) {
+        return;
+    }
+    $parts = explode('|', (string) $payment['id_invoice']);
+    if (($parts[0] ?? '') !== 'getconfigafterpay' || ($parts[1] ?? '') === '') {
+        return;
+    }
+    $invoice = select('invoice', '*', 'username', $parts[1], 'select');
+    if ($invoice && strtolower((string) ($invoice['Status'] ?? '')) === 'unpaid') {
+        update('invoice', 'Status', 'expire', 'username', $parts[1]);
+    }
+}
+
+function expirePaymentReportRow($payment)
+{
+    if (!is_array($payment) || empty($payment['id_order'])) {
+        return;
+    }
+    if (($payment['payment_Status'] ?? '') === 'expire') {
+        return;
+    }
+    update('Payment_report', 'payment_Status', 'expire', 'id_order', $payment['id_order']);
+    expirePaymentReportLinkedInvoice($payment);
+    if (!empty($payment['message_id']) && !empty($payment['id_user'])) {
+        deletemessage($payment['id_user'], $payment['message_id']);
+    }
+}
+
+/**
+ * Expire unpaid Payment_report and unpaid invoice rows older than 24 hours.
+ * @return array{payments:int,invoices:int}
+ */
+function expireStalePaymentInvoices()
+{
+    global $pdo;
+    $expiredPayments = 0;
+    $expiredInvoices = 0;
+    $cutoffUnix = time() - paymentInvoiceTtlSeconds();
+    $cutoffDate = date('Y/m/d H:i:s', $cutoffUnix);
+
+    $stmt = $pdo->prepare("SELECT * FROM Payment_report WHERE payment_Status = 'Unpaid' AND time IS NOT NULL AND time != '' AND time < :cutoff");
+    $stmt->bindValue(':cutoff', $cutoffDate, PDO::PARAM_STR);
+    $stmt->execute();
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        // Double-check with parsed timestamp (handles mixed formats).
+        if (!isTimestampPastPaymentTtl(paymentReportCreatedAt($row), time())) {
+            continue;
+        }
+        expirePaymentReportRow($row);
+        $expiredPayments++;
+    }
+
+    $stmtInv = $pdo->prepare("SELECT * FROM invoice WHERE Status IN ('unpaid', 'Unpaid') AND time_sell IS NOT NULL AND time_sell != ''");
+    $stmtInv->execute();
+    while ($invoice = $stmtInv->fetch(PDO::FETCH_ASSOC)) {
+        if (!isUnpaidInvoicePastTtl($invoice)) {
+            continue;
+        }
+        update('invoice', 'Status', 'expire', 'id_invoice', $invoice['id_invoice']);
+        $expiredInvoices++;
+    }
+
+    return ['payments' => $expiredPayments, 'invoices' => $expiredInvoices];
+}
 function nowPayments($payment, $price_amount, $order_id, $order_description)
 {
     global $domainhosts;
@@ -784,6 +959,9 @@ function DirectPayment($order_id, $image = 'images.jpg')
     }
     $Payment_report = select("Payment_report", "*", "id_order", $order_id, "select");
     if ($Payment_report == false || !is_array($Payment_report)) {
+        return;
+    }
+    if (!ensurePaymentReportActive($Payment_report)) {
         return;
     }
     $format_price_cart = number_format($Payment_report['price']);
@@ -1926,6 +2104,56 @@ function category_is_active($category): bool
     return $status === '' || $status === 'active';
 }
 
+/** Whether a panel is currently active for buy/renew. */
+function panel_is_active($panel): bool
+{
+    return is_array($panel) && ($panel['status'] ?? '') === 'active';
+}
+
+/** Whether a product's category is currently active. Empty/missing category counts as active. */
+function product_category_is_active($product): bool
+{
+    static $cache = [];
+    if (!is_array($product)) {
+        return false;
+    }
+    $remark = trim((string) ($product['category'] ?? ''));
+    if ($remark === '') {
+        return true;
+    }
+    if (array_key_exists($remark, $cache)) {
+        return $cache[$remark];
+    }
+    $category = select("category", "*", "remark", $remark, "select");
+    $cache[$remark] = category_is_active($category);
+    return $cache[$remark];
+}
+
+/**
+ * Whether a user can renew on this panel (and optionally this product).
+ * Custom-volume products skip the category check.
+ */
+function extend_can_proceed($panel, $product = null): array
+{
+    if (!panel_is_active($panel) || (($panel['status_extend'] ?? '') === 'off_extend')) {
+        return ['ok' => false, 'msg' => '❌ امکان تمدید در این پنل وجود ندارد'];
+    }
+    if ($product === null) {
+        return ['ok' => true, 'msg' => ''];
+    }
+    if (!is_array($product)) {
+        return ['ok' => false, 'msg' => '❌ این محصول غیرفعال است و امکان تمدید آن وجود ندارد'];
+    }
+    $code = (string) ($product['code_product'] ?? '');
+    if (in_array($code, ['custom_volume', 'customvolume', 'pre'], true)) {
+        return ['ok' => true, 'msg' => ''];
+    }
+    if (!product_category_is_active($product)) {
+        return ['ok' => false, 'msg' => '❌ این محصول غیرفعال است و امکان تمدید آن وجود ندارد'];
+    }
+    return ['ok' => true, 'msg' => ''];
+}
+
 /** Load category saved during buy flow (categorynames_*). */
 function category_from_processing($userdate)
 {
@@ -2079,14 +2307,18 @@ function isClientIpInRange($clientIp, $lowerBound, $upperBound)
 
     return strcmp($clientPacked, $lowerPacked) >= 0 && strcmp($clientPacked, $upperPacked) <= 0;
 }
-function addCronIfNotExists($cronCommand)
+function addCronIfNotExists($cronCommand, $removePatterns = [])
 {
     $commands = is_array($cronCommand) ? $cronCommand : [$cronCommand];
     $commands = array_values(array_filter(array_map('trim', $commands), static function ($command) {
         return $command !== '';
     }));
+    $removePatterns = is_array($removePatterns) ? $removePatterns : [$removePatterns];
+    $removePatterns = array_values(array_filter(array_map('trim', $removePatterns), static function ($pattern) {
+        return $pattern !== '';
+    }));
 
-    if (empty($commands)) {
+    if (empty($commands) && empty($removePatterns)) {
         return true;
     }
 
@@ -2110,15 +2342,34 @@ function addCronIfNotExists($cronCommand)
         return $line !== '' && strpos($line, '#') !== 0;
     }));
 
-    $newLineAdded = false;
+    $changed = false;
+    if (!empty($removePatterns)) {
+        $filtered = [];
+        foreach ($cronLines as $line) {
+            $shouldRemove = false;
+            foreach ($removePatterns as $pattern) {
+                if (strpos($line, $pattern) !== false) {
+                    $shouldRemove = true;
+                    break;
+                }
+            }
+            if ($shouldRemove) {
+                $changed = true;
+                continue;
+            }
+            $filtered[] = $line;
+        }
+        $cronLines = $filtered;
+    }
+
     foreach ($commands as $command) {
         if (!in_array($command, $cronLines, true)) {
             $cronLines[] = $command;
-            $newLineAdded = true;
+            $changed = true;
         }
     }
 
-    if (!$newLineAdded) {
+    if (!$changed) {
         return true;
     }
 
@@ -2147,11 +2398,12 @@ function activecron()
 {
     global $domainhosts;
 
+    $paymentExpireCron = "0 * * * * curl https://$domainhosts/cronbot/payment_expire.php";
     $cronCommands = [
         "*/15 * * * * curl https://$domainhosts/cronbot/statusday.php",
         "*/1 * * * * curl https://$domainhosts/cronbot/croncard.php",
         "*/1 * * * * curl https://$domainhosts/cronbot/NoticationsService.php",
-        "*/5 * * * * curl https://$domainhosts/cronbot/payment_expire.php",
+        $paymentExpireCron,
         "*/1 * * * * curl https://$domainhosts/cronbot/sendmessage.php",
         "*/3 * * * * curl https://$domainhosts/cronbot/plisio.php",
         "*/1 * * * * curl https://$domainhosts/cronbot/activeconfig.php",
@@ -2166,7 +2418,8 @@ function activecron()
         "*/15 * * * * curl https://$domainhosts/cronbot/uptime_panel.php",
     ];
 
-    addCronIfNotExists($cronCommands);
+    // Replace any previous payment_expire schedule (e.g. every 5 minutes) with hourly.
+    addCronIfNotExists($cronCommands, ['payment_expire.php']);
 }
 function createInvoice($amount)
 {

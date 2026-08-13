@@ -227,6 +227,9 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
         if (in_array($location, $hide_panel, true)) {
             continue;
         }
+        if (!product_category_is_active($result)) {
+            continue;
+        }
         if (!$ownerIsAgentN && intval($pricediscount) != 0) {
             $resultper = ($result['price_product'] * $pricediscount) / 100;
             $result['price_product'] = $result['price_product'] - $resultper;

@@ -1019,6 +1019,11 @@ $nameconfig";
                 ]
             ]
         ];
+        if (!extend_can_proceed($marzban)['ok']) {
+            unset($keyboardsetting['inline_keyboard'][0][0]);
+            unset($keyboardsetting['inline_keyboard'][0][1]);
+            unset($keyboardsetting['inline_keyboard'][1][1]);
+        }
         if ($marzban['type'] == "ibsng" || $marzban['type'] == "mikrotik") {
             unset($keyboardsetting['inline_keyboard'][1][1]);
             unset($keyboardsetting['inline_keyboard'][0]);
@@ -1115,7 +1120,7 @@ $nameconfig";
             unset($keyboarddate['change-location']);
             unset($keyboarddate['changelink']);
         }
-        if ($marzban['status_extend'] == "off_extend") {
+        if (!extend_can_proceed($marzban)['ok']) {
             unset($keyboarddate['Extra_time']);
             unset($keyboarddate['Extra_volume']);
             unset($keyboarddate['extend']);
@@ -1439,8 +1444,9 @@ $textconnect
         return;
     }
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
-    if ($marzban_list_get['status_extend'] == "off_extend") {
-        sendmessage($from_id, "❌ امکان تمدید در این پنل وجود ندارد", null, 'html');
+    $extendGate = extend_can_proceed($marzban_list_get);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], null, 'html');
         return;
     }
     $DataUserOut = $ManagePanel->DataUser($nameloc['Service_location'], $nameloc['username']);
@@ -1498,6 +1504,9 @@ $textconnect
             }
             if (in_array($nameloc['Service_location'], $hide_panel, true))
                 continue;
+            if (!product_category_is_active($result)) {
+                continue;
+            }
             if (($user['agent'] ?? '') === 'n') {
                 $result['price_product'] = agent_wholesale_cost($user, (int) ($result['Volume_constraint'] ?? 0));
             } elseif (intval($user['pricediscount']) != 0) {
@@ -1514,9 +1523,12 @@ $textconnect
                 ['text' => $namekeyboard, 'callback_data' => "serviceextendselect_" . $result['code_product']]
             ];
         }
-        $productextend['inline_keyboard'][] = [
-            ['text' => "♻️ تمدید پلن فعلی", 'callback_data' => "exntedagei"]
-        ];
+        $currentProd = select("product", "*", "name_product", $nameloc['name_product'], "select");
+        if (!$currentProd || product_category_is_active($currentProd)) {
+            $productextend['inline_keyboard'][] = [
+                ['text' => "♻️ تمدید پلن فعلی", 'callback_data' => "exntedagei"]
+            ];
+        }
         $productextend['inline_keyboard'][] = [
             ['text' => "🏠 بازگشت به اطلاعات سرویس", 'callback_data' => "product_" . $nameloc['id_invoice']]
         ];
@@ -1524,13 +1536,20 @@ $textconnect
         $json_list_product_lists = json_encode($productextend);
         Editmessagetext($from_id, $message_id, $textbotlang['users']['extend']['selectservice'], $json_list_product_lists);
     } else {
-        $monthkeyboard = keyboardTimeCategory($nameloc['Service_location'], $user['agent'], "productextendmonths_", "product_$id_invoice", false, true);
+        $currentProd = select("product", "*", "name_product", $nameloc['name_product'], "select");
+        $showCurrentPlan = !$currentProd || product_category_is_active($currentProd);
+        $monthkeyboard = keyboardTimeCategory($nameloc['Service_location'], $user['agent'], "productextendmonths_", "product_$id_invoice", false, $showCurrentPlan);
         Editmessagetext($from_id, $message_id, $textbotlang['Admin']['month']['title'], $monthkeyboard);
     }
 } elseif ($user['step'] == "gettimecustomvolomforextend") {
     $userdate = json_decode($user['Processing_value'], true);
     $nameloc = select("invoice", "*", "id_invoice", $userdate['id_invoice'], "select");
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
+    $extendGate = extend_can_proceed($marzban_list_get);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], $backuser, 'HTML');
+        return;
+    }
     $mainvolume = json_decode($marzban_list_get['mainvolume'], true);
     $mainvolume = $mainvolume[$user['agent']];
     $maxvolume = json_decode($marzban_list_get['maxvolume'], true);
@@ -1556,6 +1575,11 @@ $textconnect
     $userdate = json_decode($user['Processing_value'], true);
     $nameloc = select("invoice", "*", "id_invoice", $userdate['id_invoice'], "select");
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
+    $extendGate = extend_can_proceed($marzban_list_get);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], $backuser, 'HTML');
+        return;
+    }
     if (!$marzban_list_get || !panel_custom_month_option($marzban_list_get, $months)) {
         sendmessage($from_id, "❌ مدت انتخاب‌شده نامعتبر است.", $backuser, 'HTML');
         return;
@@ -1615,8 +1639,16 @@ $textconnect
     ]);
     $productextend = ['inline_keyboard' => []];
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
+    $extendGate = extend_can_proceed($marzban_list_get);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], null, 'html');
+        return;
+    }
     $statusshowprice = select("shopSetting", "*", "Namevalue", "statusshowprice", "select")['value'];
     foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
+        if (!product_category_is_active($result)) {
+            continue;
+        }
         if (intval($user['pricediscount']) != 0) {
             $resultper = ($result['price_product'] * $user['pricediscount']) / 100;
             $result['price_product'] = $result['price_product'] - $resultper;
@@ -1691,6 +1723,11 @@ $textconnect
     }
     if ($product == false) {
         sendmessage($from_id, "❌ خطایی رخ داده است مراحل تمدید را از اول انجام دهید.", $keyboard, 'HTML');
+        return;
+    }
+    $extendGate = extend_can_proceed($marzban_list_get, $product);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], $keyboard, 'HTML');
         return;
     }
     savedata("save", "time", $product['Service_time']);
@@ -1807,6 +1844,11 @@ $textconnect
         $stmt->execute();
         $info_product = $stmt->fetch(PDO::FETCH_ASSOC);
     }
+    $extendGate = extend_can_proceed($marzban_list_get, $info_product);
+    if (!$extendGate['ok'] || $info_product == false) {
+        sendmessage($from_id, $extendGate['ok'] ? "❌ خطایی رخ داده است مراحل تمدید را از اول انجام دهید." : $extendGate['msg'], $keyboard, 'HTML');
+        return;
+    }
     $result = ($SellDiscountlimit['price'] / 100) * $info_product['price_product'];
     $info_product['price_product'] = $info_product['price_product'] - $result;
     $info_product['price_product'] = round($info_product['price_product']);
@@ -1846,8 +1888,9 @@ $textconnect
         return;
     }
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
-    if ($marzban_list_get['status_extend'] == "off_extend") {
-        sendmessage($from_id, "❌ امکان تمدید در این پنل وجود ندارد", null, 'html');
+    $extendGate = extend_can_proceed($marzban_list_get);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], null, 'html');
         return;
     }
     $randomString = bin2hex(random_bytes(2));
@@ -1871,9 +1914,14 @@ $textconnect
         ]);
         $prodcut = $stmt->fetch(PDO::FETCH_ASSOC);
     }
-    $pricelastextend = $prodcut['price_product'];
+    $pricelastextend = $prodcut['price_product'] ?? 0;
     if ($prodcut == false || !in_array($nameloc['Status'], ['active', 'end_of_time', 'end_of_volume', 'sendedwarn', 'send_on_hold'])) {
         sendmessage($from_id, "❌ تمدید با خطا مواجه گردید مراحل تمدید را مجددا انجام دهید.", null, 'HTML');
+        return;
+    }
+    $extendGate = extend_can_proceed($marzban_list_get, $prodcut);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], $keyboard, 'HTML');
         return;
     }
     if ($datain == "confirmserdiscount") {
@@ -2142,7 +2190,7 @@ $textconnect
     $id_invoice = $dataget[1];
     $nameloc = select("invoice", "*", "id_invoice", $id_invoice, "select");
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
-    if ($marzban_list_get['status_extend'] == "off_extend") {
+    if (!panel_is_active($marzban_list_get) || $marzban_list_get['status_extend'] == "off_extend") {
         sendmessage($from_id, "❌ امکان خرید حجم اضافه در این پنل وجود ندارد", null, 'html');
         return;
     }
@@ -2751,7 +2799,7 @@ $textconnect
     $id_invoice = $dataget[1];
     $nameloc = select("invoice", "*", "id_invoice", $id_invoice, "select");
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
-    if ($marzban_list_get['status_extend'] == "off_extend") {
+    if (!panel_is_active($marzban_list_get) || $marzban_list_get['status_extend'] == "off_extend") {
         sendmessage($from_id, "❌ امکان خرید زمان اضافه در این پنل وجود ندارد", null, 'html');
         return;
     }
@@ -5351,6 +5399,21 @@ $textonebuy
     sendmessage($from_id, $textbotlang['users']['Balance']['selectPatment'], $step_payment, 'HTML');
     step('get_step_payment', $from_id);
 } elseif ($user['step'] == "get_step_payment") {
+    // Block continuing payment for purchase invoices older than 24 hours.
+    if (($user['Processing_value_tow'] ?? '') === 'getconfigafterpay' && !empty($user['Processing_value_one'])) {
+        $pendingInvoice = select("invoice", "*", "username", $user['Processing_value_one'], "select");
+        if ($pendingInvoice && isUnpaidInvoicePastTtl($pendingInvoice)) {
+            update("invoice", "Status", "expire", "id_invoice", $pendingInvoice['id_invoice']);
+            sendmessage($from_id, paymentInvoiceExpiredMessage(), $keyboard, 'HTML');
+            step('home', $from_id);
+            return;
+        }
+        if ($pendingInvoice && strtolower((string) ($pendingInvoice['Status'] ?? '')) === 'expire') {
+            sendmessage($from_id, paymentInvoiceExpiredMessage(), $keyboard, 'HTML');
+            step('home', $from_id);
+            return;
+        }
+    }
     if ($datain == "cart_to_offline") {
         $PaySetting = select("PaySetting", "ValuePay", "NamePay", "statuscardautoconfirm", "select")['ValuePay'];
         $checkpay = mysqli_query($connect, "SELECT * FROM Payment_report WHERE id = '$from_id' AND payment_Status = 'Unpaid'");
@@ -6394,12 +6457,16 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
         return;
     }
     $payemntcheck = select("Payment_report", "*", "id_order", $dataget[1], "select");
+    if ($payemntcheck == false) {
+        sendmessage($from_id, "❌ خطایی رخ داده است لطفا مراحل خرید یا پرداخت  را مجدد انجام دهید", $keyboard, 'HTML');
+        return;
+    }
     if ($payemntcheck['payment_Status'] == "paid") {
         sendmessage($from_id, "❗️ تراکنش شما توسط ربات تایید گردیده است.", null, 'HTML');
         return;
     }
-    if ($payemntcheck['payment_Status'] == "expire") {
-        sendmessage($from_id, "❗زمان این تراکنش به پایان رسیده و امکان پرداخت این تراکنش وجود ندارد.", null, 'HTML');
+    if (!ensurePaymentReportActive($payemntcheck)) {
+        sendmessage($from_id, paymentInvoiceExpiredMessage(), $keyboard, 'HTML');
         return;
     }
     deletemessage($from_id, $message_id);
@@ -6408,12 +6475,16 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
     update("user", "Processing_value", $dataget[1], "id", $from_id);
 } elseif (preg_match('/^sendresidarze-(.*)/', $datain, $dataget) and $text_inline != null) {
     $payemntcheck = select("Payment_report", "*", "id_order", $dataget[1], "select");
+    if ($payemntcheck == false) {
+        sendmessage($from_id, "❌ خطایی رخ داده است لطفا مراحل خرید یا پرداخت  را مجدد انجام دهید", $keyboard, 'HTML');
+        return;
+    }
     if ($payemntcheck['payment_Status'] == "paid") {
         sendmessage($from_id, "❗️ تراکنش شما توسط ربات تایید گردیده است.", null, 'HTML');
         return;
     }
-    if ($payemntcheck['payment_Status'] == "expire") {
-        sendmessage($from_id, "❗زمان این تراکنش به پایان رسیده و امکان پرداخت این تراکنش وجود ندارد.", null, 'HTML');
+    if (!ensurePaymentReportActive($payemntcheck)) {
+        sendmessage($from_id, paymentInvoiceExpiredMessage(), $keyboard, 'HTML');
         return;
     }
     deletemessage($from_id, $message_id);
@@ -6422,13 +6493,19 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
     update("user", "Processing_value", $dataget[1], "id", $from_id);
 } elseif ($user['step'] == "getresidcurrency") {
     $format_balance = number_format($user['Balance'], 0);
-    step('home', $from_id);
     $PaymentReport = select("Payment_report", "*", "id_order", $user['Processing_value'], "select");
-    $Paymentusercount = select("Payment_report", "*", "id_user", $PaymentReport['id_user'], "count");
     if ($PaymentReport == false) {
+        step('home', $from_id);
         sendmessage($from_id, "❌ خطایی رخ داده است لطفا مراحل خرید یا پرداخت  را مجدد انجام دهید", $keyboard, 'HTML');
         return;
     }
+    if (!ensurePaymentReportActive($PaymentReport)) {
+        step('home', $from_id);
+        sendmessage($from_id, paymentInvoiceExpiredMessage(), $keyboard, 'HTML');
+        return;
+    }
+    step('home', $from_id);
+    $Paymentusercount = select("Payment_report", "*", "id_user", $PaymentReport['id_user'], "count");
     $Confirm_pay = json_encode([
         'inline_keyboard' => [
             [
@@ -6621,12 +6698,18 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
         sendmessage($from_id, "❌  فقط مجاز به ارسال یک تصویر هستید", null, 'HTML');
         return;
     }
-    step('home', $from_id);
     $PaymentReport = select("Payment_report", "*", "id_order", $user['Processing_value']);
     if ($PaymentReport == false) {
+        step('home', $from_id);
         sendmessage($from_id, '❌ خطایی در هنگام دریافت اطلاعات رخ داده است لطفا مراحل را از اول انجام دهید', $keyboard, 'HTML');
         return;
     }
+    if (!ensurePaymentReportActive($PaymentReport)) {
+        step('home', $from_id);
+        sendmessage($from_id, paymentInvoiceExpiredMessage(), $keyboard, 'HTML');
+        return;
+    }
+    step('home', $from_id);
     $Confirm_pay = json_encode([
         'inline_keyboard' => [
             [
@@ -7702,6 +7785,11 @@ if (isset($update['message']['successful_payment'])) {
         sendmessage($from_id, "❌ خطایی رخ داده است مراحل را از اول طی کنید", null, 'html');
         return;
     }
+    $extendGate = extend_can_proceed($location);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], null, 'html');
+        return;
+    }
     $location = $location['name_panel'];
     update("user", "Processing_value", $location, "id", $from_id);
     $query = "SELECT * FROM product WHERE (Location = '$location' OR Location = '/all') AND " . agent_product_access_sql($user['agent'], $from_id) . "";
@@ -7733,6 +7821,12 @@ if (isset($update['message']['successful_payment'])) {
         sendmessage($from_id, $textbotlang['users']['erroroccurred'], $keyboard, 'html');
         return;
     }
+    $marzban_list_get = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
+    $extendGate = extend_can_proceed($marzban_list_get, $prodcut);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], $keyboard, 'html');
+        return;
+    }
     $keyboardextend = json_encode([
         'inline_keyboard' => [
             [
@@ -7753,6 +7847,11 @@ if (isset($update['message']['successful_payment'])) {
     ]);
     $prodcut = $stmt->fetch(PDO::FETCH_ASSOC);
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
+    $extendGate = extend_can_proceed($marzban_list_get, $prodcut);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], $keyboard, 'HTML');
+        return;
+    }
     $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $usernamePanelExtends);
     if ($DataUserOut['status'] == "Unsuccessful") {
         sendmessage($from_id, $textbotlang['users']['extend']['renewalerror'], $keyboard, 'HTML');

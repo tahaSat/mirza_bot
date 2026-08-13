@@ -1558,7 +1558,7 @@ $payTypeLabel
             'callback_data' => "changelink_"
         ),
     );
-    if ($marzban['status_extend'] == "off_extend") {
+    if (!extend_can_proceed($marzban)['ok']) {
         unset($keyboarddateservies['extend']);
     }
     if (count($keyboarddateservies) != 0) {
@@ -1674,8 +1674,9 @@ $output
         return;
     }
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
-    if ($marzban_list_get['status_extend'] == "off_extend") {
-        sendmessage($from_id, "❌ امکان تمدید در این پنل وجود ندارد", null, 'html');
+    $extendGate = extend_can_proceed($marzban_list_get);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], null, 'html');
         return;
     }
     $DataUserOut = $ManagePanel->DataUser($nameloc['Service_location'], $nameloc['username']);
@@ -1811,6 +1812,11 @@ $output
     $product = $dataget[1];
     savedata("save", "code_product", $product);
     $product = select("product", "*", "code_product", $product);
+    $extendGate = extend_can_proceed($marzban_list_get, $product);
+    if (!$extendGate['ok'] || $product == false) {
+        sendmessage($from_id, $extendGate['ok'] ? $textbotlang['users']['erroroccurred'] : $extendGate['msg'], $keyboard, 'HTML');
+        return;
+    }
     $productlist = json_decode(file_get_contents('product.json'), true);
     if (isset($productlist[$product['code_product']])) {
         $product['price_product'] = $productlist[$product['code_product']];
@@ -1853,8 +1859,9 @@ $output
     $userdate = json_decode($user['Processing_value'], true);
     $nameloc = select("invoice", "*", "id_invoice", $id_invoice, "select");
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
-    if ($marzban_list_get['status_extend'] == "off_extend") {
-        sendmessage($from_id, "❌ امکان تمدید در این پنل وجود ندارد", null, 'html');
+    $extendGate = extend_can_proceed($marzban_list_get);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], null, 'html');
         return;
     }
     if (isset($userdate['code_product'])) {
@@ -1900,6 +1907,11 @@ $output
             "price_productMain" => (int) round($gb * $custompricevalueBot * $mag),
             "data_limit_reset" => "no_reset"
         );
+    }
+    $extendGate = extend_can_proceed($marzban_list_get, $datafactor);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], $keyboard, 'html');
+        return;
     }
     $productlist_name = json_decode(file_get_contents('product_name.json'), true);
     $datafactor['name_product'] = empty($productlist_name[$datafactor['code_product']]) ? $datafactor['name_product'] : $productlist_name[$datafactor['code_product']];

@@ -1437,6 +1437,9 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
         if (in_array($location, $hide_panel, true)) {
             continue;
         }
+        if (!product_category_is_active($result)) {
+            continue;
+        }
         $stmts2 = $pdo->prepare("SELECT * FROM invoice WHERE Status != 'Unpaid' AND id_user = :id_user");
         $stmts2->bindValue(':id_user', $from_id);
         $stmts2->execute();
@@ -1516,10 +1519,17 @@ function keyboardTimeCategory($name_panel, $agent, $callback_data = "producttime
 {
     global $pdo, $textbotlang, $from_id;
     $accessSql = agent_product_access_sql($agent, $from_id);
-    $stmt = $pdo->prepare("SELECT (Service_time) FROM product WHERE (Location = :name_panel OR Location = '/all') AND {$accessSql}");
+    $stmt = $pdo->prepare("SELECT * FROM product WHERE (Location = :name_panel OR Location = '/all') AND {$accessSql}");
     $stmt->bindValue(':name_panel', $name_panel, PDO::PARAM_STR);
     $stmt->execute();
-    $montheproduct = array_flip(array_flip($stmt->fetchAll(PDO::FETCH_COLUMN)));
+    $montheproduct = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $prodRow) {
+        if (!product_category_is_active($prodRow)) {
+            continue;
+        }
+        $montheproduct[] = (string) ($prodRow['Service_time'] ?? '');
+    }
+    $montheproduct = array_flip(array_flip($montheproduct));
     $monthkeyboard = ['inline_keyboard' => []];
     if (in_array("1", $montheproduct)) {
         $monthkeyboard['inline_keyboard'][] = [

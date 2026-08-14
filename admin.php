@@ -4081,18 +4081,25 @@ $caption";
         sendmessage($from_id, $textbotlang['Admin']['managepanel']['nullpaneladmin'], null, 'HTML');
         return;
     }
-    sendmessage($from_id, $textbotlang['Admin']['Product']['AddProductStepOne'], $backadmin, 'HTML');
+    sendmessage($from_id, $textbotlang['Admin']['Product']['AddProductStepOne'] . "\n\n✨ اگر ایموجی پرمیوم بفرستید، روی دکمه محصول نمایش داده می‌شود.", $backadmin, 'HTML');
     step('get_limit', $from_id);
 } elseif ($user['step'] == "get_limit") {
-    if (strlen($text) > 150) {
+    $parsed = button_label_and_icon_from_update($update);
+    $productName = $parsed['text'] !== '' ? $parsed['text'] : (string) $text;
+    if (strlen($productName) > 150) {
         sendmessage($from_id, "❌ نام محصول باید کمتر از 150 کاراکتر باشد", $backadmin, 'HTML');
         return;
     }
-    if (in_array($text, $name_product)) {
-        sendmessage($from_id, "❌ محصول با نام $text وجود دارد", $backadmin, 'HTML');
+    if ($productName === '') {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $backadmin, 'HTML');
         return;
     }
-    savedata("clear", "name_product", $text);
+    if (in_array($productName, $name_product)) {
+        sendmessage($from_id, "❌ محصول با نام $productName وجود دارد", $backadmin, 'HTML');
+        return;
+    }
+    savedata("clear", "name_product", $productName);
+    savedata("save", "name_product_emoji_id", $parsed['emoji_id']);
     sendmessage($from_id, $textbotlang['Admin']['agent']['setagentproduct'], $backadmin, 'HTML');
     step('get_agent', $from_id);
 } elseif ($user['step'] == "get_agent") {
@@ -4207,7 +4214,9 @@ $caption";
     if (!isset($userdata['category']))
         $userdata['category'] = null;
     $hwid_limit = isset($userdata['hwid_limit']) ? $userdata['hwid_limit'] : null;
-    $stmt = $pdo->prepare("INSERT IGNORE INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status,hwid_limit) VALUES (:name_product,:code_product,:price_product,:Volume_constraint,:Service_time,:Location,:agent,:data_limit_reset,:note,:category,:hide_panel,'0',:hwid_limit)");
+    ensure_shop_button_emoji_columns();
+    $emoji_id = stored_custom_emoji_id($userdata['name_product_emoji_id'] ?? '');
+    $stmt = $pdo->prepare("INSERT IGNORE INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status,hwid_limit,emoji_id) VALUES (:name_product,:code_product,:price_product,:Volume_constraint,:Service_time,:Location,:agent,:data_limit_reset,:note,:category,:hide_panel,'0',:hwid_limit,:emoji_id)");
     $stmt->bindParam(':name_product', $userdata['name_product']);
     $stmt->bindParam(':code_product', $randomString);
     $stmt->bindParam(':price_product', $userdata['price_product']);
@@ -4220,6 +4229,7 @@ $caption";
     $stmt->bindParam(':note', $text, PDO::PARAM_STR);
     $stmt->bindParam(':hide_panel', $varhide_panel, PDO::PARAM_STR);
     $stmt->bindValue(':hwid_limit', $hwid_limit, $hwid_limit === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+    $stmt->bindValue(':emoji_id', $emoji_id !== '' ? $emoji_id : null, $emoji_id !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
     $stmt->execute();
     sendmessage($from_id, $textbotlang['Admin']['Product']['SaveProduct'], $shopkeyboard, 'HTML');
     step('home', $from_id);
@@ -4532,7 +4542,10 @@ $caption";
     if (isset($getdataproduct)) {
         while ($row = mysqli_fetch_assoc($getdataproduct)) {
             $list_product['inline_keyboard'][] = [
-                ['text' => $row['name_product'], 'callback_data' => "productedit_" . $row['id']]
+                telegram_button_with_icon(
+                    ['text' => $row['name_product'], 'callback_data' => "productedit_" . $row['id']],
+                    $row['emoji_id'] ?? ''
+                )
             ];
         }
         $list_product['inline_keyboard'][] = [
@@ -4637,20 +4650,31 @@ $caption";
     sendmessage($from_id, "✅ دسته بندی محصول بروزرسانی شد", $shopkeyboard, 'HTML');
     step('home', $from_id);
 } elseif ($text == "نام محصول" && $adminrulecheck['rule'] == "administrator") {
-    sendmessage($from_id, "نام جدید را ارسال کنید", $backadmin, 'HTML');
+    sendmessage($from_id, "نام جدید را ارسال کنید\n✨ اگر ایموجی پرمیوم بفرستید، روی دکمه محصول نمایش داده می‌شود.", $backadmin, 'HTML');
     step('change_name', $from_id);
 } elseif ($user['step'] == "change_name") {
-    if (strlen($text) > 150) {
+    $parsed = button_label_and_icon_from_update($update);
+    $productName = $parsed['text'] !== '' ? $parsed['text'] : (string) $text;
+    if (strlen($productName) > 150) {
         sendmessage($from_id, "❌ نام محصول باید کمتر از 150 کاراکتر باشد", $backadmin, 'HTML');
         return;
     }
-    if (in_array($text, $name_product)) {
-        sendmessage($from_id, "❌ محصول با نام $text وجود دارد", $backadmin, 'HTML');
+    if ($productName === '') {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $backadmin, 'HTML');
+        return;
+    }
+    $currentProduct = select("product", "*", "id", $user['Processing_value'], "select");
+    $currentName = is_array($currentProduct) ? (string) ($currentProduct['name_product'] ?? '') : '';
+    if (in_array($productName, $name_product) && $productName !== $currentName) {
+        sendmessage($from_id, "❌ محصول با نام $productName وجود دارد", $backadmin, 'HTML');
         return;
     }
     $panel = select("marzban_panel", "*", "code_panel", $user['Processing_value_one'], "select");
-    $stmt = $pdo->prepare("UPDATE product SET name_product = :name_products WHERE id = :name_product AND (Location = :Location OR Location = '/all') AND agent = :agent");
-    $stmt->bindParam(':name_products', $text);
+    ensure_shop_button_emoji_columns();
+    $stmt = $pdo->prepare("UPDATE product SET name_product = :name_products, emoji_id = :emoji_id WHERE id = :name_product AND (Location = :Location OR Location = '/all') AND agent = :agent");
+    $stmt->bindParam(':name_products', $productName);
+    $emoji_id = stored_custom_emoji_id($parsed['emoji_id']);
+    $stmt->bindValue(':emoji_id', $emoji_id !== '' ? $emoji_id : null, $emoji_id !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
     $stmt->bindParam(':name_product', $user['Processing_value']);
     $stmt->bindParam(':Location', $panel['name_panel']);
     $stmt->bindParam(':agent', $user['Processing_value_tow']);
@@ -12865,14 +12889,21 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
         ]);
     }
 } elseif ($text == "🛒 اضافه کردن دسته بندی") {
-    sendmessage($from_id, "📌 جهت اضافه کردن دسته بندی نام دسته بندی را ارسال کنید.", $backadmin, 'HTML');
+    sendmessage($from_id, "📌 جهت اضافه کردن دسته بندی نام دسته بندی را ارسال کنید.\n✨ اگر ایموجی پرمیوم بفرستید، روی دکمه دسته نمایش داده می‌شود.", $backadmin, 'HTML');
     step("getremarkcategory", $from_id);
 } elseif ($user['step'] == "getremarkcategory") {
+    $parsed = button_label_and_icon_from_update($update);
+    $remark = $parsed['text'] !== '' ? $parsed['text'] : (string) $text;
+    if ($remark === '') {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $backadmin, 'HTML');
+        return;
+    }
+    ensure_shop_button_emoji_columns();
+    $emoji_id = stored_custom_emoji_id($parsed['emoji_id']);
+    $stmt = $pdo->prepare("INSERT INTO category (remark, emoji_id) VALUES (?, ?)");
+    $stmt->execute([$remark, $emoji_id !== '' ? $emoji_id : null]);
     sendmessage($from_id, "✅ دسته بندی با موفقیت اضافه گردید.", $shopkeyboard, 'HTML');
     step("home", $from_id);
-    $stmt = $pdo->prepare("INSERT INTO category (remark) VALUES (?)");
-    $stmt->bindParam(1, $text);
-    $stmt->execute();
 } elseif ($text == "❌ حذف دسته بندی") {
     sendmessage($from_id, "📌 دسته بندی خود را جهت حذف انتخاب کنید", KeyboardCategoryadmin(), 'HTML');
     step("removecategory", $from_id);
@@ -12938,14 +12969,24 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
     step("editcategory_name", $from_id);
 } elseif ($user['step'] == "editcategory_name") {
     savedata("clear", "category", $text);
-    sendmessage($from_id, "📌  نام جدید دسته بندی را ارسال کنید", $backadmin, 'HTML');
+    sendmessage($from_id, "📌  نام جدید دسته بندی را ارسال کنید\n✨ اگر ایموجی پرمیوم بفرستید، روی دکمه دسته نمایش داده می‌شود.", $backadmin, 'HTML');
     step("get_name_new_category", $from_id);
 } elseif ($user['step'] == "get_name_new_category") {
     $userdata = json_decode($user['Processing_value'], true);
+    $parsed = button_label_and_icon_from_update($update);
+    $remark = $parsed['text'] !== '' ? $parsed['text'] : (string) $text;
+    if ($remark === '') {
+        sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $backadmin, 'HTML');
+        return;
+    }
+    ensure_shop_button_emoji_columns();
+    $emoji_id = stored_custom_emoji_id($parsed['emoji_id']);
+    $oldRemark = $userdata['category'] ?? '';
+    update("category", "remark", $remark, "remark", $oldRemark);
+    update("category", "emoji_id", $emoji_id !== '' ? $emoji_id : null, "remark", $remark);
+    update("product", "category", $remark, "category", $oldRemark);
     sendmessage($from_id, "✅ نام دسته بندی با موفقیت تغییر کرد.", $keyboard_Category_manage, 'HTML');
     step("home", $from_id);
-    update("category", "remark", $text, "remark", $userdata['category']);
-    update("product", "category", $text, "category", $userdata['category']);
 } elseif ($datain == "zerobalance") {
     update("user", "pagenumber", "1", "id", $from_id);
     $page = 1;

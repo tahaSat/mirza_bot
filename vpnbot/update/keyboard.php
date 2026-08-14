@@ -237,13 +237,16 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
         $namekeyboard = $result['name_product'] . " - " . number_format($result['price_product']) . "تومان";
         if ($statusshowprice == "onshowprice")$result['name_product'] = $namekeyboard;
         $product['inline_keyboard'][] = [
-            ['text' =>  $result['name_product'], 'callback_data' => "{$datakeyboard}{$result['code_product']}{$valuetow}"]
+            telegram_button_with_icon(
+                ['text' =>  $result['name_product'], 'callback_data' => "{$datakeyboard}{$result['code_product']}{$valuetow}"],
+                $result['emoji_id'] ?? ''
+            )
         ];
     }
     if ($statuscustom) {
         $panelRow = select("marzban_panel", "*", "name_panel", $location, "select");
-        $btnText = panel_custom_button_text(is_array($panelRow) ? $panelRow : []);
-        $product['inline_keyboard'][] = [['text' => $btnText, 'callback_data' => $customvolume]];
+        $customBtn = panel_custom_service_inline_button(is_array($panelRow) ? $panelRow : [], $customvolume);
+        $product['inline_keyboard'][] = [$customBtn];
     }
     $product['inline_keyboard'][] = [
         ['text' => $textbotlang['users']['stateus']['backinfo'], 'callback_data' => $backuser],
@@ -287,12 +290,15 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
         if ($visibleCount === 0) {
             continue;
         }
-        $list_category['inline_keyboard'][] = [['text' => $row['remark'], 'callback_data' => "categorynames_" . $row['id']]];
+        $list_category['inline_keyboard'][] = [telegram_button_with_icon(
+            ['text' => $row['remark'], 'callback_data' => "categorynames_" . $row['id']],
+            $row['emoji_id'] ?? ''
+        )];
     }
     $panel = select("marzban_panel", "*", "name_panel", $location, "select");
     if (is_array($panel) && panel_custom_enabled($panel, (string) $agent)) {
         $list_category['inline_keyboard'][] = [
-            ['text' => panel_custom_button_text($panel), 'callback_data' => "customvolumebuy"],
+            panel_custom_service_inline_button($panel, 'customvolumebuy'),
         ];
     }
     $list_category['inline_keyboard'][] = [

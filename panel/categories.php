@@ -29,6 +29,7 @@ function category_ensure_schema(PDO $pdo): void
   $columns = [
     'status' => "VARCHAR(20) NOT NULL DEFAULT 'active'",
     'description' => "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL",
+    'emoji_id' => "VARCHAR(64) NULL",
   ];
   foreach ($columns as $col => $def) {
     if (category_column_exists($pdo, $col, true)) {
@@ -53,13 +54,20 @@ category_ensure_schema($pdo);
 
 $hasDescriptionCol = category_column_exists($pdo, 'description', true);
 $hasStatusCol = category_column_exists($pdo, 'status', true);
+$hasEmojiCol = category_column_exists($pdo, 'emoji_id', true);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add') {
   csrf_check_post();
   $remark = trim($_POST['remark'] ?? '');
   $description = trim($_POST['description'] ?? '');
+  $emoji_id = parse_posted_custom_emoji_id($_POST['emoji_id'] ?? '');
   if ($remark === '') {
     flash('error', 'نام دسته‌بندی الزامی است.');
+    header('Location: categories.php');
+    exit;
+  }
+  if ($emoji_id === null) {
+    flash('error', 'شناسه ایموجی پرمیوم باید فقط عدد باشد.');
     header('Location: categories.php');
     exit;
   }
@@ -79,6 +87,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
       $cols[] = 'status';
       $vals[] = 'active';
     }
+    if ($hasEmojiCol) {
+      $cols[] = 'emoji_id';
+      $vals[] = $emoji_id !== '' ? $emoji_id : null;
+    }
     $placeholders = implode(',', array_fill(0, count($cols), '?'));
     db_query($pdo, 'INSERT INTO category (' . implode(',', $cols) . ") VALUES ($placeholders)", $vals);
     flash('success', 'دسته‌بندی «' . $remark . '» اضافه شد.');
@@ -94,7 +106,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
   $id = (int) ($_POST['edit_id'] ?? 0);
   $remark = trim($_POST['remark'] ?? '');
   $description = trim($_POST['description'] ?? '');
+  $emoji_id = parse_posted_custom_emoji_id($_POST['emoji_id'] ?? '');
   if ($id && $remark !== '') {
+    if ($emoji_id === null) {
+      flash('error', 'شناسه ایموجی پرمیوم باید فقط عدد باشد.');
+      header('Location: categories.php');
+      exit;
+    }
     $old = db_fetch($pdo, "SELECT * FROM category WHERE id = ?", [$id]);
     if (!$old) {
       flash('error', 'دسته‌بندی یافت نشد.');
@@ -112,6 +130,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
       if ($hasDescriptionCol) {
         $sets[] = 'description = ?';
         $params[] = $description !== '' ? $description : null;
+      }
+      if ($hasEmojiCol) {
+        $sets[] = 'emoji_id = ?';
+        $params[] = $emoji_id !== '' ? $emoji_id : null;
       }
       $params[] = $id;
       db_query($pdo, 'UPDATE category SET ' . implode(', ', $sets) . ' WHERE id = ?', $params);
@@ -251,6 +273,7 @@ function category_row_is_active(array $c): bool
               'id' => $c['id'] ?? '',
               'remark' => $c['remark'] ?? '',
               'description' => $c['description'] ?? '',
+              'emoji_id' => $c['emoji_id'] ?? '',
             ];
           ?>
             <tr style="<?= $isActive ? '' : 'opacity:.65' ?>">
@@ -310,6 +333,13 @@ function category_row_is_active(array $c): bool
           <label>توضیحات (اختیاری)</label>
           <textarea name="description" class="input" rows="3" placeholder="پیام بعد از انتخاب دسته در ربات"></textarea>
         </div>
+        <?php if ($hasEmojiCol): ?>
+        <div class="field">
+          <label>شناسه ایموجی پرمیوم (اختیاری)</label>
+          <input type="text" name="emoji_id" class="input" placeholder="مثلاً 5368324170671202286" inputmode="numeric" dir="ltr">
+          <small class="cf" style="display:block;margin-top:4px">از ربات تلگرام با ارسال ایموجی پرمیوم هم می‌توانید تنظیم کنید.</small>
+        </div>
+        <?php endif; ?>
       </div>
       <div class="modal-foot">
         <button type="submit" class="btn btn-primary"><?= icon('plus', 13) ?> ذخیره</button>
@@ -338,6 +368,12 @@ function category_row_is_active(array $c): bool
           <label>توضیحات (اختیاری)</label>
           <textarea name="description" id="edit_description" class="input" rows="3"></textarea>
         </div>
+        <?php if ($hasEmojiCol): ?>
+        <div class="field">
+          <label>شناسه ایموجی پرمیوم (اختیاری)</label>
+          <input type="text" name="emoji_id" id="edit_emoji_id" class="input" placeholder="مثلاً 5368324170671202286" inputmode="numeric" dir="ltr">
+        </div>
+        <?php endif; ?>
       </div>
       <div class="modal-foot">
         <button type="submit" class="btn btn-primary"><?= icon('check', 13) ?> ذخیره تغییرات</button>
@@ -352,6 +388,10 @@ window.openEditModal = function (c) {
   document.getElementById('edit_id').value = c.id || '';
   document.getElementById('edit_remark').value = c.remark || '';
   document.getElementById('edit_description').value = c.description || '';
+  var emojiInput = document.getElementById('edit_emoji_id');
+  if (emojiInput) {
+    emojiInput.value = c.emoji_id || '';
+  }
   openModal('editModal');
 };
 </script>

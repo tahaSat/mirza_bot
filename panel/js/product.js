@@ -140,6 +140,10 @@ document.addEventListener('DOMContentLoaded', function () {
 window.openEditModal = function (p) {
     document.getElementById('edit_id').value = p.id || '';
     document.getElementById('edit_name').value = p.name_product || '';
+    var emojiInput = document.getElementById('edit_emoji_id');
+    if (emojiInput) {
+        emojiInput.value = p.emoji_id || '';
+    }
     document.getElementById('edit_price').value = p.price_product || '';
     document.getElementById('edit_volume').value = p.Volume_constraint || '';
     document.getElementById('edit_time').value = p.Service_time || '';

@@ -3823,20 +3823,110 @@ function strip_html_for_button_label(string $html): string
     return trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
 }
 
+/** Normalized custom emoji id, or empty string if missing/invalid. */
+function stored_custom_emoji_id($emoji_id): string
+{
+    $normalized = normalize_main_keyboard_custom_emoji_id($emoji_id);
+    return ($normalized !== null && $normalized !== '') ? (string) $normalized : '';
+}
+
+/** Attach Telegram Premium icon to a keyboard button when an id is stored. */
+function telegram_button_with_icon(array $button, $emoji_id): array
+{
+    ensure_shop_button_emoji_columns();
+    $id = stored_custom_emoji_id($emoji_id);
+    if ($id !== '') {
+        $button['icon_custom_emoji_id'] = $id;
+    } else {
+        unset($button['icon_custom_emoji_id']);
+    }
+    return $button;
+}
+
+/**
+ * Ensure category.emoji_id and product.emoji_id exist (silent; table.php is not run by the webhook).
+ */
+function ensure_shop_button_emoji_columns(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        return;
+    }
+    foreach (['category', 'product'] as $table) {
+        try {
+            $db = $pdo->query('SELECT DATABASE()')->fetchColumn();
+            $stmt = $pdo->prepare('SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?');
+            $stmt->execute([$db, $table, 'emoji_id']);
+            if ((int) $stmt->fetchColumn() > 0) {
+                continue;
+            }
+            $pdo->exec("ALTER TABLE `$table` ADD `emoji_id` VARCHAR(64) NULL");
+        } catch (Throwable $e) {
+            // column may already exist under race, or insufficient privileges
+        }
+    }
+}
+
+/**
+ * Parse a posted premium-emoji id from the web panel.
+ * @return string|null empty string if cleared, id if valid, null if invalid
+ */
+function parse_posted_custom_emoji_id($input): ?string
+{
+    $input = trim((string) $input);
+    if ($input === '') {
+        return '';
+    }
+    return normalize_main_keyboard_custom_emoji_id($input);
+}
+
+/**
+ * Button label + first custom emoji id from an admin Telegram message.
+ * The first premium emoji is removed from the label so it is not duplicated next to the button icon.
+ * @return array{text: string, emoji_id: string}
+ */
+function button_label_and_icon_from_message($message): array
+{
+    $html = text_from_telegram_message($message);
+    $emojiId = '';
+    if (is_array($message)) {
+        $emojiId = extract_custom_emoji_id_from_update(['message' => $message]);
+    }
+    $labelHtml = $html;
+    if ($emojiId !== '') {
+        $quoted = preg_quote($emojiId, '/');
+        $stripped = preg_replace('/<tg-emoji\b[^>]*emoji-id="' . $quoted . '"[^>]*>.*?<\/tg-emoji>/is', '', $html, 1);
+        if (is_string($stripped)) {
+            $labelHtml = $stripped;
+        }
+    }
+    $plain = strip_html_for_button_label($labelHtml);
+    if ($plain === '') {
+        $plain = strip_html_for_button_label($html);
+    }
+    return ['text' => $plain, 'emoji_id' => $emojiId];
+}
+
+function button_label_and_icon_from_update($update): array
+{
+    if (!is_array($update)) {
+        return ['text' => '', 'emoji_id' => ''];
+    }
+    return button_label_and_icon_from_message($update['message'] ?? null);
+}
+
 /**
  * Plain button label + first custom emoji id from an admin message.
  * @return array{text: string, emoji_id: string}
  */
 function plain_text_and_custom_emoji_from_message($message): array
 {
-    $html = text_from_telegram_message($message);
-    $plain = strip_html_for_button_label($html);
-    $emojiId = '';
-    if (is_array($message)) {
-        $tmpUpdate = ['message' => $message];
-        $emojiId = extract_custom_emoji_id_from_update($tmpUpdate);
-    }
-    return ['text' => $plain, 'emoji_id' => $emojiId];
+    return button_label_and_icon_from_message($message);
 }
 
 function save_textbot_from_update(string $id_text, $update): bool
@@ -3912,7 +4002,10 @@ function keyboard_categories_purchase_text_edit(string $callback_prefix): string
             if ($id <= 0 || $remark === '') {
                 continue;
             }
-            $rows[] = [['text' => $remark, 'callback_data' => $callback_prefix . $id]];
+            $rows[] = [telegram_button_with_icon(
+                ['text' => $remark, 'callback_data' => $callback_prefix . $id],
+                $cat['emoji_id'] ?? ''
+            )];
         }
     }
     if ($rows === []) {

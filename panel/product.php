@@ -3,6 +3,24 @@ require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
 require_auth();
 $pdo = panel_ensure_pdo();
+ensure_shop_button_emoji_columns();
+
+function product_emoji_column_exists(PDO $pdo): bool
+{
+  static $exists = null;
+  if ($exists !== null) {
+    return $exists;
+  }
+  try {
+    $stmt = $pdo->query("SHOW COLUMNS FROM product LIKE 'emoji_id'");
+    $exists = (bool) $stmt->fetch(PDO::FETCH_ASSOC);
+  } catch (Throwable $e) {
+    $exists = false;
+  }
+  return $exists;
+}
+
+$hasEmojiCol = product_emoji_column_exists($pdo);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reorder') {
   csrf_check_post();
@@ -44,12 +62,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add')
     exit;
   }
   $sort_order = product_next_sort_order((string) ($_POST['cetegory_product'] ?? ''));
+  $emoji_id = parse_posted_custom_emoji_id($_POST['emoji_id'] ?? '');
+  if ($emoji_id === null) {
+    flash('error', 'شناسه ایموجی پرمیوم باید فقط عدد باشد.');
+    header('Location: product.php');
+    exit;
+  }
   try {
-    db_query(
-      $pdo,
-      "INSERT INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status,hwid_limit,sort_order) VALUES (?,?,?,?,?,?,?,'no_reset',?,?,'{}','0',?,?)",
-      [$name, $code, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit, $sort_order]
-    );
+    if ($hasEmojiCol) {
+      db_query(
+        $pdo,
+        "INSERT INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status,hwid_limit,sort_order,emoji_id) VALUES (?,?,?,?,?,?,?,'no_reset',?,?,'{}','0',?,?,?)",
+        [$name, $code, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit, $sort_order, $emoji_id !== '' ? $emoji_id : null]
+      );
+    } else {
+      db_query(
+        $pdo,
+        "INSERT INTO product (name_product,code_product,price_product,Volume_constraint,Service_time,Location,agent,data_limit_reset,note,category,hide_panel,one_buy_status,hwid_limit,sort_order) VALUES (?,?,?,?,?,?,?,'no_reset',?,?,'{}','0',?,?)",
+        [$name, $code, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit, $sort_order]
+      );
+    }
     flash('success', 'محصول «' . $name . '» اضافه شد.');
   } catch (Exception $e) {
     flash('error', 'خطای پایگاه داده: ' . $e->getMessage());
@@ -71,6 +103,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
       exit;
     }
     $category = (string) ($_POST['cetegory_product'] ?? '');
+    $emoji_id = parse_posted_custom_emoji_id($_POST['emoji_id'] ?? '');
+    if ($emoji_id === null) {
+      flash('error', 'شناسه ایموجی پرمیوم باید فقط عدد باشد.');
+      header('Location: product.php');
+      exit;
+    }
     $existing = db_fetch($pdo, 'SELECT category, sort_order FROM product WHERE id = ?', [$pid]);
     $oldCategory = (string) ($existing['category'] ?? '');
     if ($oldCategory !== $category) {
@@ -79,11 +117,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit'
       $sort_order = max(1, (int) ($existing['sort_order'] ?? product_next_sort_order($category)));
     }
     try {
-      db_query(
-        $pdo,
-        "UPDATE product SET name_product=?,price_product=?,Volume_constraint=?,Service_time=?,Location=?,agent=?,note=?,category=?,hwid_limit=?,sort_order=? WHERE id=?",
-        [$name, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit, $sort_order, $pid]
-      );
+      if ($hasEmojiCol) {
+        db_query(
+          $pdo,
+          "UPDATE product SET name_product=?,price_product=?,Volume_constraint=?,Service_time=?,Location=?,agent=?,note=?,category=?,hwid_limit=?,sort_order=?,emoji_id=? WHERE id=?",
+          [$name, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit, $sort_order, $emoji_id !== '' ? $emoji_id : null, $pid]
+        );
+      } else {
+        db_query(
+          $pdo,
+          "UPDATE product SET name_product=?,price_product=?,Volume_constraint=?,Service_time=?,Location=?,agent=?,note=?,category=?,hwid_limit=?,sort_order=? WHERE id=?",
+          [$name, (int) ($_POST['price_product'] ?? 0), (int) ($_POST['volume_product'] ?? 0), (int) ($_POST['time_product'] ?? 0), $_POST['namepanel'] ?? '', $_POST['agent_product'] ?? '', $_POST['note_product'] ?? '', $_POST['cetegory_product'] ?? '', $hwid_limit, $sort_order, $pid]
+        );
+      }
       flash('success', 'محصول ویرایش شد.');
       if ($oldCategory !== $category) {
         product_renormalize_category_sort_orders($pdo, $oldCategory);
@@ -305,6 +351,13 @@ include __DIR__ . '/inc/layout_head.php';
             <label>نام محصول *</label>
             <input type="text" name="name_product" class="input" placeholder="مثلاً: ۵۰ گیگ یک ماهه" required>
           </div>
+          <?php if ($hasEmojiCol): ?>
+          <div class="field full">
+            <label>شناسه ایموجی پرمیوم (اختیاری)</label>
+            <input type="text" name="emoji_id" class="input" placeholder="مثلاً 5368324170671202286" inputmode="numeric" dir="ltr">
+            <small class="cf" style="display:block;margin-top:4px">از ربات تلگرام با ارسال ایموجی پرمیوم هم می‌توانید تنظیم کنید.</small>
+          </div>
+          <?php endif; ?>
           <div class="field">
             <label>قیمت (تومان)</label>
             <input type="number" name="price_product" class="input" placeholder="۰" min="0">
@@ -379,6 +432,12 @@ include __DIR__ . '/inc/layout_head.php';
             <label>نام محصول *</label>
             <input type="text" name="name_product" id="edit_name" class="input" required>
           </div>
+          <?php if ($hasEmojiCol): ?>
+          <div class="field full">
+            <label>شناسه ایموجی پرمیوم (اختیاری)</label>
+            <input type="text" name="emoji_id" id="edit_emoji_id" class="input" placeholder="مثلاً 5368324170671202286" inputmode="numeric" dir="ltr">
+          </div>
+          <?php endif; ?>
           <div class="field">
             <label>قیمت (تومان)</label>
             <input type="number" name="price_product" id="edit_price" class="input" min="0">

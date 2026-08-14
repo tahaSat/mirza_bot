@@ -802,7 +802,7 @@ if ($table_exists) {
     $stmt->bindParam(':text', $text, PDO::PARAM_STR);
     $stmt->execute();
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $product[] = [$row['name_product']];
+        $product[] = [$row['name_product'], $row['emoji_id'] ?? ''];
     }
     $list_product = [
         'keyboard' => [],
@@ -813,7 +813,7 @@ if ($table_exists) {
     ];
     foreach ($product as $button) {
         $list_product['keyboard'][] = [
-            ['text' => $button[0]]
+            telegram_button_with_icon(['text' => $button[0]], $button[1] ?? '')
         ];
     }
     $json_list_product_list_admin = json_encode($list_product);
@@ -1418,6 +1418,7 @@ $keyboardlinkapp = json_encode([
 function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $statuscustom = false, $backuser = "backuser", $valuetow = null, $customvolume = "customsellvolume")
 {
     global $pdo, $textbotlang, $from_id, $user;
+    ensure_shop_button_emoji_columns();
     $product = ['inline_keyboard' => []];
     $shopShow = select("shopSetting", "*", "Namevalue", "statusshowprice", "select");
     $statusshowprice = is_array($shopShow) ? ($shopShow['value'] ?? '') : '';
@@ -1457,7 +1458,10 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
             $result['name_product'] = $namekeyboard;
         }
         $product['inline_keyboard'][] = [
-            ['text' => $result['name_product'], 'callback_data' => "{$datakeyboard}{$result['code_product']}{$valuetow}"]
+            telegram_button_with_icon(
+                ['text' => $result['name_product'], 'callback_data' => "{$datakeyboard}{$result['code_product']}{$valuetow}"],
+                $result['emoji_id'] ?? ''
+            )
         ];
     }
     if ($statuscustom) {
@@ -1473,6 +1477,7 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
 function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserId = null)
 {
     global $pdo, $textbotlang, $from_id;
+    ensure_shop_button_emoji_columns();
     $uid = $agentUserId !== null ? $agentUserId : $from_id;
     $accessSql = agent_product_access_sql($agent, $uid);
     $stmt = $pdo->prepare("SELECT * FROM category");
@@ -1501,7 +1506,10 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
         if ($visibleCount === 0) {
             continue;
         }
-        $list_category['inline_keyboard'][] = [['text' => $row['remark'], 'callback_data' => "categorynames_" . $row['id']]];
+        $list_category['inline_keyboard'][] = [telegram_button_with_icon(
+            ['text' => $row['remark'], 'callback_data' => "categorynames_" . $row['id']],
+            $row['emoji_id'] ?? ''
+        )];
     }
     $panel = select("marzban_panel", "*", "name_panel", $location, "select");
     if (is_array($panel) && panel_custom_enabled($panel, (string) $agent)) {
@@ -1641,7 +1649,10 @@ function KeyboardCategoryadmin()
         'resize_keyboard' => true,
     ];
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $list_category['keyboard'][] = [['text' => $row['remark']]];
+        $list_category['keyboard'][] = [telegram_button_with_icon(
+            ['text' => $row['remark']],
+            $row['emoji_id'] ?? ''
+        )];
     }
     $list_category['keyboard'][] = [
         ['text' => $textbotlang['Admin']['backadmin']],

@@ -496,7 +496,8 @@ try {
         category varchar(400) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
         hide_panel TEXT  NOT NULL,
         hwid_limit INT NULL,
-        sort_order INT NOT NULL DEFAULT 0)
+        sort_order INT NOT NULL DEFAULT 0,
+        emoji_id VARCHAR(64) NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
         if (!$result) {
             echo "table product" . mysqli_error($connect);
@@ -514,6 +515,7 @@ try {
         addFieldToTable("product", "code_product", null, "varchar(50)");
         addFieldToTable("product", "hwid_limit", null, "INT");
         addFieldToTable("product", "sort_order", null, "INT NOT NULL DEFAULT 0");
+        addFieldToTable("product", "emoji_id", null, "VARCHAR(64)");
         try {
             $pdo->exec("UPDATE product SET sort_order = id WHERE sort_order = 0");
         } catch (Exception $e) {
@@ -1673,6 +1675,7 @@ try {
         remark varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin  NOT NULL,
         status VARCHAR(20) NOT NULL DEFAULT 'active',
         description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL,
+        emoji_id VARCHAR(64) NULL,
         customvolume TEXT NULL,
         pricecustomvolume TEXT NULL,
         pricecustomtime TEXT NULL,
@@ -1688,6 +1691,7 @@ try {
         $categoryColumns = [
             'status' => "VARCHAR(20) NOT NULL DEFAULT 'active'",
             'description' => "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL",
+            'emoji_id' => "VARCHAR(64) NULL",
             'customvolume' => "TEXT NULL",
             'pricecustomvolume' => "TEXT NULL",
             'pricecustomtime' => "TEXT NULL",

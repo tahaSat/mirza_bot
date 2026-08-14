@@ -891,7 +891,7 @@ function panel_method_uses_namecustom($method): bool
 
 function panel_username_prefix_valid($prefix): bool
 {
-    return (bool) preg_match('/^\w{3,32}$/', (string) $prefix);
+    return (bool) preg_match('/^[@A-Za-z0-9._-]{3,32}$/', (string) $prefix);
 }
 
 /**

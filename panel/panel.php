@@ -160,13 +160,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
 
         if ($prefixNormal === '' || strcasecmp($prefixNormal, 'none') === 0) {
             if ($methodNeedsPrefix) {
-                flash('error', 'برای این روش ساخت نام کاربری، پیشوند محصولات عادی الزامی است (۳ تا ۳۲ کاراکتر انگلیسی، عدد یا _).');
+                flash('error', 'برای این روش ساخت نام کاربری، پیشوند محصولات عادی الزامی است (۳ تا ۳۲ کاراکتر: انگلیسی، عدد، @، .، - یا _).');
                 header('Location: panel.php?id=' . $id . '&tab=account');
                 exit;
             }
             $data['namecustom'] = 'none';
         } elseif (!panel_username_prefix_valid($prefixNormal)) {
-            flash('error', 'پیشوند محصولات عادی باید ۳ تا ۳۲ کاراکتر انگلیسی، عدد یا _ باشد.');
+            flash('error', 'پیشوند محصولات عادی باید ۳ تا ۳۲ کاراکتر باشد (انگلیسی، عدد، @، .، - یا _).');
             header('Location: panel.php?id=' . $id . '&tab=account');
             exit;
         } else {
@@ -176,7 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         if ($prefixTest === '' || strcasecmp($prefixTest, 'none') === 0) {
             $data['namecustom_test'] = 'none';
         } elseif (!panel_username_prefix_valid($prefixTest)) {
-            flash('error', 'پیشوند اکانت تست باید ۳ تا ۳۲ کاراکتر انگلیسی، عدد یا _ باشد.');
+            flash('error', 'پیشوند اکانت تست باید ۳ تا ۳۲ کاراکتر باشد (انگلیسی، عدد، @، .، - یا _).');
             header('Location: panel.php?id=' . $id . '&tab=account');
             exit;
         } else {
@@ -605,11 +605,11 @@ include __DIR__ . '/inc/layout_head.php';
           </div>
           <div class="field" id="namecustom-normal-wrap">
             <label>پیشوند محصولات عادی</label>
-            <input type="text" name="namecustom" id="namecustom-normal" class="input" maxlength="32" pattern="[A-Za-z0-9_]{3,32}"
+            <input type="text" name="namecustom" id="namecustom-normal" class="input" maxlength="32" pattern="[@A-Za-z0-9._-]{3,32}"
               value="<?= htmlspecialchars($namecustomDisplay) ?>"
-              placeholder="مثلاً shop"
+              placeholder="مثلاً @pichanet"
               autocomplete="off">
-            <small class="cf">برای روش‌هایی مثل «متن دلخواه + عدد رندوم». مثال: shop → shop_a1b2c3</small>
+            <small class="cf">برای روش‌هایی مثل «متن دلخواه + عدد رندوم». مثال: @pichanet → @pichanet_a1b2c3</small>
           </div>
           <div class="field" id="namecustom-test-wrap">
             <label>پیشوند اکانت تست</label>
@@ -658,11 +658,11 @@ include __DIR__ . '/inc/layout_head.php';
         if (hint) hint.style.display = uses ? 'none' : 'block';
         if (normalInput) {
           normalInput.required = uses;
-          if (uses) normalInput.setAttribute('pattern', '[A-Za-z0-9_]{3,32}');
+          if (uses) normalInput.setAttribute('pattern', '[@A-Za-z0-9._-]{3,32}');
           else normalInput.removeAttribute('pattern');
         }
         if (testInput) {
-          if (testInput.value) testInput.setAttribute('pattern', '[A-Za-z0-9_]{3,32}');
+          if (testInput.value) testInput.setAttribute('pattern', '[@A-Za-z0-9._-]{3,32}');
           else testInput.removeAttribute('pattern');
         }
       }

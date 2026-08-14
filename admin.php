@@ -5442,11 +5442,23 @@ $text_agent_volume$text_expie_agent
     outtypepanel($typepanel['type'], $textbotlang['Admin']['AlgortimeUsername']['SaveData']);
     step('home', $from_id);
 } elseif ($user['step'] == "getnamecustom") {
-    if (!preg_match('/^\w{3,32}$/', $text)) {
+    if (!panel_username_prefix_valid($text)) {
         sendmessage($from_id, $textbotlang['Admin']['managepanel']['invalidname'], $backadmin, 'html');
         return;
     }
     update("marzban_panel", "namecustom", $text, "name_panel", $user['Processing_value']);
+    step('getnamecustom_test', $from_id);
+    sendmessage($from_id, $textbotlang['Admin']['managepanel']['customnamesend_test'], $backadmin, 'HTML');
+} elseif ($user['step'] == "getnamecustom_test") {
+    if ($text === '-') {
+        update("marzban_panel", "namecustom_test", 'none', "name_panel", $user['Processing_value']);
+    } else {
+        if (!panel_username_prefix_valid($text)) {
+            sendmessage($from_id, $textbotlang['Admin']['managepanel']['invalidname'], $backadmin, 'html');
+            return;
+        }
+        update("marzban_panel", "namecustom_test", $text, "name_panel", $user['Processing_value']);
+    }
     step('home', $from_id);
     $typepanel = select("marzban_panel", "*", "name_panel", $user['Processing_value'], "select");
     outtypepanel($typepanel['type'], $textbotlang['Admin']['managepanel']['savedname']);

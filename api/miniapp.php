@@ -818,7 +818,7 @@ switch ($data['actions']) {
             return;
         }
         $randomString = bin2hex(random_bytes(4));
-        $username_ac = generateUsername($user_info['id'], $panel['MethodUsername'], $user_info['username'], $randomString, $data['custom_username'], $panel['namecustom'], $user_info['namecustom']);
+        $username_ac = generateUsername($user_info['id'], $panel['MethodUsername'], $user_info['username'], $randomString, $data['custom_username'], panel_username_prefix($panel), $user_info['namecustom']);
         $username_ac = strtolower($username_ac);
         $DataUserOut = $ManagePanel->DataUser($panel['name_panel'], $username_ac);
         if (isset($DataUserOut['username']) || in_array($username_ac, $usernameinvoice)) {

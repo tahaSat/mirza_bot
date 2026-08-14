@@ -879,6 +879,44 @@ function formatBytes($bytes, $precision = 2): string
     $suffixes = ['بایت', 'کیلوبایت', 'مگابایت', 'گیگابایت', 'ترابایت'];
     return round(pow(1024, $base - $power), $precision) . ' ' . $suffixes[$power];
 }
+function panel_method_uses_namecustom($method): bool
+{
+    return in_array((string) $method, [
+        'نام کاربری + عدد به ترتیب',
+        'متن دلخواه + عدد رندوم',
+        'متن دلخواه + عدد ترتیبی',
+        'متن دلخواه نماینده + عدد ترتیبی',
+    ], true);
+}
+
+function panel_username_prefix_valid($prefix): bool
+{
+    return (bool) preg_match('/^\w{3,32}$/', (string) $prefix);
+}
+
+/**
+ * Username prefix for a panel. Test accounts can use a separate prefix;
+ * empty / "none" falls back to the normal-product prefix.
+ */
+function panel_username_prefix($panel, bool $isTest = false): string
+{
+    if (!is_array($panel)) {
+        return 'vpn';
+    }
+    $normal = trim((string) ($panel['namecustom'] ?? ''));
+    if ($normal === '' || strcasecmp($normal, 'none') === 0) {
+        $normal = 'vpn';
+    }
+    if (!$isTest) {
+        return $normal;
+    }
+    $test = trim((string) ($panel['namecustom_test'] ?? ''));
+    if ($test === '' || strcasecmp($test, 'none') === 0) {
+        return $normal;
+    }
+    return $test;
+}
+
 function generateUsername($from_id, $Metode, $username, $randomString, $text, $namecustome, $usernamecustom)
 {
     $setting = select("setting", "*", null, null, "select");
@@ -4398,7 +4436,7 @@ function provision_free_service($user_id, $product, $panel, $note = 'referral_re
         $user_info['username'],
         $randomString,
         '',
-        $panel['namecustom'],
+        panel_username_prefix($panel),
         $user_info['namecustom']
     );
     $username_ac = strtolower((string) $username_ac);

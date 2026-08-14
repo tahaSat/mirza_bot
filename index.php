@@ -3314,7 +3314,7 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
     $text = strtolower($text);
     $marzban_list_get = select("marzban_panel", "*", "code_panel", $name_panel, "select");
     $text = strtolower($text);
-    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $user['username'], $randomString, $text, $marzban_list_get['namecustom'], $user['namecustom']);
+    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $user['username'], $randomString, $text, panel_username_prefix($marzban_list_get, true), $user['namecustom']);
     $username_ac = strtolower($username_ac);
     $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
     $random_number = rand(1000000, 9999999);
@@ -4230,7 +4230,7 @@ $textinvite
         $info_product['price_product'] = $info_product['price_product'] - $resultper;
     }
     $randomString = bin2hex(random_bytes(2));
-    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, '', $marzban_list_get['namecustom'], $user['namecustom']);
+    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, '', panel_username_prefix($marzban_list_get), $user['namecustom']);
     $username_ac = strtolower($username_ac);
     $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
     $random_number = rand(1000000, 9999999);
@@ -4329,7 +4329,7 @@ $textinvite
     }
     $randomString = bin2hex(random_bytes(2));
     $text = strtolower($text);
-    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, $text, $marzban_list_get['namecustom'], $user['namecustom']);
+    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, $text, panel_username_prefix($marzban_list_get), $user['namecustom']);
     $username_ac = strtolower($username_ac);
     $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
     $random_number = rand(1000000, 9999999);
@@ -4990,7 +4990,7 @@ $textonebuy
         return;
     }
     $randomString = bin2hex(random_bytes(2));
-    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, '', $marzban_list_get['namecustom'], $user['namecustom']);
+    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, '', panel_username_prefix($marzban_list_get), $user['namecustom']);
     $username_ac = strtolower($username_ac);
     update("user", "Processing_value_tow", $username_ac, "id", $from_id);
     if ($info_product['Volume_constraint'] == 0)
@@ -5061,7 +5061,7 @@ $textonebuy
         $info_product = mysqli_fetch_assoc(mysqli_query($connect, "SELECT * FROM product WHERE code_product = '$loc' AND (Location = '{$user['Processing_value']}'or Location = '/all') LIMIT 1"));
     }
     $randomString = bin2hex(random_bytes(2));
-    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, $text, $marzban_list_get['namecustom'], $user['namecustom']);
+    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, $text, panel_username_prefix($marzban_list_get), $user['namecustom']);
     $username_ac = strtolower($username_ac);
     update("user", "Processing_value_tow", $username_ac, "id", $from_id);
     if ($info_product['Volume_constraint'] == 0)

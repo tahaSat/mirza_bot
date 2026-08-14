@@ -30,6 +30,16 @@ try {
     // ignore — save handler skips missing column
 }
 
+try {
+    $ncTestCol = $pdo->query("SHOW COLUMNS FROM marzban_panel LIKE 'namecustom_test'");
+    if (!($ncTestCol && $ncTestCol->fetch(PDO::FETCH_ASSOC))) {
+        $pdo->exec("ALTER TABLE marzban_panel ADD COLUMN namecustom_test VARCHAR(100) NULL");
+        $panel = db_fetch($pdo, "SELECT * FROM marzban_panel WHERE id = ?", [$id]) ?: $panel;
+    }
+} catch (Throwable $e) {
+    // ignore — save handler skips missing column
+}
+
 $ptype = $panel['type'] ?? 'marzban';
 $features = panel_features_for_type($ptype);
 $isPasarguard = panel_is_pasarguard($panel);
@@ -89,6 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         'secret_code' => array_key_exists('secret_code', $_POST) ? trim($_POST['secret_code']) : ($panel['secret_code'] ?? ''),
         'inboundid' => array_key_exists('inboundid', $_POST) ? trim($_POST['inboundid']) : ($panel['inboundid'] ?? ''),
         'namecustom' => array_key_exists('namecustom', $_POST) ? trim($_POST['namecustom']) : ($panel['namecustom'] ?? ''),
+        'namecustom_test' => array_key_exists('namecustom_test', $_POST) ? trim($_POST['namecustom_test']) : ($panel['namecustom_test'] ?? ''),
         'agent' => array_key_exists('agent', $_POST) ? trim($_POST['agent']) : ($panel['agent'] ?? 'all'),
         'limit_panel' => array_key_exists('limit_panel', $_POST) ? trim($_POST['limit_panel']) : ($panel['limit_panel'] ?? 'unlimted'),
         'MethodUsername' => $_POST['MethodUsername'] ?? $panel['MethodUsername'],
@@ -142,6 +153,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         $data['inbounds'] = $parsedGroups;
     }
 
+    if ($tabSaving === 'account' && array_key_exists('namecustom', $_POST)) {
+        $prefixNormal = trim((string) $data['namecustom']);
+        $prefixTest = trim((string) $data['namecustom_test']);
+        $methodNeedsPrefix = panel_method_uses_namecustom($data['MethodUsername'] ?? '');
+
+        if ($prefixNormal === '' || strcasecmp($prefixNormal, 'none') === 0) {
+            if ($methodNeedsPrefix) {
+                flash('error', 'برای این روش ساخت نام کاربری، پیشوند محصولات عادی الزامی است (۳ تا ۳۲ کاراکتر انگلیسی، عدد یا _).');
+                header('Location: panel.php?id=' . $id . '&tab=account');
+                exit;
+            }
+            $data['namecustom'] = 'none';
+        } elseif (!panel_username_prefix_valid($prefixNormal)) {
+            flash('error', 'پیشوند محصولات عادی باید ۳ تا ۳۲ کاراکتر انگلیسی، عدد یا _ باشد.');
+            header('Location: panel.php?id=' . $id . '&tab=account');
+            exit;
+        } else {
+            $data['namecustom'] = $prefixNormal;
+        }
+
+        if ($prefixTest === '' || strcasecmp($prefixTest, 'none') === 0) {
+            $data['namecustom_test'] = 'none';
+        } elseif (!panel_username_prefix_valid($prefixTest)) {
+            flash('error', 'پیشوند اکانت تست باید ۳ تا ۳۲ کاراکتر انگلیسی، عدد یا _ باشد.');
+            header('Location: panel.php?id=' . $id . '&tab=account');
+            exit;
+        } else {
+            $data['namecustom_test'] = $prefixTest;
+        }
+    }
+
     // Optional bot message after panel/location is chosen (category keyboard).
     // Only include when the DB column exists so saves never 500 on older DBs.
     try {
@@ -176,6 +218,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
         }
     } catch (Throwable $e) {
         unset($data['custommonths']);
+    }
+
+    try {
+        $ncTestCol = $pdo->query("SHOW COLUMNS FROM marzban_panel LIKE 'namecustom_test'");
+        if (!($ncTestCol && $ncTestCol->fetch(PDO::FETCH_ASSOC))) {
+            unset($data['namecustom_test']);
+        }
+    } catch (Throwable $e) {
+        unset($data['namecustom_test']);
     }
 
     $clearLogin = $url !== ($panel['url_panel'] ?? '')
@@ -317,7 +368,10 @@ include __DIR__ . '/inc/layout_head.php';
     <input type="hidden" name="linksubx" value="<?= htmlspecialchars($panel['linksubx'] ?? '') ?>">
     <input type="hidden" name="secret_code" value="<?= htmlspecialchars($panel['secret_code'] ?? '') ?>">
     <input type="hidden" name="inboundid" value="<?= htmlspecialchars($panel['inboundid'] ?? '') ?>">
+    <?php if ($tab !== 'account'): ?>
     <input type="hidden" name="namecustom" value="<?= htmlspecialchars($panel['namecustom'] ?? '') ?>">
+    <input type="hidden" name="namecustom_test" value="<?= htmlspecialchars($panel['namecustom_test'] ?? '') ?>">
+    <?php endif; ?>
     <input type="hidden" name="agent" value="<?= htmlspecialchars($panel['agent'] ?? 'all') ?>">
     <input type="hidden" name="limit_panel" value="<?= htmlspecialchars($panel['limit_panel'] ?? '') ?>">
     <input type="hidden" name="description" value="<?= htmlspecialchars($panel['description'] ?? '') ?>">
@@ -527,17 +581,46 @@ include __DIR__ . '/inc/layout_head.php';
   <?php endif; ?>
 
   <?php if ($tab === 'account'): ?>
+    <?php
+      $namecustomDisplay = (string) ($panel['namecustom'] ?? '');
+      if (strcasecmp($namecustomDisplay, 'none') === 0) {
+          $namecustomDisplay = '';
+      }
+      $namecustomTestDisplay = (string) ($panel['namecustom_test'] ?? '');
+      if (strcasecmp($namecustomTestDisplay, 'none') === 0) {
+          $namecustomTestDisplay = '';
+      }
+    ?>
     <div class="card">
       <div class="card-head"><div class="card-title">روش ساخت نام کاربری و تمدید</div></div>
       <div class="card-body">
         <div class="form-grid">
           <div class="field full">
             <label>روش ساخت نام کاربری</label>
-            <select name="MethodUsername" class="select">
+            <select name="MethodUsername" id="method-username" class="select">
               <?php foreach (METHOD_USERNAME_OPTIONS as $opt): ?>
                 <option value="<?= htmlspecialchars($opt) ?>" <?= ($panel['MethodUsername'] ?? '') === $opt ? 'selected' : '' ?>><?= htmlspecialchars($opt) ?></option>
               <?php endforeach; ?>
             </select>
+          </div>
+          <div class="field" id="namecustom-normal-wrap">
+            <label>پیشوند محصولات عادی</label>
+            <input type="text" name="namecustom" id="namecustom-normal" class="input" maxlength="32" pattern="[A-Za-z0-9_]{3,32}"
+              value="<?= htmlspecialchars($namecustomDisplay) ?>"
+              placeholder="مثلاً shop"
+              autocomplete="off">
+            <small class="cf">برای روش‌هایی مثل «متن دلخواه + عدد رندوم». مثال: shop → shop_a1b2c3</small>
+          </div>
+          <div class="field" id="namecustom-test-wrap">
+            <label>پیشوند اکانت تست</label>
+            <input type="text" name="namecustom_test" id="namecustom-test" class="input" maxlength="32"
+              value="<?= htmlspecialchars($namecustomTestDisplay) ?>"
+              placeholder="مثلاً test"
+              autocomplete="off">
+            <small class="cf">جدا از محصولات عادی. اگر خالی باشد همان پیشوند عادی استفاده می‌شود.</small>
+          </div>
+          <div class="field full" id="namecustom-hint" style="display:none">
+            <div class="notice" style="margin:0;font-size:.85rem">این روش از پیشوند استفاده نمی‌کند. پیشوند فقط برای روش‌های «متن دلخواه» و «نام کاربری + عدد به ترتیب» اعمال می‌شود.</div>
           </div>
           <div class="field full">
             <label>روش تمدید سرویس</label>
@@ -562,6 +645,32 @@ include __DIR__ . '/inc/layout_head.php';
         </div>
       </div>
     </div>
+    <script>
+    (function () {
+      var prefixMethods = <?= json_encode(array_values(METHOD_USERNAME_PREFIX_OPTIONS), JSON_UNESCAPED_UNICODE) ?>;
+      var select = document.getElementById('method-username');
+      var hint = document.getElementById('namecustom-hint');
+      var normalInput = document.getElementById('namecustom-normal');
+      var testInput = document.getElementById('namecustom-test');
+      if (!select) return;
+      function sync() {
+        var uses = prefixMethods.indexOf(select.value) !== -1;
+        if (hint) hint.style.display = uses ? 'none' : 'block';
+        if (normalInput) {
+          normalInput.required = uses;
+          if (uses) normalInput.setAttribute('pattern', '[A-Za-z0-9_]{3,32}');
+          else normalInput.removeAttribute('pattern');
+        }
+        if (testInput) {
+          if (testInput.value) testInput.setAttribute('pattern', '[A-Za-z0-9_]{3,32}');
+          else testInput.removeAttribute('pattern');
+        }
+      }
+      select.addEventListener('change', sync);
+      if (testInput) testInput.addEventListener('input', sync);
+      sync();
+    })();
+    </script>
   <?php endif; ?>
 
   <?php if ($tab === 'pricing'): ?>

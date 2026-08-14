@@ -350,6 +350,7 @@ try {
         TestAccount varchar(100) NULL,
         limit_panel varchar(100) NULL,
         namecustom varchar(100) NULL,
+        namecustom_test varchar(100) NULL,
         Methodextend varchar(100) NULL,
         conecton varchar(100) NULL,
         linksubx varchar(1000) NULL,
@@ -443,6 +444,7 @@ try {
         addFieldToTable("marzban_panel", "type", "marzban", "VARCHAR(50)");
         addFieldToTable("marzban_panel", "Methodextend", "ریست حجم و زمان", "VARCHAR(100)");
         addFieldToTable("marzban_panel", "namecustom", "vpn", "VARCHAR(100)");
+        addFieldToTable("marzban_panel", "namecustom_test", "none", "VARCHAR(100)");
         addFieldToTable("marzban_panel", "limit_panel", "unlimted", "VARCHAR(50)");
         addFieldToTable("marzban_panel", "TestAccount", "ONTestAccount", "VARCHAR(50)");
         addFieldToTable("marzban_panel", "status", "active", "VARCHAR(50)");

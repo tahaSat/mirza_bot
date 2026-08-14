@@ -423,7 +423,7 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
     $text = strtolower($text);
     $marzban_list_get = select("marzban_panel", "*", "code_panel", $name_panel, "select");
     $text = strtolower($text);
-    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $user['username'], $randomString, $text, $marzban_list_get['namecustom'], $user['namecustom']);
+    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $user['username'], $randomString, $text, panel_username_prefix($marzban_list_get, true), $user['namecustom']);
     $username_ac = strtolower($username_ac);
     $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
     $random_number = rand(1000000, 9999999);
@@ -848,7 +848,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         return;
     }
     $randomString = bin2hex(random_bytes(2));
-    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, '', $marzban_list_get['namecustom'], $user['namecustom']);
+    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, '', panel_username_prefix($marzban_list_get), $user['namecustom']);
     $username_ac = strtolower($username_ac);
     savedata("save", "username", $username_ac);
     $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
@@ -946,7 +946,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         }
     }
     $randomString = bin2hex(random_bytes(2));
-    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, $text, $marzban_list_get['namecustom'], $user['namecustom']);
+    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, $text, panel_username_prefix($marzban_list_get), $user['namecustom']);
     $username_ac = strtolower($username_ac);
     savedata("save", "username", $username_ac);
     $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);

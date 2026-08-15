@@ -5347,7 +5347,6 @@ function product_ensure_hwid_limit_column(): void
     $ensured = true;
 }
 
-ensure_hot_path_indexes();
 product_ensure_hwid_limit_column();
 product_ensure_sort_order_column();
 
@@ -5521,7 +5520,7 @@ function agent_product_access_sql($agent, $agentUserId): string
         }
         return "EXISTS (SELECT 1 FROM agent_n2_category ac WHERE (ac.agent_id = '{$aid}' OR ac.agent_id = '" . addslashes((string) $agentUserId) . "') AND ac.enabled = 1 AND ac.category = product.category)";
     }
-    return "agent = '" . addslashes((string) $agent) . "'";
+    return "product.agent = '" . addslashes((string) $agent) . "'";
 }
 
 function agent_n2_agent_id($agentUserId): string

@@ -4238,8 +4238,16 @@ $textinvite
     sendmessage($from_id, $textin, $payment, 'HTML');
     step('payment', $from_id);
 } elseif ($user['step'] == "getvolumecustomusername" || preg_match('/^prodcutservices_(.*)/', $datain, $dataget)) {
-    $prodcut = $dataget[1];
+    if (!empty($callback_query_id)) {
+        telegram('answerCallbackQuery', [
+            'callback_query_id' => $callback_query_id,
+        ]);
+    }
+    $prodcut = $dataget[1] ?? '';
     $userdate = json_decode($user['Processing_value'], true);
+    if (!is_array($userdate)) {
+        $userdate = [];
+    }
     if ($user['step'] == "getvolumecustomusername") {
         // Legacy free-text days path — redirect to month buttons
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
@@ -4252,19 +4260,32 @@ $textinvite
         deletemessage($from_id, $message_id);
     }
     sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), $backuser, 'html');
-} elseif ($user['step'] == "endstepuser" || $user['step'] == "endstepusers" || preg_match('/prodcutservice_(.*)/', $datain, $dataget) || $user['step'] == "getvolumecustomuser") {
+} elseif ($user['step'] == "endstepuser" || $user['step'] == "endstepusers" || preg_match('/^prodcutservice_(.*)/', $datain, $dataget) || $user['step'] == "getvolumecustomuser") {
+    if (!empty($callback_query_id)) {
+        telegram('answerCallbackQuery', [
+            'callback_query_id' => $callback_query_id,
+        ]);
+    }
     $userdate = json_decode($user['Processing_value'], true);
+    if (!is_array($userdate)) {
+        $userdate = [];
+    }
     if ($user['step'] == "getvolumecustomuser") {
-        $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
+        $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'] ?? '', "select");
         sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) $user['Processing_value_one'], $user), 'html');
         step('selectcustommonth', $from_id);
         return;
     } elseif ($user['step'] == "endstepusers" || $user['step'] == "endstepuser") {
         $prodcut = $user['Processing_value_one'];
     } else {
-        $prodcut = $dataget[1];
+        $prodcut = $dataget[1] ?? '';
     }
-    $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
+    $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'] ?? '', "select");
+    if (!is_array($marzban_list_get) || empty($marzban_list_get['name_panel'])) {
+        sendmessage($from_id, "❌ پنل یافت نشد. مراحل خرید را از اول انجام دهید", $keyboard, 'HTML');
+        step("home", $from_id);
+        return;
+    }
     if ($marzban_list_get['status'] == "disable") {
         sendmessage($from_id, "❌ این پنل در دسترس نیست لطفا از پنل دیگری خرید را انجام دهید.", $backuser, 'html');
         step("home", $from_id);
@@ -4292,7 +4313,20 @@ $textinvite
             return;
         }
     } else {
-        $info_product = mysqli_fetch_assoc(mysqli_query($connect, "SELECT * FROM product WHERE code_product = '$loc' AND (Location = '{$userdate['name_panel']}'or Location = '/all') LIMIT 1"));
+        $sql = "SELECT * FROM product WHERE code_product = :code_product AND (Location = :location OR Location = '/all')";
+        $params = [
+            ':code_product' => $loc,
+            ':location' => $userdate['name_panel'],
+        ];
+        $category = category_from_processing($userdate);
+        if (is_array($category) && !empty($category['remark'])) {
+            $sql .= " AND category = :category";
+            $params[':category'] = $category['remark'];
+        }
+        $sql .= " LIMIT 1";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $info_product = $stmt->fetch(PDO::FETCH_ASSOC);
     }
     if (!isset($info_product['price_product'])) {
         sendmessage($from_id, "❌ خطایی در تایید  انجام شده است لطفا مراحل پرداخت را مجددا انجام دهید", $keyboard, 'HTML');
@@ -4325,7 +4359,7 @@ $textinvite
         '{username}' => $username_ac,
         '{name_product}' => $info_product['name_product'],
         '{Service_time}' => $info_product['Service_time'],
-        '{note}' => $info_product['note'],
+        '{note}' => $info_product['note'] ?? '',
         '{price}' => $info_product_price_product,
         '{Volume}' => $info_product['Volume_constraint'],
         '{userBalance}' => $userBalance
@@ -4342,12 +4376,20 @@ $textinvite
     step('payment', $from_id);
 } elseif ($user['step'] == "payment" && $datain == "confirmandgetservice" || $datain == "confirmandgetserviceDiscount") {
     $userdate = json_decode($user['Processing_value'], true);
+    if (!is_array($userdate)) {
+        $userdate = [];
+    }
     Editmessagetext($from_id, $message_id, $text_inline, json_encode(['inline_keyboard' => []]));
     // $pats for customm service
     $parts = explode("_", $user['Processing_value_one']);
     // $partsdic for discount value
     $partsdic = explode("_", $user['Processing_value_four']);
-    $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
+    $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'] ?? '', "select");
+    if (!is_array($marzban_list_get) || empty($marzban_list_get['name_panel'])) {
+        sendmessage($from_id, "❌ پنل یافت نشد. مراحل خرید را از اول انجام دهید", $keyboard, 'HTML');
+        step("home", $from_id);
+        return;
+    }
     if ($marzban_list_get['status'] == "disable") {
         sendmessage($from_id, "❌ این پنل در دسترس نیست لطفا از پنل دیگری خرید را انجام دهید.", $backuser, 'html');
         step("home", $from_id);
@@ -4366,11 +4408,19 @@ $textinvite
         }
         $info_product['data_limit_reset'] = "no_reset";
     } else {
-        $stmt = $pdo->prepare("SELECT * FROM product WHERE code_product = :code_product AND (Location = :location OR Location = '/all') LIMIT 1");
-        $stmt->execute([
+        $sql = "SELECT * FROM product WHERE code_product = :code_product AND (Location = :location OR Location = '/all')";
+        $params = [
             ':code_product' => $user['Processing_value_one'],
             ':location' => $userdate['name_panel']
-        ]);
+        ];
+        $category = category_from_processing($userdate);
+        if (is_array($category) && !empty($category['remark'])) {
+            $sql .= " AND category = :category";
+            $params[':category'] = $category['remark'];
+        }
+        $sql .= " LIMIT 1";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
         $info_product = $stmt->fetch(PDO::FETCH_ASSOC);
     }
     if (!isset($info_product['price_product']))

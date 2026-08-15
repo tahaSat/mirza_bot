@@ -4,8 +4,8 @@
 $request_exec_timeout = null;
 $dbhost = 'localhost';
 $dbname = 'mirza_pr';
-$usernamedb = 'mirza_user';
-$passworddb = 'f1f712f8a0e2ca7d498a65c99216405b';
+$usernamedb = 'fRLZKZOk';
+$passworddb = 'M5CXcXktskbz';
 $connect = mysqli_connect($dbhost, $usernamedb, $passworddb, $dbname);
 if ($connect->connect_error) { die("error" . $connect->connect_error); }
 mysqli_set_charset($connect, "utf8mb4");

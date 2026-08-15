@@ -1488,7 +1488,6 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
         $valuetow = "";
     }
     $isAgentN = (($user['agent'] ?? '') === 'n');
-    $countorder = count_user_non_unpaid_invoices($from_id);
     foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
         $hide_panel = json_decode($result['hide_panel'] ?? '[]', true);
         if (!is_array($hide_panel)) {
@@ -1500,6 +1499,10 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
         if (!product_category_is_active($result)) {
             continue;
         }
+        $stmts2 = $pdo->prepare("SELECT * FROM invoice WHERE Status != 'Unpaid' AND id_user = :id_user");
+        $stmts2->bindValue(':id_user', $from_id);
+        $stmts2->execute();
+        $countorder = $stmts2->rowCount();
         if ($result['one_buy_status'] == "1" && $countorder != 0)
             continue;
         if ($isAgentN) {
@@ -1535,41 +1538,32 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
     ensure_shop_button_emoji_columns();
     $uid = $agentUserId !== null ? $agentUserId : $from_id;
     $accessSql = agent_product_access_sql($agent, $uid);
-    $stmt = $pdo->prepare("SELECT c.*, product.hide_panel
-        FROM category c
-        INNER JOIN product ON product.category = c.remark
-            AND (product.Location = :location OR product.Location = '/all')
-            AND {$accessSql}");
-    $stmt->bindValue(':location', $location, PDO::PARAM_STR);
+    $stmt = $pdo->prepare("SELECT * FROM category");
     $stmt->execute();
-    $list_category = ['inline_keyboard' => []];
-    $seen = [];
+    $list_category = ['inline_keyboard' => [],];
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $cid = $row['id'];
-        if (isset($seen[$cid]) && $seen[$cid]['visible']) {
-            continue;
-        }
         if (!category_is_active($row)) {
-            $seen[$cid] = ['visible' => false, 'row' => $row];
             continue;
         }
-        $hide_panel = json_decode($row['hide_panel'] ?? '[]', true);
-        if (!is_array($hide_panel)) {
-            $hide_panel = [];
-        }
-        if (in_array($location, $hide_panel, true)) {
-            if (!isset($seen[$cid])) {
-                $seen[$cid] = ['visible' => false, 'row' => $row];
+        $stmts = $pdo->prepare("SELECT * FROM product WHERE (Location = :location OR Location = '/all') AND category = :category AND {$accessSql}");
+        $stmts->bindParam(':location', $location, PDO::PARAM_STR);
+        $stmts->bindParam(':category', $row['remark'], PDO::PARAM_STR);
+        $stmts->execute();
+        $visibleCount = 0;
+        foreach ($stmts->fetchAll(PDO::FETCH_ASSOC) as $prodRow) {
+            $hide_panel = json_decode($prodRow['hide_panel'] ?? '[]', true);
+            if (!is_array($hide_panel)) {
+                $hide_panel = [];
             }
+            if (in_array($location, $hide_panel, true)) {
+                continue;
+            }
+            $visibleCount++;
+            break;
+        }
+        if ($visibleCount === 0) {
             continue;
         }
-        $seen[$cid] = ['visible' => true, 'row' => $row];
-    }
-    foreach ($seen as $item) {
-        if (!$item['visible']) {
-            continue;
-        }
-        $row = $item['row'];
         $list_category['inline_keyboard'][] = [telegram_button_with_icon(
             ['text' => $row['remark'], 'callback_data' => "categorynames_" . $row['id']],
             $row['emoji_id'] ?? ''

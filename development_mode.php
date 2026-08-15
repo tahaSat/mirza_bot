@@ -2,7 +2,8 @@
 
 /**
  * When $development_mode is true in config.php the bot answers users with a
- * maintenance message and does not run purchases, crons, panel writes, or APIs.
+ * maintenance message and does not run purchases, crons, or APIs.
+ * The /panel admin UI stays available.
  */
 
 function mirza_development_mode_message(): string
@@ -30,6 +31,9 @@ function mirza_development_mode_should_skip_boot(): bool
         return true;
     }
     if (strpos($script, DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR) !== false) {
+        return true;
+    }
+    if (strpos($script, DIRECTORY_SEPARATOR . 'panel' . DIRECTORY_SEPARATOR) !== false) {
         return true;
     }
     // Agent bots parse the update after function.php is loaded.

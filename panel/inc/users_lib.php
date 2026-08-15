@@ -5,6 +5,139 @@ function panel_invoice_active_statuses(): array
     return ['active', 'end_of_time', 'end_of_volume', 'sendedwarn', 'send_on_hold'];
 }
 
+function panel_invoice_unpaid_statuses(): array
+{
+    return [
+        'unpaid', 'Unpaid', 'unpiad', 'Unpiad',
+        'reject', 'waiting', 'expire',
+        'removebyadmin', 'removedbyadmin',
+    ];
+}
+
+function panel_invoice_paid_sql(string $statusCol = 'Status'): string
+{
+    $quoted = [];
+    foreach (panel_invoice_unpaid_statuses() as $st) {
+        $quoted[] = "'" . str_replace("'", "''", $st) . "'";
+    }
+    return "$statusCol NOT IN (" . implode(',', $quoted) . ") AND $statusCol IS NOT NULL AND $statusCol != ''";
+}
+
+function panel_extend_types(): array
+{
+    return ['extend_user', 'extends_not_user', 'extend_user_by_admin'];
+}
+
+function panel_extend_paid_sql(string $typeCol = 'type', string $statusCol = 'status'): string
+{
+    $quoted = [];
+    foreach (panel_extend_types() as $type) {
+        $quoted[] = "'" . str_replace("'", "''", $type) . "'";
+    }
+    return "$typeCol IN (" . implode(',', $quoted) . ") AND $statusCol = 'paid'";
+}
+
+function panel_datetime_epoch_sql(string $column): string
+{
+    return "CASE
+        WHEN $column REGEXP '^[0-9]{9,}$' THEN CAST($column AS UNSIGNED)
+        ELSE COALESCE(
+            UNIX_TIMESTAMP(STR_TO_DATE($column, '%Y-%m-%d %H:%i:%s')),
+            UNIX_TIMESTAMP(STR_TO_DATE($column, '%Y/%m/%d %H:%i:%s'))
+        )
+    END";
+}
+
+function panel_user_segment_from_request(): array
+{
+    $test = (string) ($_GET['test'] ?? '');
+    if (!in_array($test, ['yes', 'no'], true)) {
+        $test = '';
+    }
+    $minBuysRaw = trim((string) ($_GET['min_buys'] ?? ''));
+    $minExtendsRaw = trim((string) ($_GET['min_extends'] ?? ''));
+    return [
+        'test' => $test,
+        'min_buys' => $minBuysRaw !== '' && ctype_digit($minBuysRaw) ? (int) $minBuysRaw : null,
+        'min_extends' => $minExtendsRaw !== '' && ctype_digit($minExtendsRaw) ? (int) $minExtendsRaw : null,
+    ];
+}
+
+function panel_user_segment_active(array $filters): bool
+{
+    return ($filters['test'] ?? '') !== ''
+        || ($filters['min_buys'] ?? null) !== null
+        || ($filters['min_extends'] ?? null) !== null;
+}
+
+/**
+ * JOIN/WHERE fragments for combinable user filters (test account, paid buys, paid extends).
+ *
+ * @return array{joins:string,where:array,params:array,select:array}
+ */
+function panel_user_segment_query_parts(array $filters, bool $alwaysJoin = false): array
+{
+    $needBuys = $alwaysJoin || (($filters['min_buys'] ?? null) !== null);
+    $needExtends = $alwaysJoin || (($filters['min_extends'] ?? null) !== null);
+    $needTest = $alwaysJoin || (($filters['test'] ?? '') !== '');
+
+    $joins = [];
+    $where = [];
+    $params = [];
+    $select = [];
+    $paidSql = panel_invoice_paid_sql('Status');
+    $extendSql = panel_extend_paid_sql();
+
+    if ($needBuys) {
+        $joins[] = "LEFT JOIN (
+            SELECT id_user, COUNT(*) AS buy_count
+            FROM invoice
+            WHERE name_product != 'سرویس تست' AND $paidSql
+            GROUP BY id_user
+        ) seg_buys ON CONVERT(seg_buys.id_user USING utf8mb4) COLLATE utf8mb4_unicode_ci = CONVERT(u.id USING utf8mb4) COLLATE utf8mb4_unicode_ci";
+        $select[] = 'COALESCE(seg_buys.buy_count, 0) AS buy_count';
+    }
+    if ($needExtends) {
+        $joins[] = "LEFT JOIN (
+            SELECT id_user, COUNT(*) AS extend_count
+            FROM service_other
+            WHERE $extendSql
+            GROUP BY id_user
+        ) seg_extends ON CONVERT(seg_extends.id_user USING utf8mb4) COLLATE utf8mb4_unicode_ci = CONVERT(u.id USING utf8mb4) COLLATE utf8mb4_unicode_ci";
+        $select[] = 'COALESCE(seg_extends.extend_count, 0) AS extend_count';
+    }
+    if ($needTest) {
+        $joins[] = "LEFT JOIN (
+            SELECT id_user, COUNT(*) AS test_count
+            FROM invoice
+            WHERE name_product = 'سرویس تست'
+            GROUP BY id_user
+        ) seg_tests ON CONVERT(seg_tests.id_user USING utf8mb4) COLLATE utf8mb4_unicode_ci = CONVERT(u.id USING utf8mb4) COLLATE utf8mb4_unicode_ci";
+        $select[] = 'COALESCE(seg_tests.test_count, 0) AS test_count';
+    }
+
+    if (($filters['test'] ?? '') === 'yes') {
+        $where[] = 'COALESCE(seg_tests.test_count, 0) > 0';
+    } elseif (($filters['test'] ?? '') === 'no') {
+        $where[] = 'COALESCE(seg_tests.test_count, 0) = 0';
+    }
+    if (($filters['min_buys'] ?? null) !== null) {
+        $where[] = 'COALESCE(seg_buys.buy_count, 0) >= ?';
+        $params[] = (int) $filters['min_buys'];
+    }
+    if (($filters['min_extends'] ?? null) !== null) {
+        $where[] = 'COALESCE(seg_extends.extend_count, 0) >= ?';
+        $params[] = (int) $filters['min_extends'];
+    }
+
+    return [
+        'joins' => implode("\n", $joins),
+        'where' => $where,
+        'params' => $params,
+        'select' => $select,
+    ];
+}
+
 function panel_invoice_status_map(): array
 {
     return [

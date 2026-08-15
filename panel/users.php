@@ -102,6 +102,8 @@ try {
 $search = trim($_GET['q'] ?? '');
 $status = $_GET['status'] ?? '';
 $role = $_GET['role'] ?? '';
+$userFilters = panel_user_segment_from_request();
+$userFiltersActive = panel_user_segment_active($userFilters);
 $view = $_GET['view'] === 'admins' ? 'admins' : 'users';
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 25;
@@ -117,21 +119,28 @@ try {
         $where = [];
         $params = [];
         if ($search !== '') {
-            $where[] = "(id LIKE ? OR COALESCE(username,'') LIKE ? OR COALESCE(namecustom,'') LIKE ? OR COALESCE(number,'') LIKE ?)";
+            $where[] = "(u.id LIKE ? OR COALESCE(u.username,'') LIKE ? OR COALESCE(u.namecustom,'') LIKE ? OR COALESCE(u.number,'') LIKE ?)";
             $params = ["%$search%", "%$search%", "%$search%", "%$search%"];
         }
         if ($status === 'block') {
-            $where[] = "LOWER(User_Status) = 'block'";
+            $where[] = "LOWER(u.User_Status) = 'block'";
         } elseif ($status === 'active') {
-            $where[] = "(User_Status IS NULL OR User_Status = '' OR LOWER(User_Status) != 'block')";
+            $where[] = "(u.User_Status IS NULL OR u.User_Status = '' OR LOWER(u.User_Status) != 'block')";
         }
         if ($role !== '') {
-            $where[] = "agent = ?";
+            $where[] = "u.agent = ?";
             $params[] = $role;
         }
+        $seg = panel_user_segment_query_parts($userFilters, $userFiltersActive);
+        foreach ($seg['where'] as $clause) {
+            $where[] = $clause;
+        }
+        $params = array_merge($params, $seg['params']);
         $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
-        $total = db_count($pdo, "SELECT COUNT(*) FROM user $whereSQL", $params);
-        $users = db_fetchAll($pdo, "SELECT * FROM user $whereSQL ORDER BY register DESC LIMIT $perPage OFFSET $offset", $params);
+        $selectExtra = $seg['select'] ? ', ' . implode(', ', $seg['select']) : '';
+        $fromSQL = "FROM user u {$seg['joins']}";
+        $total = db_count($pdo, "SELECT COUNT(*) $fromSQL $whereSQL", $params);
+        $users = db_fetchAll($pdo, "SELECT u.*$selectExtra $fromSQL $whereSQL ORDER BY u.register DESC LIMIT $perPage OFFSET $offset", $params);
     }
 } catch (Exception $e) {
     $total = 0;
@@ -223,6 +232,22 @@ include __DIR__ . '/inc/layout_head.php';
                 <option value="n" <?= $role === 'n' ? 'selected' : '' ?>>نماینده</option>
                 <option value="n2" <?= $role === 'n2' ? 'selected' : '' ?>>نماینده پیشرفته</option>
             </select>
+            <select name="test" class="select" style="width:auto"
+                onchange="document.getElementById('usersForm').submit()">
+                <option value="">اکانت تست: همه</option>
+                <option value="yes" <?= $userFilters['test'] === 'yes' ? 'selected' : '' ?>>دارای اکانت تست</option>
+                <option value="no" <?= $userFilters['test'] === 'no' ? 'selected' : '' ?>>بدون اکانت تست</option>
+            </select>
+            <input class="input" type="number" name="min_buys" min="0" step="1" inputmode="numeric"
+                placeholder="حداقل خرید"
+                style="width:110px"
+                value="<?= $userFilters['min_buys'] !== null ? (int) $userFilters['min_buys'] : '' ?>"
+                onchange="document.getElementById('usersForm').submit()">
+            <input class="input" type="number" name="min_extends" min="0" step="1" inputmode="numeric"
+                placeholder="حداقل تمدید"
+                style="width:110px"
+                value="<?= $userFilters['min_extends'] !== null ? (int) $userFilters['min_extends'] : '' ?>"
+                onchange="document.getElementById('usersForm').submit()">
             <?php endif; ?>
 
             <div class="search-box users-search">
@@ -233,7 +258,7 @@ include __DIR__ . '/inc/layout_head.php';
                 <button type="submit" class="search-btn">جستجو</button>
             </div>
 
-            <?php if ($search || ($view === 'users' && ($status || $role))): ?>
+            <?php if ($search || ($view === 'users' && ($status || $role || $userFiltersActive))): ?>
                 <a href="users.php<?= $view === 'admins' ? '?view=admins' : '' ?>" class="btn-link" style="font-size:.78rem;white-space:nowrap">پاک کردن</a>
             <?php endif; ?>
         </form>
@@ -357,6 +382,20 @@ include __DIR__ . '/inc/layout_head.php';
                                     <?php endif; ?>
                                 </span>
                             </div>
+                            <?php if ($userFiltersActive): ?>
+                                <div class="data-field">
+                                    <span class="data-field-label">خرید</span>
+                                    <span class="data-field-val cn"><?= number_format((int) ($u['buy_count'] ?? 0)) ?></span>
+                                </div>
+                                <div class="data-field">
+                                    <span class="data-field-label">تمدید</span>
+                                    <span class="data-field-val cn"><?= number_format((int) ($u['extend_count'] ?? 0)) ?></span>
+                                </div>
+                                <div class="data-field">
+                                    <span class="data-field-label">اکانت تست</span>
+                                    <span class="data-field-val"><?= ((int) ($u['test_count'] ?? 0)) > 0 ? 'دارد' : 'ندارد' ?></span>
+                                </div>
+                            <?php endif; ?>
                             <div class="data-field">
                                 <span class="data-field-label">ثبت‌نام</span>
                                 <span class="data-field-val"><?= safe_date($u['register'] ?? null) ?></span>
@@ -391,6 +430,9 @@ include __DIR__ . '/inc/layout_head.php';
                 . '&q=' . urlencode($search)
                 . '&status=' . urlencode($status)
                 . '&role=' . urlencode($role)
+                . '&test=' . urlencode($userFilters['test'])
+                . '&min_buys=' . urlencode($userFilters['min_buys'] !== null ? (string) $userFilters['min_buys'] : '')
+                . '&min_extends=' . urlencode($userFilters['min_extends'] !== null ? (string) $userFilters['min_extends'] : '')
                 . '&page=' . $p;
             ?>
             <a class="<?= $page <= 1 ? 'dis' : '' ?>" href="<?= $qs(max(1, $page - 1)) ?>">‹</a>

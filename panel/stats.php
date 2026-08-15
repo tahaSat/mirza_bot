@@ -12,6 +12,16 @@ $metricDefs = [
     'payments' => 'روش پرداخت',
 ];
 
+$saleTypeDefs = [
+    'all' => 'خرید و تمدید',
+    'buy' => 'فقط خرید',
+    'extend' => 'فقط تمدید',
+];
+$saleType = (string) ($_GET['sale_type'] ?? 'all');
+if (!isset($saleTypeDefs[$saleType])) {
+    $saleType = 'all';
+}
+
 $rawViews = $_GET['views'] ?? ($_GET['view'] ?? 'sales');
 if (is_array($rawViews)) {
     $selected = $rawViews;
@@ -52,11 +62,25 @@ for ($d = 1; $d <= $daysInMonth; $d++) {
     $dayLabels[] = (string) $d;
 }
 
-$paidStatuses = panel_invoice_active_statuses();
+$userFilters = panel_user_segment_from_request();
+$userFiltersActive = panel_user_segment_active($userFilters);
+$userPage = max(1, (int) ($_GET['user_page'] ?? 1));
+$userPerPage = 25;
+$userOffset = ($userPage - 1) * $userPerPage;
+
+$paidInvoiceSql = panel_invoice_paid_sql('Status');
+$extendPaidSql = panel_extend_paid_sql();
+$extendEpochSql = panel_datetime_epoch_sql('time');
+$extendDaySql = "FROM_UNIXTIME(($extendEpochSql), '%Y-%m-%d')";
+$extendRangeSql = "($extendEpochSql) BETWEEN ? AND ?";
 
 $summary = [
     'orders' => 0,
     'revenue' => 0,
+    'buys' => 0,
+    'buy_revenue' => 0,
+    'extends' => 0,
+    'extend_revenue' => 0,
     'users' => 0,
     'payments' => 0,
     'payment_sum' => 0,
@@ -71,23 +95,39 @@ $chartPayload = [
 
 $tableRows = [];
 $hasStacked = false;
+$filteredUsers = [];
+$filteredUserTotal = 0;
+$filteredUserPages = 1;
 
 try {
-    $summary['orders'] = db_count(
+    $summary['buys'] = db_count(
         $pdo,
         "SELECT COUNT(*) FROM invoice
          WHERE name_product != 'سرویس تست'
+           AND $paidInvoiceSql
            AND time_sell REGEXP '^[0-9]+$'
            AND CAST(time_sell AS UNSIGNED) BETWEEN ? AND ?",
         [$monthStart, $monthEnd]
     );
-    $summary['revenue'] = (int) db_query(
+    $summary['buy_revenue'] = (int) db_query(
         $pdo,
         "SELECT COALESCE(SUM(CAST(price_product AS DECIMAL(20,0))),0) FROM invoice
          WHERE name_product != 'سرویس تست'
-           AND Status IN ('" . implode("','", $paidStatuses) . "')
+           AND $paidInvoiceSql
            AND time_sell REGEXP '^[0-9]+$'
            AND CAST(time_sell AS UNSIGNED) BETWEEN ? AND ?",
+        [$monthStart, $monthEnd]
+    )->fetchColumn();
+    $summary['extends'] = db_count(
+        $pdo,
+        "SELECT COUNT(*) FROM service_other
+         WHERE $extendPaidSql AND $extendRangeSql",
+        [$monthStart, $monthEnd]
+    );
+    $summary['extend_revenue'] = (int) db_query(
+        $pdo,
+        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM service_other
+         WHERE $extendPaidSql AND $extendRangeSql",
         [$monthStart, $monthEnd]
     )->fetchColumn();
     $summary['users'] = db_count(
@@ -120,6 +160,17 @@ try {
 } catch (Exception $e) {
 }
 
+if ($saleType === 'buy') {
+    $summary['orders'] = $summary['buys'];
+    $summary['revenue'] = $summary['buy_revenue'];
+} elseif ($saleType === 'extend') {
+    $summary['orders'] = $summary['extends'];
+    $summary['revenue'] = $summary['extend_revenue'];
+} else {
+    $summary['orders'] = $summary['buys'] + $summary['extends'];
+    $summary['revenue'] = $summary['buy_revenue'] + $summary['extend_revenue'];
+}
+
 $palette = [
     'rgba(6,182,212,0.85)',
     'rgba(34,197,94,0.85)',
@@ -136,58 +187,110 @@ $palette = [
 $multi = count($selected) > 1;
 
 if (in_array('sales', $selected, true)) {
-    $byDay = array_fill_keys($dayKeys, ['count' => 0, 'revenue' => 0]);
-    try {
-        $rows = db_fetchAll(
-            $pdo,
-            "SELECT FROM_UNIXTIME(CAST(time_sell AS UNSIGNED), '%Y-%m-%d') AS day,
-                    COUNT(*) AS cnt,
-                    COALESCE(SUM(CAST(price_product AS DECIMAL(20,0))),0) AS revenue
-             FROM invoice
-             WHERE name_product != 'سرویس تست'
-               AND Status IN ('" . implode("','", $paidStatuses) . "')
-               AND time_sell REGEXP '^[0-9]+$'
-               AND CAST(time_sell AS UNSIGNED) BETWEEN ? AND ?
-             GROUP BY day
-             ORDER BY day",
-            [$monthStart, $monthEnd]
-        );
-        foreach ($rows as $row) {
-            $day = $row['day'] ?? '';
-            if (isset($byDay[$day])) {
-                $byDay[$day] = [
-                    'count' => (int) $row['cnt'],
-                    'revenue' => (int) $row['revenue'],
-                ];
+    $buyByDay = array_fill_keys($dayKeys, ['count' => 0, 'revenue' => 0]);
+    $extendByDay = array_fill_keys($dayKeys, ['count' => 0, 'revenue' => 0]);
+
+    if ($saleType !== 'extend') {
+        try {
+            $rows = db_fetchAll(
+                $pdo,
+                "SELECT FROM_UNIXTIME(CAST(time_sell AS UNSIGNED), '%Y-%m-%d') AS day,
+                        COUNT(*) AS cnt,
+                        COALESCE(SUM(CAST(price_product AS DECIMAL(20,0))),0) AS revenue
+                 FROM invoice
+                 WHERE name_product != 'سرویس تست'
+                   AND $paidInvoiceSql
+                   AND time_sell REGEXP '^[0-9]+$'
+                   AND CAST(time_sell AS UNSIGNED) BETWEEN ? AND ?
+                 GROUP BY day
+                 ORDER BY day",
+                [$monthStart, $monthEnd]
+            );
+            foreach ($rows as $row) {
+                $day = $row['day'] ?? '';
+                if (isset($buyByDay[$day])) {
+                    $buyByDay[$day] = [
+                        'count' => (int) $row['cnt'],
+                        'revenue' => (int) $row['revenue'],
+                    ];
+                }
             }
+        } catch (Exception $e) {
         }
-    } catch (Exception $e) {
     }
 
-    $counts = [];
+    if ($saleType !== 'buy') {
+        try {
+            $rows = db_fetchAll(
+                $pdo,
+                "SELECT $extendDaySql AS day,
+                        COUNT(*) AS cnt,
+                        COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS revenue
+                 FROM service_other
+                 WHERE $extendPaidSql AND $extendRangeSql
+                 GROUP BY day
+                 ORDER BY day",
+                [$monthStart, $monthEnd]
+            );
+            foreach ($rows as $row) {
+                $day = $row['day'] ?? '';
+                if (isset($extendByDay[$day])) {
+                    $extendByDay[$day] = [
+                        'count' => (int) $row['cnt'],
+                        'revenue' => (int) $row['revenue'],
+                    ];
+                }
+            }
+        } catch (Exception $e) {
+        }
+    }
+
+    $buyCounts = [];
+    $extendCounts = [];
     $revenues = [];
     foreach ($dayKeys as $key) {
-        $counts[] = $byDay[$key]['count'];
-        $revenues[] = $byDay[$key]['revenue'];
-        if ($byDay[$key]['count'] > 0 || $byDay[$key]['revenue'] > 0) {
+        $buyCounts[] = $buyByDay[$key]['count'];
+        $extendCounts[] = $extendByDay[$key]['count'];
+        $dayRevenue = $buyByDay[$key]['revenue'] + $extendByDay[$key]['revenue'];
+        $revenues[] = $dayRevenue;
+        $dayCount = $buyByDay[$key]['count'] + $extendByDay[$key]['count'];
+        if ($dayCount > 0 || $dayRevenue > 0) {
+            if ($saleType === 'all') {
+                $extra = $buyByDay[$key]['count'] . ' خرید · ' . $extendByDay[$key]['count'] . ' تمدید · ' . number_format($dayRevenue) . ' ت';
+            } else {
+                $extra = number_format($dayRevenue) . ' ت';
+            }
             $tableRows[] = [
                 'group' => $metricDefs['sales'],
                 'label' => $key,
-                'count' => $byDay[$key]['count'],
-                'extra' => number_format($byDay[$key]['revenue']) . ' ت',
+                'count' => $dayCount,
+                'extra' => $extra,
             ];
         }
     }
 
-    $chartPayload['datasets'][] = [
-        'label' => 'تعداد فروش',
-        'data' => $counts,
-        'backgroundColor' => 'rgba(6,182,212,0.75)',
-        'borderRadius' => 6,
-        'stack' => 'sales',
-        'yAxisID' => 'y',
-        'order' => 2,
-    ];
+    if ($saleType !== 'extend') {
+        $chartPayload['datasets'][] = [
+            'label' => $saleType === 'all' ? 'تعداد خرید' : 'تعداد فروش',
+            'data' => $buyCounts,
+            'backgroundColor' => 'rgba(6,182,212,0.75)',
+            'borderRadius' => 6,
+            'stack' => 'sales',
+            'yAxisID' => 'y',
+            'order' => 2,
+        ];
+    }
+    if ($saleType !== 'buy') {
+        $chartPayload['datasets'][] = [
+            'label' => $saleType === 'all' ? 'تعداد تمدید' : 'تعداد تمدید',
+            'data' => $extendCounts,
+            'backgroundColor' => 'rgba(251,146,60,0.8)',
+            'borderRadius' => 6,
+            'stack' => 'sales',
+            'yAxisID' => 'y',
+            'order' => 2,
+        ];
+    }
     $chartPayload['datasets'][] = [
         'label' => 'مبلغ (تومان)',
         'data' => $revenues,
@@ -199,6 +302,9 @@ if (in_array('sales', $selected, true)) {
         'yAxisID' => 'y1',
         'order' => 1,
     ];
+    if ($saleType === 'all') {
+        $hasStacked = true;
+    }
 }
 
 if (in_array('users', $selected, true)) {
@@ -402,6 +508,32 @@ if (in_array('payments', $selected, true)) {
     $hasStacked = true;
 }
 
+if ($userFiltersActive) {
+    $seg = panel_user_segment_query_parts($userFilters, true);
+    $selectExtra = $seg['select'] ? ', ' . implode(', ', $seg['select']) : '';
+    $where = $seg['where'];
+    $params = $seg['params'];
+    $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+    $fromSQL = "FROM user u {$seg['joins']}";
+    try {
+        $filteredUserTotal = db_count($pdo, "SELECT COUNT(*) $fromSQL $whereSQL", $params);
+        $filteredUserPages = max(1, (int) ceil($filteredUserTotal / $userPerPage));
+        if ($userPage > $filteredUserPages) {
+            $userPage = $filteredUserPages;
+            $userOffset = ($userPage - 1) * $userPerPage;
+        }
+        $filteredUsers = db_fetchAll(
+            $pdo,
+            "SELECT u.*$selectExtra $fromSQL $whereSQL ORDER BY CAST(u.register AS UNSIGNED) DESC LIMIT $userPerPage OFFSET $userOffset",
+            $params
+        );
+    } catch (Exception $e) {
+        $filteredUsers = [];
+        $filteredUserTotal = 0;
+        error_log('stats.php user filters: ' . $e->getMessage());
+    }
+}
+
 $chartPayload['stacked'] = $hasStacked;
 
 $monthOptions = [];
@@ -413,20 +545,50 @@ for ($i = 0; $i < 18; $i++) {
 
 $viewsQuery = implode(',', $selected);
 $chartTitle = implode(' + ', array_map(static fn($k) => $metricDefs[$k], $selected));
+if (in_array('sales', $selected, true)) {
+    $chartTitle .= ' · ' . $saleTypeDefs[$saleType];
+}
 $showGroupCol = $multi;
 $showAmountCol = in_array('sales', $selected, true) || in_array('payments', $selected, true);
 
+$statsUrl = static function (array $overrides = []) use ($selected, $monthParam, $saleType, $userFilters, $userPage): string {
+    $q = [
+        'views' => implode(',', $selected),
+        'month' => $monthParam,
+        'sale_type' => $saleType,
+        'test' => $userFilters['test'],
+        'min_buys' => $userFilters['min_buys'] !== null ? (string) $userFilters['min_buys'] : '',
+        'min_extends' => $userFilters['min_extends'] !== null ? (string) $userFilters['min_extends'] : '',
+        'user_page' => $userPage,
+    ];
+    foreach ($overrides as $key => $value) {
+        $q[$key] = $value;
+    }
+    if (($q['sale_type'] ?? 'all') === 'all') {
+        unset($q['sale_type']);
+    }
+    foreach (['test', 'min_buys', 'min_extends'] as $key) {
+        if (($q[$key] ?? '') === '' || $q[$key] === null) {
+            unset($q[$key]);
+        }
+    }
+    if ((int) ($q['user_page'] ?? 1) <= 1) {
+        unset($q['user_page']);
+    }
+    return 'stats.php?' . http_build_query($q);
+};
+
 $pageTitle = 'آمار';
-$pageLede = 'نمودار فروش، کاربران، وضعیت سفارش و روش‌های پرداخت به تفکیک روز. تا دو معیار را هم‌زمان انتخاب کنید.';
+$pageLede = 'فروش پرداخت‌شده (خرید و تمدید)، کاربران و روش پرداخت. فیلترها را می‌توان با هم ترکیب کرد.';
 $activeNav = 'stats';
 include __DIR__ . '/inc/layout_head.php';
 
-$toggleMetricUrl = static function (string $key) use ($selected, $monthParam, $metricDefs): string {
+$toggleMetricUrl = static function (string $key) use ($selected, $metricDefs, $statsUrl): string {
     $next = $selected;
     $idx = array_search($key, $next, true);
     if ($idx !== false) {
         if (count($next) <= 1) {
-            return 'stats.php?views=' . urlencode($key) . '&month=' . urlencode($monthParam);
+            return $statsUrl(['views' => $key, 'user_page' => 1]);
         }
         array_splice($next, $idx, 1);
     } else {
@@ -439,8 +601,28 @@ $toggleMetricUrl = static function (string $key) use ($selected, $monthParam, $m
     if ($next === []) {
         $next = ['sales'];
     }
-    return 'stats.php?views=' . urlencode(implode(',', $next)) . '&month=' . urlencode($monthParam);
+    return $statsUrl(['views' => implode(',', $next), 'user_page' => 1]);
 };
+
+$saleMeta = number_format($summary['buys']) . ' خرید · ' . number_format($summary['extends']) . ' تمدید';
+if ($saleType === 'buy') {
+    $saleMeta = 'فقط خریدهای پرداخت‌شده';
+} elseif ($saleType === 'extend') {
+    $saleMeta = 'فقط تمدیدهای پرداخت‌شده';
+}
+
+$userFilterLabels = [];
+if ($userFilters['test'] === 'yes') {
+    $userFilterLabels[] = 'دارای اکانت تست';
+} elseif ($userFilters['test'] === 'no') {
+    $userFilterLabels[] = 'بدون اکانت تست';
+}
+if ($userFilters['min_buys'] !== null) {
+    $userFilterLabels[] = 'حداقل ' . number_format($userFilters['min_buys']) . ' خرید';
+}
+if ($userFilters['min_extends'] !== null) {
+    $userFilterLabels[] = 'حداقل ' . number_format($userFilters['min_extends']) . ' تمدید';
+}
 ?>
 
 <style>
@@ -449,6 +631,10 @@ $toggleMetricUrl = static function (string $key) use ($selected, $monthParam, $m
   .stats-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
   .stats-empty{padding:48px 16px;text-align:center;color:var(--mute)}
   .stats-hint{font-size:12px;color:var(--mute);margin-top:6px}
+  .stats-user-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end}
+  .stats-user-filters .field input,.stats-user-filters .field select{width:100%}
+  @media (max-width:900px){.stats-user-filters{grid-template-columns:1fr 1fr}}
+  @media (max-width:560px){.stats-user-filters{grid-template-columns:1fr}}
 </style>
 
 <div class="stats fade-up" style="margin-bottom:18px">
@@ -459,12 +645,12 @@ $toggleMetricUrl = static function (string $key) use ($selected, $monthParam, $m
           ? number_format($summary['revenue'] / 1_000_000, 1) . '<small>M ت</small>'
           : number_format($summary['revenue']) . '<small>ت</small>' ?>
     </div>
-    <div class="stat-meta">سفارش‌های فعال</div>
+    <div class="stat-meta"><?= htmlspecialchars($saleMeta) ?></div>
   </div>
   <div class="stat">
     <div class="stat-label">تعداد سفارش</div>
     <div class="stat-num"><?= number_format($summary['orders']) ?></div>
-    <div class="stat-meta">کل ثبت‌شده در ماه</div>
+    <div class="stat-meta">پرداخت‌شده در ماه</div>
   </div>
   <div class="stat">
     <div class="stat-label">کاربران جدید</div>
@@ -490,10 +676,22 @@ $toggleMetricUrl = static function (string $key) use ($selected, $monthParam, $m
         </a>
       <?php endforeach; ?>
     </div>
-    <div class="stats-hint">یک یا دو معیار را انتخاب کنید تا روی یک نمودار مقایسه شوند.</div>
+    <div class="stats-filters" style="margin-top:8px">
+      <?php foreach ($saleTypeDefs as $key => $label): ?>
+        <a href="<?= htmlspecialchars($statsUrl(['sale_type' => $key, 'user_page' => 1])) ?>"
+           class="btn btn-sm <?= $saleType === $key ? 'btn-primary' : 'btn-ghost' ?>">
+          <?= htmlspecialchars($label) ?>
+        </a>
+      <?php endforeach; ?>
+    </div>
+    <div class="stats-hint">یک یا دو معیار را انتخاب کنید. فروش شامل همه فاکتورهای پرداخت‌شده است و با فیلتر خرید/تمدید جدا می‌شود.</div>
   </div>
   <form method="GET" class="toolbar-end" style="display:flex;gap:8px;align-items:center">
     <input type="hidden" name="views" value="<?= htmlspecialchars($viewsQuery) ?>">
+    <input type="hidden" name="sale_type" value="<?= htmlspecialchars($saleType) ?>">
+    <input type="hidden" name="test" value="<?= htmlspecialchars($userFilters['test']) ?>">
+    <input type="hidden" name="min_buys" value="<?= $userFilters['min_buys'] !== null ? (int) $userFilters['min_buys'] : '' ?>">
+    <input type="hidden" name="min_extends" value="<?= $userFilters['min_extends'] !== null ? (int) $userFilters['min_extends'] : '' ?>">
     <select name="month" class="select" style="width:auto" onchange="this.form.submit()">
       <?php foreach ($monthOptions as $val => $lbl): ?>
         <option value="<?= htmlspecialchars($val) ?>" <?= $val === $monthParam ? 'selected' : '' ?>>
@@ -551,6 +749,139 @@ $toggleMetricUrl = static function (string $key) use ($selected, $monthParam, $m
   </div>
 </div>
 <?php endif; ?>
+
+<div class="card fade-up" style="margin-top:16px">
+  <div class="card-head">
+    <div>
+      <div class="card-title">فیلتر کاربران</div>
+      <div class="card-subtitle">اکانت تست، تعداد خرید غیرتست و تعداد تمدید را می‌توان با هم ترکیب کرد. شمارش‌ها بر اساس کل سابقه است.</div>
+    </div>
+  </div>
+  <form method="GET" class="card-body">
+    <input type="hidden" name="views" value="<?= htmlspecialchars($viewsQuery) ?>">
+    <input type="hidden" name="month" value="<?= htmlspecialchars($monthParam) ?>">
+    <input type="hidden" name="sale_type" value="<?= htmlspecialchars($saleType) ?>">
+    <div class="stats-user-filters">
+      <div class="field">
+        <label>اکانت تست</label>
+        <select name="test" class="select">
+          <option value="" <?= $userFilters['test'] === '' ? 'selected' : '' ?>>همه</option>
+          <option value="yes" <?= $userFilters['test'] === 'yes' ? 'selected' : '' ?>>دارای اکانت تست</option>
+          <option value="no" <?= $userFilters['test'] === 'no' ? 'selected' : '' ?>>بدون اکانت تست</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>حداقل خرید غیرتست</label>
+        <input class="input" type="number" name="min_buys" min="0" step="1" inputmode="numeric"
+               placeholder="مثلاً ۲"
+               value="<?= $userFilters['min_buys'] !== null ? (int) $userFilters['min_buys'] : '' ?>">
+      </div>
+      <div class="field">
+        <label>حداقل تمدید</label>
+        <input class="input" type="number" name="min_extends" min="0" step="1" inputmode="numeric"
+               placeholder="مثلاً ۱"
+               value="<?= $userFilters['min_extends'] !== null ? (int) $userFilters['min_extends'] : '' ?>">
+      </div>
+      <div class="field" style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="submit" class="btn btn-primary" style="flex:1">اعمال فیلتر</button>
+        <?php if ($userFiltersActive): ?>
+          <a href="<?= htmlspecialchars($statsUrl(['test' => '', 'min_buys' => '', 'min_extends' => '', 'user_page' => 1])) ?>" class="btn btn-ghost">پاک کردن</a>
+        <?php endif; ?>
+      </div>
+    </div>
+  </form>
+
+  <?php if (!$userFiltersActive): ?>
+    <div class="stats-empty" style="padding-top:0">برای دیدن فهرست، حداقل یک فیلتر را انتخاب کنید.</div>
+  <?php elseif ($filteredUserTotal === 0): ?>
+    <div class="empty"><p>کاربری با این ترکیب فیلتر پیدا نشد.</p></div>
+  <?php else: ?>
+    <div class="toolbar" style="border-top:1px solid var(--bd)">
+      <div class="toolbar-title">
+        فهرست کاربران
+        <small>(<?= number_format($filteredUserTotal) ?>)</small>
+      </div>
+      <div class="toolbar-end">
+        <?php foreach ($userFilterLabels as $lbl): ?>
+          <span class="tag tag-info"><?= htmlspecialchars($lbl) ?></span>
+        <?php endforeach; ?>
+      </div>
+    </div>
+    <div class="data-list">
+      <?php
+      $i = $userOffset + 1;
+      foreach ($filteredUsers as $u):
+          $agent = $u['agent'] ?? 'f';
+          $isBlocked = panel_user_is_blocked($u);
+          $displayName = panel_user_display_name($u);
+          $uname = $u['username'] ?? '';
+          if ($uname === 'none') {
+              $uname = '';
+          }
+          ?>
+        <div class="data-row user-data-row" role="link" tabindex="0"
+             data-user-url="user.php?id=<?= htmlspecialchars((string) $u['id']) ?>"
+             onclick="if (!event.target.closest('a,button')) window.location.href = this.dataset.userUrl"
+             onkeydown="if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('a,button')) { event.preventDefault(); window.location.href = this.dataset.userUrl; }">
+          <div class="data-row-body">
+            <div class="data-row-head">
+              <div class="data-row-title">
+                <span class="data-row-index"><?= $i++ ?></span>
+                <a href="user.php?id=<?= htmlspecialchars((string) $u['id']) ?>"><?= htmlspecialchars($displayName) ?></a>
+              </div>
+              <?php if ($isBlocked): ?>
+                <span class="tag tag-no">مسدود</span>
+              <?php else: ?>
+                <span class="tag <?= user_role_tag($agent) ?>"><?= user_role_label($agent) ?></span>
+              <?php endif; ?>
+            </div>
+            <div class="data-row-fields">
+              <div class="data-field">
+                <span class="data-field-label">آیدی</span>
+                <span class="data-field-val cm"><?= htmlspecialchars((string) $u['id']) ?></span>
+              </div>
+              <?php if ($uname): ?>
+                <div class="data-field">
+                  <span class="data-field-label">یوزرنیم</span>
+                  <span class="data-field-val cm" style="color:var(--ac)">@<?= htmlspecialchars($uname) ?></span>
+                </div>
+              <?php endif; ?>
+              <div class="data-field">
+                <span class="data-field-label">خرید</span>
+                <span class="data-field-val cn"><?= number_format((int) ($u['buy_count'] ?? 0)) ?></span>
+              </div>
+              <div class="data-field">
+                <span class="data-field-label">تمدید</span>
+                <span class="data-field-val cn"><?= number_format((int) ($u['extend_count'] ?? 0)) ?></span>
+              </div>
+              <div class="data-field">
+                <span class="data-field-label">اکانت تست</span>
+                <span class="data-field-val"><?= ((int) ($u['test_count'] ?? 0)) > 0 ? 'دارد (' . number_format((int) $u['test_count']) . ')' : 'ندارد' ?></span>
+              </div>
+              <div class="data-field">
+                <span class="data-field-label">ثبت‌نام</span>
+                <span class="data-field-val"><?= safe_date($u['register'] ?? null) ?></span>
+              </div>
+            </div>
+          </div>
+          <div class="data-row-actions">
+            <a href="user.php?id=<?= htmlspecialchars((string) $u['id']) ?>" class="btn btn-ghost btn-sm btn-icon" title="مدیریت کاربر"><?= icon('eye', 14) ?></a>
+          </div>
+        </div>
+      <?php endforeach; ?>
+    </div>
+    <div class="tbl-foot">
+      <span><?= number_format($filteredUserTotal) ?> کاربر · صفحه <?= $userPage ?> از <?= $filteredUserPages ?></span>
+      <div class="pager">
+        <a class="<?= $userPage <= 1 ? 'dis' : '' ?>" href="<?= htmlspecialchars($statsUrl(['user_page' => max(1, $userPage - 1)])) ?>">‹</a>
+        <?php for ($p = max(1, $userPage - 2); $p <= min($filteredUserPages, $userPage + 2); $p++): ?>
+          <a class="<?= $p === $userPage ? 'cur' : '' ?>" href="<?= htmlspecialchars($statsUrl(['user_page' => $p])) ?>"><?= $p ?></a>
+        <?php endfor; ?>
+        <a class="<?= $userPage >= $filteredUserPages ? 'dis' : '' ?>" href="<?= htmlspecialchars($statsUrl(['user_page' => min($filteredUserPages, $userPage + 1)])) ?>">›</a>
+      </div>
+    </div>
+  <?php endif; ?>
+</div>
 
 <?php if (!empty($chartPayload['datasets'])): ?>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>

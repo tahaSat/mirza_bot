@@ -227,7 +227,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $sql1 = "SELECT COUNT(*) AS invoice_count FROM invoice WHERE (status = 'active' OR status = 'end_of_time' OR status = 'end_of_volume' OR status = 'sendedwarn' OR status = 'send_on_hold') AND name_product != 'سرویس تست'";
     $stmt1 = $pdo->query($sql1);
     $invoiceactive = $stmt1->fetch(PDO::FETCH_ASSOC)['invoice_count'];
-    $sqlall = "SELECT COUNT(*) AS invoice_count FROM invoice WHERE Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin') AND name_product != 'سرویس تست'";
+    $sqlall = "SELECT COUNT(*) AS invoice_count FROM invoice WHERE " . invoice_paid_status_sql('Status') . " AND name_product != 'سرویس تست'";
     $sqlall = $pdo->query($sqlall);
     $invoice = $sqlall->fetch(PDO::FETCH_ASSOC)['invoice_count'];
     $sql2 = "SELECT SUM(price_product) AS total_price FROM invoice WHERE (status = 'active' OR status = 'end_of_time' OR status = 'end_of_volume' OR status = 'sendedwarn' OR status = 'send_on_hold') AND name_product != 'سرویس تست'";
@@ -244,7 +244,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $extendsum = isset($extendSumRow['total_extend']) ? (float) $extendSumRow['total_extend'] : 0;
     $count_usertest = select("invoice", "*", "name_product", "سرویس تست", "count");
     $timeacc = jdate('H:i:s', time());
-    $stmt2 = $pdo->prepare("SELECT COUNT(DISTINCT id_user) as count FROM `invoice` WHERE Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')");
+    $stmt2 = $pdo->prepare("SELECT COUNT(DISTINCT id_user) as count FROM `invoice` WHERE " . invoice_paid_status_sql('Status'));
     $stmt2->execute();
     $statisticsorder = $stmt2->fetch(PDO::FETCH_ASSOC)['count'];
     $sqlsum = "SELECT SUM(price) AS sumpay , Payment_Method,COUNT(price) AS countpay FROM Payment_report WHERE payment_Status = 'paid' AND Payment_Method NOT IN ('add balance by admin','low balance by admin') GROUP BY  Payment_Method;";
@@ -339,7 +339,7 @@ $paycount
     }
 } elseif ($datain == "hoursago_stat") {
     $desired_date_time_start = time() - 3600;
-    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')  AND name_product != 'سرویس تست'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND " . invoice_paid_status_sql('Status') . " AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $time_current = time();
     $stmt->bindParam(':requestedDate', $desired_date_time_start);
@@ -420,7 +420,7 @@ $paycount
     $end_time = date('Y/m/d', strtotime("-1 days")) . " 23:59:59";
     $start_time_timestamp = strtotime($start_time);
     $end_time_timestamp = strtotime($end_time);
-    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')  AND name_product != 'سرویس تست'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND " . invoice_paid_status_sql('Status') . " AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
@@ -505,7 +505,7 @@ $paycount
     $end_time = date('Y/m/d H:i:s');
     $start_time_timestamp = strtotime($start_time);
     $end_time_timestamp = strtotime($end_time);
-    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin') AND name_product != 'سرویس تست'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND " . invoice_paid_status_sql('Status') . " AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
@@ -592,7 +592,7 @@ $paycount
     $end_time = $lastDayLastMonth->format('Y/m/d') . ' 23:59:59';
     $start_time_timestamp = strtotime($firstDayLastMonth->format('Y/m/d') . ' 00:00:00');
     $end_time_timestamp = strtotime($lastDayLastMonth->format('Y/m/d') . ' 23:59:59');
-    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')  AND name_product != 'سرویس تست'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND " . invoice_paid_status_sql('Status') . " AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
@@ -679,7 +679,7 @@ $paycount
     $end_time = $lastDayLastMonth->format('Y/m/d') . ' 23:59:59';
     $start_time_timestamp = strtotime($firstDayLastMonth->format('Y/m/d') . ' 00:00:00');
     $end_time_timestamp = strtotime($lastDayLastMonth->format('Y/m/d') . ' 23:59:59');
-    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')  AND name_product != 'سرویس تست'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND " . invoice_paid_status_sql('Status') . " AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
@@ -780,7 +780,7 @@ $paycount
     $end_time = $text . " 23:59:59";
     $start_time_timestamp = strtotime($start_time);
     $end_time_timestamp = strtotime($end_time);
-    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend)  AND  Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin') AND name_product != 'سرویس تست'";
+    $sql = "SELECT COUNT(*) AS count,SUM(price_product) as sum FROM invoice WHERE (time_sell BETWEEN :requestedDate AND :requestedDateend) AND " . invoice_paid_status_sql('Status') . " AND name_product != 'سرویس تست'";
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':requestedDate', $start_time_timestamp);
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);

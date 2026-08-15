@@ -105,8 +105,7 @@ try {
         "SELECT COUNT(*) FROM invoice
          WHERE name_product != 'سرویس تست'
            AND $paidInvoiceSql
-           AND time_sell REGEXP '^[0-9]+$'
-           AND CAST(time_sell AS UNSIGNED) BETWEEN ? AND ?",
+           AND time_sell BETWEEN ? AND ?",
         [$monthStart, $monthEnd]
     );
     $summary['buy_revenue'] = (int) db_query(
@@ -114,8 +113,7 @@ try {
         "SELECT COALESCE(SUM(CAST(price_product AS DECIMAL(20,0))),0) FROM invoice
          WHERE name_product != 'سرویس تست'
            AND $paidInvoiceSql
-           AND time_sell REGEXP '^[0-9]+$'
-           AND CAST(time_sell AS UNSIGNED) BETWEEN ? AND ?",
+           AND time_sell BETWEEN ? AND ?",
         [$monthStart, $monthEnd]
     )->fetchColumn();
     $summary['extends'] = db_count(
@@ -200,8 +198,7 @@ if (in_array('sales', $selected, true)) {
                  FROM invoice
                  WHERE name_product != 'سرویس تست'
                    AND $paidInvoiceSql
-                   AND time_sell REGEXP '^[0-9]+$'
-                   AND CAST(time_sell AS UNSIGNED) BETWEEN ? AND ?
+                   AND time_sell BETWEEN ? AND ?
                  GROUP BY day
                  ORDER BY day",
                 [$monthStart, $monthEnd]
@@ -364,8 +361,7 @@ if (in_array('status', $selected, true)) {
                     COUNT(*) AS cnt
              FROM invoice
              WHERE name_product != 'سرویس تست'
-               AND time_sell REGEXP '^[0-9]+$'
-               AND CAST(time_sell AS UNSIGNED) BETWEEN ? AND ?
+               AND time_sell BETWEEN ? AND ?
              GROUP BY day, st
              ORDER BY day",
             [$monthStart, $monthEnd]

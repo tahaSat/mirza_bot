@@ -342,6 +342,24 @@ function count_user_non_unpaid_invoices($user_id): int
     return (int) $stmt->fetchColumn();
 }
 
+function invoice_unpaid_statuses(): array
+{
+    return [
+        'Unpaid', 'unpaid', 'unpiad', 'Unpiad',
+        'reject', 'waiting', 'expire',
+        'removebyadmin', 'removedbyadmin',
+    ];
+}
+
+function invoice_paid_status_sql(string $statusCol = 'Status'): string
+{
+    $quoted = [];
+    foreach (invoice_unpaid_statuses() as $st) {
+        $quoted[] = "'" . str_replace("'", "''", $st) . "'";
+    }
+    return "$statusCol NOT IN (" . implode(',', $quoted) . ") AND $statusCol IS NOT NULL AND $statusCol != ''";
+}
+
 function panel_is_hidden_from_user($panel, $user_id): bool
 {
     if (!is_array($panel) || empty($panel['hide_user'])) {

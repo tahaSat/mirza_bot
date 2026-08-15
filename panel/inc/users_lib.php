@@ -7,20 +7,12 @@ function panel_invoice_active_statuses(): array
 
 function panel_invoice_unpaid_statuses(): array
 {
-    return [
-        'unpaid', 'Unpaid', 'unpiad', 'Unpiad',
-        'reject', 'waiting', 'expire',
-        'removebyadmin', 'removedbyadmin',
-    ];
+    return invoice_unpaid_statuses();
 }
 
 function panel_invoice_paid_sql(string $statusCol = 'Status'): string
 {
-    $quoted = [];
-    foreach (panel_invoice_unpaid_statuses() as $st) {
-        $quoted[] = "'" . str_replace("'", "''", $st) . "'";
-    }
-    return "$statusCol NOT IN (" . implode(',', $quoted) . ") AND $statusCol IS NOT NULL AND $statusCol != ''";
+    return invoice_paid_status_sql($statusCol);
 }
 
 function panel_extend_types(): array

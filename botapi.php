@@ -1,5 +1,5 @@
 <?php
-require_once 'config.php';
+require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/request.php';
 if (is_file(__DIR__ . '/polling_log.php')) {
     require_once __DIR__ . '/polling_log.php';

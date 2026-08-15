@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/cli_only.php';
 ini_set('error_log', 'error_log');
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../botapi.php';

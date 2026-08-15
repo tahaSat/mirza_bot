@@ -5,43 +5,6 @@ require_once __DIR__ . '/request.php';
 require 'vendor/autoload.php';
 ini_set('error_log', __DIR__ . '/logs/php_errors.log');
 
-// #region agent log
-if (!function_exists('mirza_debug_b4b318')) {
-    function mirza_debug_b4b318(string $hypothesisId, string $location, string $message, array $data = []): void
-    {
-        $line = json_encode([
-            'sessionId' => 'b4b318',
-            'hypothesisId' => $hypothesisId,
-            'location' => $location,
-            'message' => $message,
-            'data' => $data,
-            'timestamp' => (int) round(microtime(true) * 1000),
-        ], JSON_UNESCAPED_UNICODE) . "\n";
-        @file_put_contents('/Users/tahasattari/Desktop/mirzabot/.cursor/debug-b4b318.log', $line, FILE_APPEND | LOCK_EX);
-        @file_put_contents(__DIR__ . '/logs/debug-b4b318.log', $line, FILE_APPEND | LOCK_EX);
-    }
-}
-if (empty($GLOBALS['mirza_dbg_b4b318'])) {
-    $GLOBALS['mirza_dbg_b4b318'] = true;
-    $GLOBALS['mirza_dbg_t0'] = microtime(true);
-    $GLOBALS['mirza_dbg_script'] = $_SERVER['SCRIPT_FILENAME'] ?? ($_SERVER['argv'][0] ?? 'unknown');
-    $GLOBALS['mirza_dbg_sapi'] = PHP_SAPI;
-    register_shutdown_function(static function (): void {
-        $script = (string) ($GLOBALS['mirza_dbg_script'] ?? '');
-        $durationMs = (int) round((microtime(true) - (float) ($GLOBALS['mirza_dbg_t0'] ?? microtime(true))) * 1000);
-        if ($durationMs < 500 && PHP_SAPI === 'cli') {
-            return;
-        }
-        mirza_debug_b4b318('A', 'function.php:shutdown', 'php_request_finished', [
-            'sapi' => (string) ($GLOBALS['mirza_dbg_sapi'] ?? PHP_SAPI),
-            'script' => basename($script),
-            'duration_ms' => $durationMs,
-            'peak_mb' => round(memory_get_peak_usage(true) / 1048576, 2),
-        ]);
-    });
-}
-// #endregion
-
 /**
  * Telegram inline button labels are limited to 64 UTF-8 code units.
  */

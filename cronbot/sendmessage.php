@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/cli_only.php';
 date_default_timezone_set('Asia/Tehran');
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../botapi.php';

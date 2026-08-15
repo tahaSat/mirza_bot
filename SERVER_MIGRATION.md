@@ -394,25 +394,21 @@ Send `/start` to the production bot. It must work normally.
 Open the admin panel in the bot once (that registers crons), or install them:
 
 ```bash
-DOMAIN=$(grep '^\$domainhosts' "$BOT_DIR/config.php" | sed -E "s/.*'([^']+)'.*/\1/")
-
 cat >/tmp/www-cron <<EOF
-*/15 * * * * curl -fsS https://$DOMAIN/cronbot/statusday.php
-*/1 * * * * curl -fsS https://$DOMAIN/cronbot/croncard.php
-*/1 * * * * curl -fsS https://$DOMAIN/cronbot/NoticationsService.php
-0 * * * * curl -fsS https://$DOMAIN/cronbot/payment_expire.php
-*/1 * * * * curl -fsS https://$DOMAIN/cronbot/sendmessage.php
-*/3 * * * * curl -fsS https://$DOMAIN/cronbot/plisio.php
-*/1 * * * * curl -fsS https://$DOMAIN/cronbot/activeconfig.php
-*/1 * * * * curl -fsS https://$DOMAIN/cronbot/disableconfig.php
-*/1 * * * * curl -fsS https://$DOMAIN/cronbot/iranpay1.php
-0 */5 * * * curl -fsS https://$DOMAIN/cronbot/backupbot.php
-*/2 * * * * curl -fsS https://$DOMAIN/cronbot/gift.php
-*/30 * * * * curl -fsS https://$DOMAIN/cronbot/expireagent.php
-*/15 * * * * curl -fsS https://$DOMAIN/cronbot/on_hold.php
-*/2 * * * * curl -fsS https://$DOMAIN/cronbot/configtest.php
-*/15 * * * * curl -fsS https://$DOMAIN/cronbot/uptime_node.php
-*/15 * * * * curl -fsS https://$DOMAIN/cronbot/uptime_panel.php
+45 23 * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.statusday.lock /usr/bin/php statusday.php
+*/1 * * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.croncard.lock /usr/bin/php croncard.php
+*/5 * * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.NoticationsService.lock /usr/bin/php NoticationsService.php
+0 * * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.payment_expire.lock /usr/bin/php payment_expire.php
+*/1 * * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.sendmessage.lock /usr/bin/php sendmessage.php
+*/5 * * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.activeconfig.lock /usr/bin/php activeconfig.php
+*/5 * * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.disableconfig.lock /usr/bin/php disableconfig.php
+0 */5 * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.backupbot.lock /usr/bin/php backupbot.php
+*/2 * * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.gift.lock /usr/bin/php gift.php
+*/30 * * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.expireagent.lock /usr/bin/php expireagent.php
+*/15 * * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.on_hold.lock /usr/bin/php on_hold.php
+*/2 * * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.configtest.lock /usr/bin/php configtest.php
+*/15 * * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.uptime_node.lock /usr/bin/php uptime_node.php
+*/15 * * * * cd $BOT_DIR/cronbot && /usr/bin/flock -n /tmp/mirza.uptime_panel.lock /usr/bin/php uptime_panel.php
 EOF
 crontab -u www-data /tmp/www-cron
 crontab -u www-data -l
@@ -427,7 +423,7 @@ Quick checks:
 - [ ] `https://DOMAIN/panel/` login
 - [ ] Mini App `https://DOMAIN/app/`
 - [ ] An old subscription link `https://DOMAIN/sub/{invoice_id}`
-- [ ] `curl -sS -o /dev/null -w '%{http_code}\n' https://DOMAIN/cronbot/statusday.php` → 200
+- [ ] `php $BOT_DIR/cronbot/statusday.php` runs without a fatal error
 - [ ] Old server still has `$development_mode = true` and **no** crontab
 
 Keep `168.222.43.253` on for 24–48 hours. Do not start its crons.

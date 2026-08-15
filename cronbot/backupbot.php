@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/cli_only.php';
 require_once '../config.php';
 require_once '../function.php';
 require_once '../botapi.php';

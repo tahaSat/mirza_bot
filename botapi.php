@@ -5,7 +5,7 @@ if (is_file(__DIR__ . '/polling_log.php')) {
     require_once __DIR__ . '/polling_log.php';
 }
 
-function telegram($method, $datas = [], $token = null)
+function telegram($method, $datas = [], $token = null, $timeout = 30)
 {
     global $APIKEY;
 
@@ -13,6 +13,11 @@ function telegram($method, $datas = [], $token = null)
     $url = "https://api.telegram.org/bot" . $token . "/" . $method;
     $methodLower = strtolower($method);
     $canRetryWithoutThread = isset($datas['message_thread_id']) && intval($datas['message_thread_id']) > 0;
+    $timeout = (int) $timeout;
+    if ($timeout <= 0) {
+        $timeout = 30;
+    }
+    $connectTimeout = min(10, $timeout);
 
     if (isset($datas['message_thread_id']) && intval($datas['message_thread_id']) <= 0) {
         unset($datas['message_thread_id']);
@@ -20,7 +25,7 @@ function telegram($method, $datas = [], $token = null)
 
     global $telegram_proxy_retry_once;
     $retryOnce = !isset($telegram_proxy_retry_once) || (bool) $telegram_proxy_retry_once;
-    $maxAttempts = $retryOnce ? 2 : 1;
+    $maxAttempts = ($retryOnce && $timeout >= 10) ? 2 : 1;
 
     $rawResponse = false;
     $curlError = '';
@@ -45,8 +50,8 @@ function telegram($method, $datas = [], $token = null)
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
         apply_telegram_proxy($ch, $url);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $connectTimeout);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $datas);
 

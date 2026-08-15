@@ -380,13 +380,15 @@ $paycount
     $stmt = $pdo->prepare($sql);
     $stmt->execute();
     $change_location_stat = $stmt->fetch(PDO::FETCH_ASSOC);
-    $count_change_location = $extra_time_stat['count'];
-    $sum_change_location = number_format($extra_time_stat['sum'], 0);
+    $count_change_location = $change_location_stat['count'];
+    $sum_change_location = number_format($change_location_stat['sum'], 0);
     $stmt = $pdo->prepare("SELECT * FROM user WHERE  (register BETWEEN :requestedDate AND :requestedDateend)  AND register != 'none'");
     $stmt->bindParam(':requestedDate', $desired_date_time_start);
     $stmt->bindParam(':requestedDateend', $time_current);
     $stmt->execute();
     $countextendday = $stmt->rowCount();
+    $count_total = intval($count_order) + intval($count_extend) + intval($count_extra_volume) + intval($count_extra_time) + intval($count_change_location);
+    $sum_total = number_format(floatval($statorder['sum'] ?? 0) + floatval($extend_stat['sum'] ?? 0) + floatval($extra_volume_stat['sum'] ?? 0) + floatval($extra_time_stat['sum'] ?? 0) + floatval($change_location_stat['sum'] ?? 0), 0);
     $statisticsall = "
 🕐 <b>آمار ۱ ساعت گذشته</b>
 
@@ -405,6 +407,9 @@ $paycount
 
 📍 تغییر لوکیشن  : $count_change_location عدد
 💰 مبلغ تغییر لوکیشن : $sum_change_location تومان
+
+📊 تعداد کل : $count_total عدد
+💵 جمع مبلغ کل : $sum_total تومان
 
 🔑 اکانت‌های تست  : $count_test عدد
 👤 تعداد کاربران  : $countextendday نفر
@@ -466,6 +471,8 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $countuser_new = $stmt->rowCount();
+    $count_total = intval($count_order) + intval($count_extend) + intval($count_extra_volume) + intval($count_extra_time) + intval($count_change_location);
+    $sum_total = number_format(floatval($statorder['sum'] ?? 0) + floatval($extend_stat['sum'] ?? 0) + floatval($extra_volume_stat['sum'] ?? 0) + floatval($extra_time_stat['sum'] ?? 0) + floatval($change_location_stat['sum'] ?? 0), 0);
     $statisticsall = "
 🕐 <b>آمار روز گذشته</b>
 
@@ -485,6 +492,9 @@ $paycount
 
 📍 تغییر لوکیشن  : $count_change_location عدد
 💰 مبلغ تغییر لوکیشن : $sum_change_location تومان
+
+📊 تعداد کل : $count_total عدد
+💵 جمع مبلغ کل : $sum_total تومان
 
 🔑 اکانت‌های تست  : $count_test عدد
 👤 تعداد کاربران  : $countuser_new نفر
@@ -546,6 +556,8 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $countuser_new = $stmt->rowCount();
+    $count_total = intval($count_order) + intval($count_extend) + intval($count_extra_volume) + intval($count_extra_time) + intval($count_change_location);
+    $sum_total = number_format(floatval($statorder['sum'] ?? 0) + floatval($extend_stat['sum'] ?? 0) + floatval($extra_volume_stat['sum'] ?? 0) + floatval($extra_time_stat['sum'] ?? 0) + floatval($change_location_stat['sum'] ?? 0), 0);
     $statisticsall = "
 🕐 <b>آمار روز فعلی</b>
 
@@ -565,6 +577,9 @@ $paycount
 
 📍 تغییر لوکیشن  : $count_change_location عدد
 💰 مبلغ تغییر لوکیشن : $sum_change_location تومان
+
+📊 تعداد کل : $count_total عدد
+💵 جمع مبلغ کل : $sum_total تومان
 
 🔑 اکانت‌های تست  : $count_test عدد
 👤 تعداد کاربران  : $countuser_new نفر
@@ -628,6 +643,8 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $countuser_new = $stmt->rowCount();
+    $count_total = intval($count_order) + intval($count_extend) + intval($count_extra_volume) + intval($count_extra_time) + intval($count_change_location);
+    $sum_total = number_format(floatval($statorder['sum'] ?? 0) + floatval($extend_stat['sum'] ?? 0) + floatval($extra_volume_stat['sum'] ?? 0) + floatval($extra_time_stat['sum'] ?? 0) + floatval($change_location_stat['sum'] ?? 0), 0);
     $statisticsall = "
 🕐 <b>آمار ماه گذشته</b>
 
@@ -647,6 +664,9 @@ $paycount
 
 📍 تغییر لوکیشن  : $count_change_location عدد
 💰 مبلغ تغییر لوکیشن : $sum_change_location تومان
+
+📊 تعداد کل : $count_total عدد
+💵 جمع مبلغ کل : $sum_total تومان
 
 🔑 اکانت‌های تست  : $count_test عدد
 👤 تعداد کاربران  : $countuser_new نفر
@@ -710,6 +730,8 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $countuser_new = $stmt->rowCount();
+    $count_total = intval($count_order) + intval($count_extend) + intval($count_extra_volume) + intval($count_extra_time) + intval($count_change_location);
+    $sum_total = number_format(floatval($statorder['sum'] ?? 0) + floatval($extend_stat['sum'] ?? 0) + floatval($extra_volume_stat['sum'] ?? 0) + floatval($extra_time_stat['sum'] ?? 0) + floatval($change_location_stat['sum'] ?? 0), 0);
     $statisticsall = "
 🕐 <b>آمار ماه فعلی</b>
 
@@ -729,6 +751,9 @@ $paycount
 
 📍 تغییر لوکیشن  : $count_change_location عدد
 💰 مبلغ تغییر لوکیشن : $sum_change_location تومان
+
+📊 تعداد کل : $count_total عدد
+💵 جمع مبلغ کل : $sum_total تومان
 
 🔑 اکانت‌های تست  : $count_test عدد
 👤 تعداد کاربران  : $countuser_new نفر
@@ -806,6 +831,8 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $countuser_new = $stmt->rowCount();
+    $count_total = intval($count_order) + intval($count_extend) + intval($count_extra_volume) + intval($count_extra_time) + intval($count_change_location);
+    $sum_total = number_format(floatval($statorder['sum'] ?? 0) + floatval($extend_stat['sum'] ?? 0) + floatval($extra_volume_stat['sum'] ?? 0) + floatval($extra_time_stat['sum'] ?? 0) + floatval($change_location_stat['sum'] ?? 0), 0);
     $statisticsall = "
 🕐 <b>آمار تاریخ انتخابی</b>
 
@@ -825,6 +852,9 @@ $paycount
 
 📍 تغییر لوکیشن  : $count_change_location عدد
 💰 مبلغ تغییر لوکیشن : $sum_change_location تومان
+
+📊 تعداد کل : $count_total عدد
+💵 جمع مبلغ کل : $sum_total تومان
 
 🔑 اکانت‌های تست  : $count_test عدد
 👤 تعداد کاربران  : $countuser_new نفر
@@ -2765,7 +2795,7 @@ volume : حجم سرویس
     sendmessage($from_id, $textbotlang['Admin']['Help']['SaveHelp'], $keyboardadmin, 'HTML');
     step('home', $from_id);
 } elseif ($text == "❌ حذف آموزش" && $adminrulecheck['rule'] == "administrator") {
-    sendmessage($from_id, $textbotlang['Admin']['Help']['SelectName'], $json_list_helpkey, 'HTML');
+    sendmessage($from_id, $textbotlang['Admin']['Help']['SelectName'], keyboard_help_os_list(), 'HTML');
     step('remove_help', $from_id);
 } elseif ($user['step'] == "remove_help") {
     $stmt = $pdo->prepare("DELETE FROM help WHERE name_os = :name_os");
@@ -8169,7 +8199,7 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
     update("PaySetting", "ValuePay", $text, "NamePay", "urlpaymenttron");
     step('home', $from_id);
 } elseif ($text == "✏️ ویرایش آموزش" && $adminrulecheck['rule'] == "administrator") {
-    sendmessage($from_id, $textbotlang['Admin']['Help']['SelectName'], $json_list_helpkey, 'HTML');
+    sendmessage($from_id, $textbotlang['Admin']['Help']['SelectName'], keyboard_help_os_list(), 'HTML');
     step("getnameforedite", $from_id);
 } elseif ($user['step'] == "getnameforedite") {
     sendmessage($from_id, $textbotlang['users']['selectoption'], $helpedit, 'HTML');
@@ -10369,10 +10399,10 @@ f,n.n2", $backadmin, 'HTML');
 } elseif ($text == "🔽 حذف کردن دپارتمان") {
     $countdeparteman = select("departman", "*", null, null, "count");
     if ($countdeparteman == 0) {
-        sendmessage($from_id, "❌ دپارتمانی برای حذف وجود ندارد.", $departemanslist, 'HTML');
+        sendmessage($from_id, "❌ دپارتمانی برای حذف وجود ندارد.", keyboard_departman_admin(), 'HTML');
         return;
     }
-    sendmessage($from_id, "📌 نوع دپارتمان را برای حذف ارسال کنید.", $departemanslist, 'HTML');
+    sendmessage($from_id, "📌 نوع دپارتمان را برای حذف ارسال کنید.", keyboard_departman_admin(), 'HTML');
     step("getremovedep", $from_id);
 } elseif ($user['step'] == "getremovedep") {
     $stmt = $pdo->prepare("DELETE FROM departman WHERE name_departman = ?");
@@ -11941,7 +11971,7 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, "✅ لینک اپ شما با موفقیت اضافه گردید.", $keyboardlinkapp, 'HTML');
     step("home", $from_id);
 } elseif ($text == "❌ حذف برنامه") {
-    sendmessage($from_id, "📌 برای حذف برنامه از لیست زیر نام برنامه را انتخاب کنید", $json_list_remove_helpـlink, 'HTML');
+    sendmessage($from_id, "📌 برای حذف برنامه از لیست زیر نام برنامه را انتخاب کنید", keyboard_help_app_remove(), 'HTML');
     step("getnameappforremove", $from_id);
 } elseif ($user['step'] == "getnameappforremove") {
     sendmessage($from_id, "✅ برنامه با موفقیت حذف گردید.", $keyboardlinkapp, 'HTML');
@@ -13157,7 +13187,7 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
     update("user", "pagenumber", $next_page, "id", $from_id);
     Editmessagetext($from_id, $message_id, $textbotlang['Admin']['ManageUser']['mangebtnuserdec'], $keyboard_json);
 } elseif ($text == "✏️ ویرایش برنامه") {
-    sendmessage($from_id, "📌 برای ویرایش برنامه از لیست زیر نام برنامه را انتخاب کنید", $json_list_remove_helpـlink, 'HTML');
+    sendmessage($from_id, "📌 برای ویرایش برنامه از لیست زیر نام برنامه را انتخاب کنید", keyboard_help_app_remove(), 'HTML');
     step("edit_app", $from_id);
 } elseif ($user['step'] == "edit_app") {
     savedata("clear", "nameapp", $text);

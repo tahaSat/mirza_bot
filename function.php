@@ -289,11 +289,76 @@ function copyDirectoryContents($source, $destination)
 #-----------function------------#
 function step($step, $from_id)
 {
+    userUpdate($from_id, ['step' => $step]);
+}
+
+/**
+ * Direct user-row write. Skips INFORMATION_SCHEMA and SELECT FOR UPDATE.
+ */
+function userUpdate($from_id, array $fields): void
+{
     global $pdo;
-    $stmt = $pdo->prepare('UPDATE user SET step = ? WHERE id = ?');
-    $stmt->execute([$step, $from_id]);
+    if ($from_id === null || $from_id === '' || $fields === []) {
+        return;
+    }
+    $sets = [];
+    $params = [];
+    foreach ($fields as $col => $val) {
+        $col = preg_replace('/[^A-Za-z0-9_]/', '', (string) $col);
+        if ($col === '') {
+            continue;
+        }
+        $sets[] = "`$col` = ?";
+        $params[] = $val;
+    }
+    if ($sets === []) {
+        return;
+    }
+    $params[] = $from_id;
+    $stmt = $pdo->prepare('UPDATE user SET ' . implode(', ', $sets) . ' WHERE id = ?');
+    $stmt->execute($params);
     clearSelectCache('user');
 }
+
+function count_products(): int
+{
+    global $pdo;
+    return (int) $pdo->query('SELECT COUNT(*) FROM product')->fetchColumn();
+}
+
+function count_active_invoices_for_panel($name_panel): int
+{
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM invoice WHERE Service_location = :loc AND Status IN ('active','end_of_time','end_of_volume','sendedwarn','send_on_hold')");
+    $stmt->execute([':loc' => $name_panel]);
+    return (int) $stmt->fetchColumn();
+}
+
+function count_user_non_unpaid_invoices($user_id): int
+{
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM invoice WHERE id_user = :id AND Status != 'Unpaid'");
+    $stmt->execute([':id' => $user_id]);
+    return (int) $stmt->fetchColumn();
+}
+
+function panel_is_hidden_from_user($panel, $user_id): bool
+{
+    if (!is_array($panel) || empty($panel['hide_user'])) {
+        return false;
+    }
+    $list = json_decode($panel['hide_user'], true);
+    return is_array($list) && in_array($user_id, $list);
+}
+
+function panel_manualsale_in_stock($code_panel): bool
+{
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT 1 FROM manualsell WHERE codepanel = :codepanel AND status = 'active' LIMIT 1");
+    $stmt->execute([':codepanel' => $code_panel]);
+    return (bool) $stmt->fetchColumn();
+}
+
 function determineColumnTypeFromValue($value)
 {
     if (is_bool($value)) {
@@ -473,7 +538,11 @@ function select($table, $field, $whereField = null, $whereValue = null, $type = 
         }
     }
 
-    $query = "SELECT $field FROM $table";
+    if ($type == "count") {
+        $query = "SELECT COUNT(*) FROM $table";
+    } else {
+        $query = "SELECT $field FROM $table";
+    }
 
     if ($whereField !== null) {
         $query .= " WHERE $whereField = :whereValue";
@@ -487,7 +556,7 @@ function select($table, $field, $whereField = null, $whereValue = null, $type = 
 
         $stmt->execute();
         if ($type == "count") {
-            $result = $stmt->rowCount();
+            $result = (int) $stmt->fetchColumn();
         } elseif ($type == "FETCH_COLUMN") {
             $results = $stmt->fetchAll(PDO::FETCH_COLUMN);
             if ($table === 'admin' && $field === 'id_admin') {
@@ -913,7 +982,7 @@ function channel(array $id_channel)
         $response = telegram('getChatMember', [
             'chat_id' => $channel,
             'user_id' => $from_id
-        ]);
+        ], null, 3);
         if ($response['ok']) {
             if (!in_array($response['result']['status'], ['member', 'creator', 'administrator'])) {
                 $channel_link[] = $channel;

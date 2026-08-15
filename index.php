@@ -4237,7 +4237,7 @@ $textinvite
     }
     sendmessage($from_id, $textin, $payment, 'HTML');
     step('payment', $from_id);
-} elseif ($user['step'] == "getvolumecustomusername" || preg_match('/^prodcutservices_(.*)/', $datain, $dataget)) {
+} elseif (preg_match('/^prodcutservices_(.*)/', $datain, $dataget) || $user['step'] == "getvolumecustomusername") {
     if (!empty($callback_query_id)) {
         telegram('answerCallbackQuery', [
             'callback_query_id' => $callback_query_id,
@@ -4248,19 +4248,23 @@ $textinvite
     if (!is_array($userdate)) {
         $userdate = [];
     }
-    if ($user['step'] == "getvolumecustomusername") {
+    if ($user['step'] == "getvolumecustomusername" && $prodcut === '') {
         // Legacy free-text days path — redirect to month buttons
-        $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
+        $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'] ?? '', "select");
         sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) $user['Processing_value_one'], $user), 'html');
         step('selectcustommonth', $from_id);
         return;
-    } else {
-        update("user", "Processing_value_one", $prodcut, "id", $from_id);
-        step('endstepuser', $from_id);
-        deletemessage($from_id, $message_id);
     }
+    if ($prodcut === '') {
+        sendmessage($from_id, "❌ محصول یافت نشد. خرید را از اول انجام دهید", $keyboard, 'HTML');
+        step("home", $from_id);
+        return;
+    }
+    update("user", "Processing_value_one", $prodcut, "id", $from_id);
+    step('endstepuser', $from_id);
+    deletemessage($from_id, $message_id);
     sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), $backuser, 'html');
-} elseif ($user['step'] == "endstepuser" || $user['step'] == "endstepusers" || preg_match('/^prodcutservice_(.*)/', $datain, $dataget) || $user['step'] == "getvolumecustomuser") {
+} elseif (preg_match('/^prodcutservice_(.*)/', $datain, $dataget) || $user['step'] == "endstepuser" || $user['step'] == "endstepusers" || $user['step'] == "getvolumecustomuser") {
     if (!empty($callback_query_id)) {
         telegram('answerCallbackQuery', [
             'callback_query_id' => $callback_query_id,
@@ -4270,15 +4274,19 @@ $textinvite
     if (!is_array($userdate)) {
         $userdate = [];
     }
-    if ($user['step'] == "getvolumecustomuser") {
+    $clickedProduct = $dataget[1] ?? '';
+    if ($user['step'] == "getvolumecustomuser" && $clickedProduct === '') {
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'] ?? '', "select");
         sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) $user['Processing_value_one'], $user), 'html');
         step('selectcustommonth', $from_id);
         return;
+    }
+    if ($clickedProduct !== '') {
+        $prodcut = $clickedProduct;
     } elseif ($user['step'] == "endstepusers" || $user['step'] == "endstepuser") {
         $prodcut = $user['Processing_value_one'];
     } else {
-        $prodcut = $dataget[1] ?? '';
+        $prodcut = '';
     }
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'] ?? '', "select");
     if (!is_array($marzban_list_get) || empty($marzban_list_get['name_panel'])) {
@@ -4291,14 +4299,19 @@ $textinvite
         step("home", $from_id);
         return;
     }
-    if ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
-        if (!preg_match('~(?!_)^[a-z][a-z\d_]{2,32}(?<!_)$~i', $text)) {
+    if ($clickedProduct === '' && ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم")) {
+        if (!preg_match('~(?!_)^[a-z][a-z\d_]{2,32}(?<!_)$~i', (string) $text)) {
             sendmessage($from_id, $textbotlang['users']['invalidusername'], $backuser, 'HTML');
             return;
         }
         $loc = $user['Processing_value_one'];
     } else {
         $loc = $prodcut;
+    }
+    if ($loc === '' || $loc === null) {
+        sendmessage($from_id, "❌ محصول یافت نشد. خرید را از اول انجام دهید", $keyboard, 'HTML');
+        step("home", $from_id);
+        return;
     }
     update("user", "Processing_value_one", $loc, "id", $from_id);
     $parts = explode("_", $loc);
@@ -4313,23 +4326,16 @@ $textinvite
             return;
         }
     } else {
-        $sql = "SELECT * FROM product WHERE code_product = :code_product AND (Location = :location OR Location = '/all')";
-        $params = [
+        $stmt = $pdo->prepare("SELECT * FROM product WHERE code_product = :code_product AND (Location = :location OR Location = '/all') LIMIT 1");
+        $stmt->execute([
             ':code_product' => $loc,
             ':location' => $userdate['name_panel'],
-        ];
-        $category = category_from_processing($userdate);
-        if (is_array($category) && !empty($category['remark'])) {
-            $sql .= " AND category = :category";
-            $params[':category'] = $category['remark'];
-        }
-        $sql .= " LIMIT 1";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
+        ]);
         $info_product = $stmt->fetch(PDO::FETCH_ASSOC);
     }
-    if (!isset($info_product['price_product'])) {
-        sendmessage($from_id, "❌ خطایی در تایید  انجام شده است لطفا مراحل پرداخت را مجددا انجام دهید", $keyboard, 'HTML');
+    if (!is_array($info_product) || !isset($info_product['price_product'])) {
+        sendmessage($from_id, "❌ محصول یافت نشد. مراحل خرید را از اول انجام دهید", $keyboard, 'HTML');
+        step("home", $from_id);
         return;
     }
     if (($user['agent'] ?? '') === 'n' && ($parts[0] ?? '') != "customvolume") {
@@ -4339,12 +4345,10 @@ $textinvite
         $info_product['price_product'] = $info_product['price_product'] - $resultper;
     }
     $randomString = bin2hex(random_bytes(2));
-    $text = strtolower($text);
-    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, $text, panel_username_prefix($marzban_list_get), $user['namecustom']);
-    $username_ac = strtolower($username_ac);
-    $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
+    $username_ac = generateUsername($from_id, $marzban_list_get['MethodUsername'], $username, $randomString, (string) $text, panel_username_prefix($marzban_list_get), $user['namecustom']);
+    $username_ac = strtolower((string) $username_ac);
     $random_number = rand(1000000, 9999999);
-    if (isset($DataUserOut['username']) || rowExists('invoice', 'username', $username_ac)) {
+    if (rowExists('invoice', 'username', $username_ac)) {
         $username_ac = $random_number . "_" . $username_ac;
     }
     if (isset($username_ac))
@@ -4356,21 +4360,26 @@ $textinvite
     $info_product_price_product = number_format($info_product['price_product']);
     $userBalance = number_format($user['Balance']);
     $replacements = [
-        '{username}' => $username_ac,
-        '{name_product}' => $info_product['name_product'],
+        '{username}' => htmlspecialchars((string) $username_ac, ENT_QUOTES, 'UTF-8'),
+        '{name_product}' => htmlspecialchars((string) ($info_product['name_product'] ?? ''), ENT_QUOTES, 'UTF-8'),
         '{Service_time}' => $info_product['Service_time'],
-        '{note}' => $info_product['note'] ?? '',
+        '{note}' => htmlspecialchars((string) ($info_product['note'] ?? ''), ENT_QUOTES, 'UTF-8'),
         '{price}' => $info_product_price_product,
         '{Volume}' => $info_product['Volume_constraint'],
         '{userBalance}' => $userBalance
     ];
-    $textin = strtr($datatextbot['text_pishinvoice'], $replacements);
+    $textin = strtr((string) ($datatextbot['text_pishinvoice'] ?? ''), $replacements);
+    if ($textin === '') {
+        $textin = "🛍 {$replacements['{name_product}']}\n💸 {$replacements['{price}']}\n⏱ {$replacements['{Service_time}']}\n🔋 {$replacements['{Volume}']}";
+    }
     if (intval($info_product['Volume_constraint']) == 0) {
         $textin = str_replace('گیگ', "", $textin);
     }
-    if ($user['step'] != "getvolumecustomuser" && !in_array($marzban_list_get['MethodUsername'], ["نام کاربری دلخواه", "نام کاربری دلخواه + عدد رندوم"])) {
-        Editmessagetext($from_id, $message_id, $textin, $payment);
-    } else {
+    $edited = null;
+    if ($clickedProduct !== '' || ($user['step'] != "getvolumecustomuser" && !in_array($marzban_list_get['MethodUsername'], ["نام کاربری دلخواه", "نام کاربری دلخواه + عدد رندوم"], true))) {
+        $edited = Editmessagetext($from_id, $message_id, $textin, $payment);
+    }
+    if (!is_array($edited) || empty($edited['ok'])) {
         sendmessage($from_id, $textin, $payment, 'HTML');
     }
     step('payment', $from_id);

@@ -58,7 +58,9 @@ $cancelmessage = json_encode([
             ],
         ]
     ]);
-Editmessagetext($info['id_admin'], $info['id_message'],$textprocces, $cancelmessage);
+if (!empty($info['id_admin']) && !empty($info['id_message'])) {
+    Editmessagetext($info['id_admin'], $info['id_message'],$textprocces, $cancelmessage);
+}
 
 $broadcast_id = intval($info['broadcast_id'] ?? 0);
 $btnmessage = $info['btnmessage'] ?? 'none';
@@ -102,7 +104,7 @@ foreach ($batch as $iduser) {
             $meesage = sendmessage($iduser->id, $info['message'], $btnkeyboard, 'HTML');
         }
 
-        if ($meesage['ok'] == false and $meesage['description'] == "Forbidden: bot was blocked by the user") {
+        if (is_array($meesage) && empty($meesage['ok']) && (($meesage['description'] ?? '') === "Forbidden: bot was blocked by the user")) {
             $invoicecount = select("invoice", "*", "id_user", $iduser->id, "count");
             $userinfo = select("user", "Balance", "id", $iduser->id, "select");
             if ($invoicecount == 0 and $userinfo['Balance'] == 0) {
@@ -112,7 +114,14 @@ foreach ($batch as $iduser) {
             }
         }
 
-        if ($meesage['ok'] and $info['pingmessage'] == "yes") {
+        if (is_array($meesage) && !empty($meesage['ok']) && !empty($info['create_campaign_conversation'])) {
+            support_record_campaign_message($pdo, (string) $iduser->id, (string) ($info['message'] ?? ''), [
+                'id_admin' => $info['campaign_admin_id'] ?? ($info['id_admin'] ?? ''),
+                'username' => $info['campaign_admin_username'] ?? '',
+            ]);
+        }
+
+        if (is_array($meesage) && !empty($meesage['ok']) && (($info['pingmessage'] ?? '') == "yes")) {
             pinmessage($iduser->id, $meesage['result']['message_id']);
         }
     } elseif ($info['type'] == "forwardmessage") {

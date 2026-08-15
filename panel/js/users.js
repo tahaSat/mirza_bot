@@ -1,113 +1,141 @@
 (function () {
-    var searchInput = document.getElementById('searchInput');
-    var filterStatus = document.getElementById('filterStatus');
-    var filterRole = document.getElementById('filterRole');
-    var usersBody = document.getElementById('usersBody');
-    var tblLoading = document.getElementById('tblLoading');
-    var tblFoot = document.getElementById('tblFoot');
-    var clearAllBtn = document.getElementById('clearAllBtn');
-    var searchClear = document.getElementById('searchClear');
+    var list = document.getElementById('usersList');
+    if (!list) return;
 
-    if (!searchInput || !usersBody) return;
+    var filteredCount = parseInt(list.dataset.filteredCount || '0', 10) || 0;
+    var pageChecks = Array.prototype.slice.call(document.querySelectorAll('.user-check'));
+    var selectPage = document.getElementById('selectPageUsers');
+    var selectFilteredBtn = document.getElementById('selectFilteredBtn');
+    var clearBtn = document.getElementById('clearSelectedBtn');
+    var openBtn = document.getElementById('openCampaignBtn');
+    var label = document.getElementById('campaignSelectedLabel');
+    var form = document.getElementById('usersCampaignForm');
+    var scopeInput = document.getElementById('campaignScope');
+    var idsWrap = document.getElementById('campaignUserIds');
+    var hint = document.getElementById('campaignCountHint');
+    var filterKey = location.search.replace(/([?&])page=\d+&?/, '$1').replace(/[?&]$/, '');
+    var storageKey = 'users-campaign:' + filterKey;
+    var selected = new Set();
+    var allFiltered = false;
 
-    var debounce;
-    var currentPage = parseInt(document.body.dataset.page || '1', 10);
+    try {
+        var saved = JSON.parse(sessionStorage.getItem(storageKey) || '{}');
+        if (saved && saved.filterKey === filterKey) {
+            allFiltered = !!saved.allFiltered;
+            (saved.ids || []).forEach(function (id) { selected.add(String(id)); });
+        }
+    } catch (e) {}
 
-    function showLoader() {
-        if (tblLoading) tblLoading.style.display = 'flex';
-        _lb.start();
+    function persist() {
+        sessionStorage.setItem(storageKey, JSON.stringify({
+            filterKey: filterKey,
+            allFiltered: allFiltered,
+            ids: Array.from(selected),
+        }));
     }
 
-    function hideLoader() {
-        if (tblLoading) tblLoading.style.display = 'none';
-        _lb.done();
+    function selectedCount() {
+        return allFiltered ? filteredCount : selected.size;
     }
 
-    function getParams(page) {
-        return new URLSearchParams({
-            q: searchInput.value.trim(),
-            status: filterStatus ? filterStatus.value : '',
-            role: filterRole ? filterRole.value : '',
-            page: page || 1,
+    function syncChecks() {
+        pageChecks.forEach(function (box) {
+            box.checked = allFiltered || selected.has(box.value);
         });
+        if (selectPage) {
+            var pageSelected = pageChecks.length > 0 && pageChecks.every(function (box) { return box.checked; });
+            selectPage.checked = pageSelected;
+            selectPage.indeterminate = !pageSelected && pageChecks.some(function (box) { return box.checked; });
+        }
+        if (label) {
+            label.textContent = allFiltered
+                ? (filteredCount.toLocaleString('en-US') + ' کاربر فیلترشده')
+                : (selected.size.toLocaleString('en-US') + ' کاربر انتخاب شده');
+        }
+        if (openBtn) {
+            openBtn.disabled = openBtn.hasAttribute('data-busy') || selectedCount() < 1;
+        }
     }
 
-    function fetchRows(page) {
-        currentPage = page || 1;
-        var params = getParams(currentPage);
-        showLoader();
-
-        fetch('users.php?' + params.toString(), {
-            headers: { 'X-Requested-With': 'XMLHttpRequest' },
-        })
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                usersBody.innerHTML = html;
-                updateClearBtn();
-                history.replaceState(null, '', location.pathname + '?' + params.toString());
-
-                usersBody.querySelectorAll('[data-confirm]').forEach(function (el) {
-                    el.addEventListener('click', function (e) {
-                        e.preventDefault();
-                        var href = el.href;
-                        showConfirm(el.dataset.confirm, function () {
-                            _lb.start();
-                            window.location.href = href;
-                        });
-                    });
-                });
-
-                hideLoader();
-            })
-            .catch(function () { hideLoader(); });
-    }
-
-    function updateClearBtn() {
-        var has = (searchInput.value || (filterStatus && filterStatus.value) || (filterRole && filterRole.value));
-        if (clearAllBtn) clearAllBtn.style.display = has ? 'inline' : 'none';
-        if (searchClear) searchClear.style.display = searchInput.value ? 'grid' : 'none';
-    }
-
-    searchInput.addEventListener('input', function () {
-        updateClearBtn();
-        clearTimeout(debounce);
-        debounce = setTimeout(function () { fetchRows(1); }, 320);
+    pageChecks.forEach(function (box) {
+        box.addEventListener('change', function () {
+            allFiltered = false;
+            if (box.checked) selected.add(box.value);
+            else selected.delete(box.value);
+            persist();
+            syncChecks();
+        });
     });
 
-    if (filterStatus) filterStatus.addEventListener('change', function () { fetchRows(1); });
-    if (filterRole) filterRole.addEventListener('change', function () { fetchRows(1); });
-
-    if (searchClear) {
-        searchClear.addEventListener('click', function () {
-            searchInput.value = '';
-            searchInput.focus();
-            updateClearBtn();
-            fetchRows(1);
+    if (selectPage) {
+        selectPage.addEventListener('change', function () {
+            allFiltered = false;
+            pageChecks.forEach(function (box) {
+                box.checked = selectPage.checked;
+                if (selectPage.checked) selected.add(box.value);
+                else selected.delete(box.value);
+            });
+            persist();
+            syncChecks();
         });
     }
 
-    if (tblFoot) {
-        tblFoot.addEventListener('click', function (e) {
-            var a = e.target.closest('.pager a:not(.dis):not(.cur)');
-            if (!a) return;
-            e.preventDefault();
-            var url = new URL(a.href, location.href);
-            var page = parseInt(url.searchParams.get('page'), 10) || 1;
-            fetchRows(page);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (selectFilteredBtn) {
+        selectFilteredBtn.addEventListener('click', function () {
+            allFiltered = true;
+            pageChecks.forEach(function (box) { selected.add(box.value); });
+            persist();
+            syncChecks();
         });
     }
 
-    window.setFilter = function (key, val) {
-        if (key === 'status' && filterStatus) filterStatus.value = val;
-        if (key === 'role' && filterRole) filterRole.value = val;
-        fetchRows(1);
-    };
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function () {
+            allFiltered = false;
+            selected.clear();
+            persist();
+            syncChecks();
+        });
+    }
 
-    window.clearFilters = function () {
-        searchInput.value = '';
-        if (filterStatus) filterStatus.value = '';
-        if (filterRole) filterRole.value = '';
-        fetchRows(1);
-    };
+    if (openBtn) {
+        if (openBtn.disabled) openBtn.setAttribute('data-busy', '1');
+        openBtn.addEventListener('click', function () {
+            if (selectedCount() < 1) return;
+            if (scopeInput) scopeInput.value = allFiltered ? 'filtered' : 'selected';
+            if (idsWrap) {
+                idsWrap.innerHTML = '';
+                if (!allFiltered) {
+                    selected.forEach(function (id) {
+                        var input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = 'user_ids[]';
+                        input.value = id;
+                        idsWrap.appendChild(input);
+                    });
+                }
+            }
+            if (hint) {
+                hint.textContent = allFiltered
+                    ? ('پیام برای همه ' + filteredCount.toLocaleString('en-US') + ' کاربر مطابق فیلتر فعلی ارسال می‌شود.')
+                    : ('پیام برای ' + selected.size.toLocaleString('en-US') + ' کاربر انتخاب‌شده ارسال می‌شود.');
+            }
+            if (typeof openModal === 'function') openModal('usersCampaignModal');
+        });
+    }
+
+    if (form) {
+        form.addEventListener('submit', function (event) {
+            var count = selectedCount();
+            if (count < 1) {
+                event.preventDefault();
+                return;
+            }
+            if (!window.confirm('ارسال پیام به ' + count.toLocaleString('en-US') + ' کاربر آغاز شود؟')) {
+                event.preventDefault();
+            }
+        });
+    }
+
+    syncChecks();
 }());

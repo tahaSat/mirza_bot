@@ -1481,7 +1481,7 @@ try {
             idsupport VARCHAR(100) NULL,
             name_departman VARCHAR(600) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
             user_name VARCHAR(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
-            status ENUM('Unseen','Answered','close','flagged') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Unseen',
+            status ENUM('Unseen','Answered','close','flagged','کمپین') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Unseen',
             last_message_id INT UNSIGNED NULL,
             last_message_at VARCHAR(200) NULL,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

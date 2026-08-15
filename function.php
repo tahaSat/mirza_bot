@@ -4979,7 +4979,27 @@ function support_ensure_schema(PDO $pdo): bool
 
 function support_conversation_statuses(): array
 {
-    return ['Unseen', 'Answered', 'close', 'flagged'];
+    return ['Unseen', 'Answered', 'close', 'flagged', 'کمپین'];
+}
+
+function support_conversation_status_enum_sql(): string
+{
+    return "ENUM('Unseen','Answered','close','flagged','کمپین') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Unseen'";
+}
+
+function support_ensure_conversation_status_enum(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $stmt = $pdo->query("SHOW COLUMNS FROM support_conversation LIKE 'status'");
+    $col = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : null;
+    $type = (string) ($col['Type'] ?? '');
+    if (mb_strpos($type, 'کمپین') === false) {
+        $pdo->exec('ALTER TABLE support_conversation MODIFY status ' . support_conversation_status_enum_sql());
+    }
+    $done = true;
 }
 
 function support_ensure_conversation_table(PDO $pdo): bool
@@ -4996,7 +5016,7 @@ function support_ensure_conversation_table(PDO $pdo): bool
             idsupport VARCHAR(100) NULL,
             name_departman VARCHAR(600) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
             user_name VARCHAR(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
-            status ENUM('Unseen','Answered','close','flagged') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Unseen',
+            status " . support_conversation_status_enum_sql() . ",
             last_message_id INT UNSIGNED NULL,
             last_message_at VARCHAR(200) NULL,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -5004,6 +5024,7 @@ function support_ensure_conversation_table(PDO $pdo): bool
             INDEX idx_support_conversation_status (status),
             INDEX idx_support_conversation_updated (updated_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        support_ensure_conversation_status_enum($pdo);
         support_backfill_conversations($pdo);
         return $ready = true;
     } catch (Throwable $e) {
@@ -5136,6 +5157,61 @@ function support_conversation_touch(PDO $pdo, string $iduser, array $meta = [], 
         $pdo->prepare('UPDATE support_conversation SET ' . implode(', ', $fields) . ' WHERE iduser = ?')->execute($params);
     } catch (Throwable $e) {
         error_log('support_conversation_touch: ' . $e->getMessage());
+    }
+}
+
+function support_record_campaign_message(PDO $pdo, string $userId, string $message, array $admin = []): void
+{
+    if ($userId === '' || $message === '' || !support_ensure_schema($pdo)) {
+        return;
+    }
+    $now = date('Y/m/d H:i:s');
+    $tracking = bin2hex(random_bytes(4));
+    $userName = '';
+    try {
+        $stmt = $pdo->prepare('SELECT username, namecustom FROM user WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $name = (string) ($user['namecustom'] ?? '');
+        $uname = (string) ($user['username'] ?? '');
+        if ($name !== '' && $name !== 'none') {
+            $userName = $name;
+        } elseif ($uname !== '' && $uname !== 'none') {
+            $userName = '@' . $uname;
+        }
+        $insert = $pdo->prepare(
+            "INSERT INTO support_message
+             (Tracking, idsupport, iduser, user_name, name_departman, text, time, status, result,
+              answered_by_admin_id, answered_by_admin_username, answered_at)
+             VALUES (?, ?, ?, ?, ?, '', ?, 'Answered', ?, ?, ?, ?)"
+        );
+        $insert->execute([
+            $tracking,
+            (string) ($admin['id_admin'] ?? ''),
+            $userId,
+            $userName,
+            'کمپین',
+            $now,
+            $message,
+            (string) ($admin['id_admin'] ?? ''),
+            (string) ($admin['username'] ?? ''),
+            $now,
+        ]);
+        $messageId = (int) $pdo->lastInsertId();
+        support_conversation_touch(
+            $pdo,
+            $userId,
+            [
+                'idsupport' => $admin['id_admin'] ?? null,
+                'name_departman' => 'کمپین',
+                'user_name' => $userName !== '' ? $userName : null,
+            ],
+            'کمپین',
+            $messageId > 0 ? $messageId : null,
+            $now
+        );
+    } catch (Throwable $e) {
+        error_log('support_record_campaign_message: ' . $e->getMessage());
     }
 }
 

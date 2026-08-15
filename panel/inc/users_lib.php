@@ -71,6 +71,41 @@ function panel_user_segment_active(array $filters): bool
 }
 
 /**
+ * Shared user-list query fragments for filters on users.php and campaign send.
+ *
+ * @return array{from:string,where:string,params:array,select:array}
+ */
+function panel_users_filtered_query(string $search, string $status, string $role, array $userFilters, bool $withCounts = false): array
+{
+    $where = [];
+    $params = [];
+    if ($search !== '') {
+        $where[] = "(u.id LIKE ? OR COALESCE(u.username,'') LIKE ? OR COALESCE(u.namecustom,'') LIKE ? OR COALESCE(u.number,'') LIKE ?)";
+        $params = ["%$search%", "%$search%", "%$search%", "%$search%"];
+    }
+    if ($status === 'block') {
+        $where[] = "LOWER(u.User_Status) = 'block'";
+    } elseif ($status === 'active') {
+        $where[] = "(u.User_Status IS NULL OR u.User_Status = '' OR LOWER(u.User_Status) != 'block')";
+    }
+    if ($role !== '') {
+        $where[] = 'u.agent = ?';
+        $params[] = $role;
+    }
+    $seg = panel_user_segment_query_parts($userFilters, $withCounts || panel_user_segment_active($userFilters));
+    foreach ($seg['where'] as $clause) {
+        $where[] = $clause;
+    }
+    $params = array_merge($params, $seg['params']);
+    return [
+        'from' => 'FROM user u' . ($seg['joins'] !== '' ? "\n{$seg['joins']}" : ''),
+        'where' => $where ? 'WHERE ' . implode(' AND ', $where) : '',
+        'params' => $params,
+        'select' => $seg['select'],
+    ];
+}
+
+/**
  * JOIN/WHERE fragments for combinable user filters (test account, paid buys, paid extends).
  *
  * @return array{joins:string,where:array,params:array,select:array}

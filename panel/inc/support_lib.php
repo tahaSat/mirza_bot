@@ -19,6 +19,7 @@ function panel_support_status_map(): array
         'Answered' => ['tag-ok', 'پاسخ داده شده'],
         'close' => ['tag-plain', 'بسته شده'],
         'flagged' => ['tag-flag', 'نشانه گذاری شده'],
+        'کمپین' => ['tag-info', 'کمپین'],
     ];
 }
 

@@ -8,8 +8,12 @@ $currentPanelAdmin = db_fetch($pdo, 'SELECT id_admin, username, rule FROM admin 
 $canManageAdmins = ($currentPanelAdmin['rule'] ?? '') === 'administrator';
 $bulkChargeJob = null;
 $bulkChargeRemaining = 0;
+$campaignJob = null;
+$campaignRemaining = 0;
 $bulkChargeFile = dirname(__DIR__) . '/cronbot/gift';
 $bulkChargeQueueFile = dirname(__DIR__) . '/cronbot/username.json';
+$campaignInfoFile = dirname(__DIR__) . '/cronbot/info';
+$campaignQueueFile = dirname(__DIR__) . '/cronbot/users.json';
 if (is_file($bulkChargeFile)) {
     $activeBulkJob = json_decode((string) file_get_contents($bulkChargeFile), true);
     if (is_array($activeBulkJob) && !empty($activeBulkJob['bulk_service_charge'])) {
@@ -17,6 +21,16 @@ if (is_file($bulkChargeFile)) {
         if (is_file($bulkChargeQueueFile)) {
             $remainingServices = json_decode((string) file_get_contents($bulkChargeQueueFile), true);
             $bulkChargeRemaining = is_array($remainingServices) ? count($remainingServices) : 0;
+        }
+    }
+}
+if (is_file($campaignInfoFile)) {
+    $activeCampaign = json_decode((string) file_get_contents($campaignInfoFile), true);
+    if (is_array($activeCampaign) && ($activeCampaign['type'] ?? '') === 'sendmessage') {
+        $campaignJob = $activeCampaign;
+        if (is_file($campaignQueueFile)) {
+            $remainingUsers = json_decode((string) file_get_contents($campaignQueueFile), true);
+            $campaignRemaining = is_array($remainingUsers) ? count($remainingUsers) : 0;
         }
     }
 }
@@ -116,31 +130,10 @@ try {
         $total = db_count($pdo, "SELECT COUNT(*) FROM admin $whereSQL", $params);
         $users = db_fetchAll($pdo, "SELECT id_admin, username, rule FROM admin $whereSQL ORDER BY username ASC LIMIT $perPage OFFSET $offset", $params);
     } else {
-        $where = [];
-        $params = [];
-        if ($search !== '') {
-            $where[] = "(u.id LIKE ? OR COALESCE(u.username,'') LIKE ? OR COALESCE(u.namecustom,'') LIKE ? OR COALESCE(u.number,'') LIKE ?)";
-            $params = ["%$search%", "%$search%", "%$search%", "%$search%"];
-        }
-        if ($status === 'block') {
-            $where[] = "LOWER(u.User_Status) = 'block'";
-        } elseif ($status === 'active') {
-            $where[] = "(u.User_Status IS NULL OR u.User_Status = '' OR LOWER(u.User_Status) != 'block')";
-        }
-        if ($role !== '') {
-            $where[] = "u.agent = ?";
-            $params[] = $role;
-        }
-        $seg = panel_user_segment_query_parts($userFilters, $userFiltersActive);
-        foreach ($seg['where'] as $clause) {
-            $where[] = $clause;
-        }
-        $params = array_merge($params, $seg['params']);
-        $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
-        $selectExtra = $seg['select'] ? ', ' . implode(', ', $seg['select']) : '';
-        $fromSQL = "FROM user u {$seg['joins']}";
-        $total = db_count($pdo, "SELECT COUNT(*) $fromSQL $whereSQL", $params);
-        $users = db_fetchAll($pdo, "SELECT u.*$selectExtra $fromSQL $whereSQL ORDER BY u.register DESC LIMIT $perPage OFFSET $offset", $params);
+        $query = panel_users_filtered_query($search, $status, $role, $userFilters, $userFiltersActive);
+        $selectExtra = $query['select'] ? ', ' . implode(', ', $query['select']) : '';
+        $total = db_count($pdo, "SELECT COUNT(*) {$query['from']} {$query['where']}", $query['params']);
+        $users = db_fetchAll($pdo, "SELECT u.*$selectExtra {$query['from']} {$query['where']} ORDER BY u.register DESC LIMIT $perPage OFFSET $offset", $query['params']);
     }
 } catch (Exception $e) {
     $total = 0;
@@ -167,6 +160,14 @@ if ($view === 'users') {
         $serviceCounts[(int) $u['id']] = panel_count_user_services($pdo, $u['id']);
     }
 }
+
+$activeFilterCount = (int) ($status !== '')
+    + (int) ($role !== '')
+    + (int) ($userFilters['test'] !== '')
+    + (int) ($userFilters['min_buys'] !== null)
+    + (int) ($userFilters['min_extends'] !== null);
+$filtersActive = $activeFilterCount > 0 || $search !== '';
+$pageUserIds = $view === 'users' ? array_values(array_map(static fn($u) => (string) $u['id'], $users)) : [];
 
 $pageTitle = 'کاربران';
 $pageLede = 'فهرست کاربران ربات.';
@@ -204,50 +205,33 @@ include __DIR__ . '/inc/layout_head.php';
                 </button>
             <?php endif; ?>
 
-            <?php if ($view === 'users' && $blockedCount > 0): ?>
-                <a href="?status=block" class="tag tag-no" style="cursor:pointer"><?= $blockedCount ?> مسدود</a>
-            <?php endif; ?>
-            <?php if ($view === 'users' && $agentCount > 0): ?>
-                <a href="?role=n" class="tag tag-info" style="cursor:pointer"><?= $agentCount ?> نماینده</a>
-            <?php endif; ?>
-            <?php if ($view === 'users' && $agentAdvCount > 0): ?>
-                <a href="?role=n2" class="tag tag-warn" style="cursor:pointer"><?= $agentAdvCount ?> نماینده پیشرفته</a>
+            <?php if ($view === 'users' && $campaignJob): ?>
+                <span class="tag tag-info">
+                    ارسال پیام در حال اجرا · <?= number_format($campaignRemaining) ?> باقی‌مانده
+                </span>
+                <form method="POST" action="user_campaign_action.php"
+                    onsubmit="return confirm('ارسال پیام همگانی لغو شود؟')">
+                    <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                    <input type="hidden" name="action" value="cancel">
+                    <button type="submit" class="btn btn-no btn-sm"><?= icon('close', 13) ?> لغو ارسال</button>
+                </form>
             <?php endif; ?>
         </div>
 
         <form method="GET" id="usersForm" class="toolbar-end">
             <input type="hidden" name="view" value="<?= htmlspecialchars($view) ?>">
             <?php if ($view === 'users'): ?>
-            <select name="status" class="select" style="width:auto"
-                onchange="document.getElementById('usersForm').submit()">
-                <option value="">همه وضعیت‌ها</option>
-                <option value="active" <?= $status === 'active' ? 'selected' : '' ?>>فعال</option>
-                <option value="block" <?= $status === 'block' ? 'selected' : '' ?>>مسدود</option>
-            </select>
-
-            <select name="role" class="select" style="width:auto"
-                onchange="document.getElementById('usersForm').submit()">
-                <option value="">همه گروه‌ها</option>
-                <option value="f" <?= $role === 'f' ? 'selected' : '' ?>>کاربر عادی</option>
-                <option value="n" <?= $role === 'n' ? 'selected' : '' ?>>نماینده</option>
-                <option value="n2" <?= $role === 'n2' ? 'selected' : '' ?>>نماینده پیشرفته</option>
-            </select>
-            <select name="test" class="select" style="width:auto"
-                onchange="document.getElementById('usersForm').submit()">
-                <option value="">اکانت تست: همه</option>
-                <option value="yes" <?= $userFilters['test'] === 'yes' ? 'selected' : '' ?>>دارای اکانت تست</option>
-                <option value="no" <?= $userFilters['test'] === 'no' ? 'selected' : '' ?>>بدون اکانت تست</option>
-            </select>
-            <input class="input" type="number" name="min_buys" min="0" step="1" inputmode="numeric"
-                placeholder="حداقل خرید"
-                style="width:110px"
-                value="<?= $userFilters['min_buys'] !== null ? (int) $userFilters['min_buys'] : '' ?>"
-                onchange="document.getElementById('usersForm').submit()">
-            <input class="input" type="number" name="min_extends" min="0" step="1" inputmode="numeric"
-                placeholder="حداقل تمدید"
-                style="width:110px"
-                value="<?= $userFilters['min_extends'] !== null ? (int) $userFilters['min_extends'] : '' ?>"
-                onchange="document.getElementById('usersForm').submit()">
+                <input type="hidden" name="status" value="<?= htmlspecialchars($status) ?>">
+                <input type="hidden" name="role" value="<?= htmlspecialchars($role) ?>">
+                <input type="hidden" name="test" value="<?= htmlspecialchars($userFilters['test']) ?>">
+                <input type="hidden" name="min_buys" value="<?= $userFilters['min_buys'] !== null ? (int) $userFilters['min_buys'] : '' ?>">
+                <input type="hidden" name="min_extends" value="<?= $userFilters['min_extends'] !== null ? (int) $userFilters['min_extends'] : '' ?>">
+                <button type="button" class="btn btn-ghost btn-sm" onclick="openModal('usersFilterModal')">
+                    <?= icon('filter', 14) ?> فیلترها
+                    <?php if ($activeFilterCount > 0): ?>
+                        <span class="tag tag-info" style="margin-right:4px"><?= $activeFilterCount ?></span>
+                    <?php endif; ?>
+                </button>
             <?php endif; ?>
 
             <div class="search-box users-search">
@@ -258,8 +242,10 @@ include __DIR__ . '/inc/layout_head.php';
                 <button type="submit" class="search-btn">جستجو</button>
             </div>
 
-            <?php if ($search || ($view === 'users' && ($status || $role || $userFiltersActive))): ?>
-                <a href="users.php<?= $view === 'admins' ? '?view=admins' : '' ?>" class="btn-link" style="font-size:.78rem;white-space:nowrap">پاک کردن</a>
+            <?php if ($filtersActive && $view === 'users'): ?>
+                <a href="users.php" class="btn-link" style="font-size:.78rem;white-space:nowrap">پاک کردن</a>
+            <?php elseif ($search && $view === 'admins'): ?>
+                <a href="users.php?view=admins" class="btn-link" style="font-size:.78rem;white-space:nowrap">پاک کردن</a>
             <?php endif; ?>
         </form>
     </div>
@@ -319,7 +305,7 @@ include __DIR__ . '/inc/layout_head.php';
             <p><?= $search ? 'نتیجه‌ای یافت نشد' : 'هنوز کاربری ثبت نشده' ?></p>
         </div>
     <?php else: ?>
-        <div class="data-list">
+        <div class="data-list" id="usersList" data-filtered-count="<?= (int) $total ?>">
             <?php
             $i = $offset + 1;
             foreach ($users as $u):
@@ -337,8 +323,11 @@ include __DIR__ . '/inc/layout_head.php';
                 ?>
                 <div class="data-row user-data-row" role="link" tabindex="0"
                     data-user-url="user.php?id=<?= (int) $u['id'] ?>"
-                    onclick="if (!event.target.closest('a,button')) window.location.href = this.dataset.userUrl"
-                    onkeydown="if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('a,button')) { event.preventDefault(); window.location.href = this.dataset.userUrl; }">
+                    onclick="if (!event.target.closest('a,button,input,label')) window.location.href = this.dataset.userUrl"
+                    onkeydown="if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('a,button,input,label')) { event.preventDefault(); window.location.href = this.dataset.userUrl; }">
+                    <label class="user-select" onclick="event.stopPropagation()">
+                        <input type="checkbox" class="user-check" value="<?= htmlspecialchars((string) $u['id']) ?>">
+                    </label>
                     <div class="data-row-body">
                         <div class="data-row-head">
                             <div class="data-row-title">
@@ -443,6 +432,139 @@ include __DIR__ . '/inc/layout_head.php';
         </div>
     </div>
 </div>
+
+<?php if ($view === 'users'): ?>
+<style>
+  .user-data-row{align-items:center}
+  .user-select{display:flex;align-items:center;padding:4px 2px 4px 8px;flex-shrink:0}
+  .user-select input{width:16px;height:16px;accent-color:var(--ac);cursor:pointer}
+  .users-campaign-bar{position:sticky;bottom:12px;margin:12px 12px 16px;padding:12px 14px;display:none;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--sf);border:1px solid var(--ac);border-radius:12px;box-shadow:var(--shlg);z-index:20}
+  .users-campaign-bar.open{display:flex}
+  .users-filter-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .users-filter-shortcuts{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+  @media (max-width:560px){.users-filter-grid{grid-template-columns:1fr}.users-campaign-bar{bottom:84px}}
+</style>
+<?php if ($total > 0): ?>
+<div class="users-campaign-bar open" id="usersCampaignBar">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <label class="user-select" style="padding:0">
+            <input type="checkbox" id="selectPageUsers">
+        </label>
+        <strong id="campaignSelectedLabel">۰ کاربر انتخاب شده</strong>
+        <button type="button" class="btn btn-ghost btn-sm" id="selectFilteredBtn">انتخاب همه نتایج (<?= number_format($total) ?>)</button>
+        <button type="button" class="btn btn-link btn-sm" id="clearSelectedBtn">لغو انتخاب</button>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" id="openCampaignBtn" <?= $campaignJob ? 'disabled' : '' ?>>
+        <?= icon('send', 14) ?> ارسال پیام
+    </button>
+</div>
+<?php endif; ?>
+<div class="modal-veil" id="usersFilterModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h3>فیلتر کاربران</h3>
+            <button class="modal-x" type="button" onclick="closeModal('usersFilterModal')"><?= icon('close', 14) ?></button>
+        </div>
+        <form method="GET">
+            <div class="modal-body">
+                <input type="hidden" name="view" value="users">
+                <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
+                <?php if ($blockedCount > 0 || $agentCount > 0 || $agentAdvCount > 0): ?>
+                    <div class="users-filter-shortcuts">
+                        <?php if ($blockedCount > 0): ?>
+                            <a href="?status=block" class="tag tag-no"><?= $blockedCount ?> مسدود</a>
+                        <?php endif; ?>
+                        <?php if ($agentCount > 0): ?>
+                            <a href="?role=n" class="tag tag-info"><?= $agentCount ?> نماینده</a>
+                        <?php endif; ?>
+                        <?php if ($agentAdvCount > 0): ?>
+                            <a href="?role=n2" class="tag tag-warn"><?= $agentAdvCount ?> نماینده پیشرفته</a>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
+                <div class="users-filter-grid">
+                    <div class="field">
+                        <label>وضعیت</label>
+                        <select name="status" class="select">
+                            <option value="">همه وضعیت‌ها</option>
+                            <option value="active" <?= $status === 'active' ? 'selected' : '' ?>>فعال</option>
+                            <option value="block" <?= $status === 'block' ? 'selected' : '' ?>>مسدود</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>گروه کاربری</label>
+                        <select name="role" class="select">
+                            <option value="">همه گروه‌ها</option>
+                            <option value="f" <?= $role === 'f' ? 'selected' : '' ?>>کاربر عادی</option>
+                            <option value="n" <?= $role === 'n' ? 'selected' : '' ?>>نماینده</option>
+                            <option value="n2" <?= $role === 'n2' ? 'selected' : '' ?>>نماینده پیشرفته</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>اکانت تست</label>
+                        <select name="test" class="select">
+                            <option value="">همه</option>
+                            <option value="yes" <?= $userFilters['test'] === 'yes' ? 'selected' : '' ?>>دارای اکانت تست</option>
+                            <option value="no" <?= $userFilters['test'] === 'no' ? 'selected' : '' ?>>بدون اکانت تست</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>حداقل خرید غیرتست</label>
+                        <input class="input" type="number" name="min_buys" min="0" step="1" inputmode="numeric"
+                            placeholder="مثلاً ۲"
+                            value="<?= $userFilters['min_buys'] !== null ? (int) $userFilters['min_buys'] : '' ?>">
+                    </div>
+                    <div class="field full">
+                        <label>حداقل تمدید</label>
+                        <input class="input" type="number" name="min_extends" min="0" step="1" inputmode="numeric"
+                            placeholder="مثلاً ۱"
+                            value="<?= $userFilters['min_extends'] !== null ? (int) $userFilters['min_extends'] : '' ?>">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-primary" type="submit">اعمال فیلتر</button>
+                <a class="btn btn-ghost" href="users.php">پاک کردن</a>
+                <button class="btn btn-ghost" type="button" onclick="closeModal('usersFilterModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="usersCampaignModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h3>ارسال پیام کمپین</h3>
+            <button class="modal-x" type="button" onclick="closeModal('usersCampaignModal')"><?= icon('close', 14) ?></button>
+        </div>
+        <form method="POST" action="user_campaign_action.php" id="usersCampaignForm">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="start">
+                <input type="hidden" name="scope" id="campaignScope" value="selected">
+                <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
+                <input type="hidden" name="status" value="<?= htmlspecialchars($status) ?>">
+                <input type="hidden" name="role" value="<?= htmlspecialchars($role) ?>">
+                <input type="hidden" name="test" value="<?= htmlspecialchars($userFilters['test']) ?>">
+                <input type="hidden" name="min_buys" value="<?= $userFilters['min_buys'] !== null ? (int) $userFilters['min_buys'] : '' ?>">
+                <input type="hidden" name="min_extends" value="<?= $userFilters['min_extends'] !== null ? (int) $userFilters['min_extends'] : '' ?>">
+                <div id="campaignUserIds"></div>
+                <p class="field-hint" id="campaignCountHint" style="margin-bottom:12px"></p>
+                <div class="field">
+                    <label>متن پیام</label>
+                    <textarea class="textarea" name="message" rows="6" maxlength="3500" required
+                        placeholder="پیامی که از طریق کرون برای کاربران انتخاب‌شده ارسال می‌شود"></textarea>
+                    <span class="field-hint">برای هر ارسال موفق، یک گفتگوی پشتیبانی با وضعیت «کمپین» ساخته می‌شود.</span>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-primary" type="submit"><?= icon('send', 14) ?> ارسال</button>
+                <button class="btn btn-ghost" type="button" onclick="closeModal('usersCampaignModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php if ($view === 'users' && $canManageAdmins): ?>
 <div class="modal-veil" id="resetTestLimitModal">

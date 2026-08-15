@@ -8,7 +8,7 @@ support_ensure_schema($pdo);
 $currentAdmin = db_fetch($pdo, 'SELECT id_admin, username FROM admin WHERE username = ?', [$_SESSION['admin_user'] ?? '']);
 
 $tab = $_GET['tab'] ?? 'unanswered';
-if (!in_array($tab, ['unanswered', 'all', 'Answered', 'close', 'flagged'], true)) {
+if (!in_array($tab, ['unanswered', 'all', 'Answered', 'close', 'flagged', 'کمپین'], true)) {
     $tab = 'unanswered';
 }
 $search = trim($_GET['q'] ?? '');
@@ -154,6 +154,7 @@ $tabStatusMap = [
     'Answered' => 'Answered',
     'close' => 'close',
     'flagged' => 'flagged',
+    'کمپین' => 'کمپین',
 ];
 $searchSql = '';
 $searchParams = [];
@@ -198,6 +199,7 @@ try {
 $totalPages = max(1, (int) ceil($total / $perPage));
 $unansweredCount = panel_support_unanswered_count($pdo);
 $flaggedCount = panel_support_status_count($pdo, 'flagged');
+$campaignCount = panel_support_status_count($pdo, 'کمپین');
 $conversation = $userId !== '' ? db_fetchAll(
     $pdo,
     "SELECT s.*, u.username, u.namecustom
@@ -264,6 +266,7 @@ include __DIR__ . '/inc/layout_head.php';
             <a class="<?= $tab === 'all' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'all', 'page' => null, 'user_id' => null]) ?>">همه</a>
             <a class="<?= $tab === 'Answered' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'Answered', 'page' => null, 'user_id' => null]) ?>">پاسخ داده‌شده</a>
             <a class="<?= $tab === 'flagged' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'flagged', 'page' => null, 'user_id' => null]) ?>">نشانه گذاری شده <b><?= $flaggedCount ?></b></a>
+            <a class="<?= $tab === 'کمپین' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'کمپین', 'page' => null, 'user_id' => null]) ?>">کمپین <b><?= $campaignCount ?></b></a>
             <a class="<?= $tab === 'close' ? 'active' : '' ?>" href="<?= support_inbox_url(['tab' => 'close', 'page' => null, 'user_id' => null]) ?>">بسته‌شده</a>
         </div>
 

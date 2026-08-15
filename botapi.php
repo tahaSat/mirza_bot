@@ -203,6 +203,12 @@ function senddocumentsid($chat_id,$documentid,$caption){
         'caption'=> $caption,
     ]);
 }
+function telegram_is_callback()
+{
+    global $update;
+    return is_array($update) && isset($update['callback_query']);
+}
+
 function Editmessagetext($chat_id, $message_id, $text, $keyboard,$parse_mode = 'HTML'){
     return telegram('editmessagetext', [
         'chat_id' => $chat_id,
@@ -212,6 +218,18 @@ function Editmessagetext($chat_id, $message_id, $text, $keyboard,$parse_mode = '
         'parse_mode' => $parse_mode,
 
     ]);
+}
+
+/**
+ * Edit the current callback message, or send a new one for /start deep links.
+ * Channel buttons open the bot with a user /start message that cannot be edited.
+ */
+function reply_or_edit($chat_id, $message_id, $text, $keyboard, $parse_mode = 'HTML')
+{
+    if (telegram_is_callback() && intval($message_id) > 0) {
+        return Editmessagetext($chat_id, $message_id, $text, $keyboard, $parse_mode);
+    }
+    return sendmessage($chat_id, $text, $keyboard, $parse_mode);
 }
  function deletemessage($chat_id, $message_id){
   telegram('deletemessage', [

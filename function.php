@@ -528,6 +528,101 @@ function select($table, $field, $whereField = null, $whereValue = null, $type = 
     return $result;
 }
 
+/**
+ * True when a row exists. $table / $field are trusted identifiers, not user input.
+ */
+function rowExists(string $table, string $field, $value, ?string $andField = null, $andValue = null): bool
+{
+    global $pdo;
+    if ($value === null || $value === '') {
+        return false;
+    }
+    $table = preg_replace('/[^A-Za-z0-9_]/', '', $table);
+    $field = preg_replace('/[^A-Za-z0-9_]/', '', $field);
+    if ($table === '' || $field === '' || !($pdo instanceof PDO)) {
+        return false;
+    }
+    $sql = "SELECT 1 FROM `$table` WHERE `$field` = :v";
+    $params = [':v' => $value];
+    if ($andField !== null) {
+        $andField = preg_replace('/[^A-Za-z0-9_]/', '', $andField);
+        if ($andField === '') {
+            return false;
+        }
+        $sql .= " AND `$andField` = :v2";
+        $params[':v2'] = $andValue;
+    }
+    $sql .= ' LIMIT 1';
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return (bool) $stmt->fetchColumn();
+    } catch (PDOException $e) {
+        error_log('rowExists: ' . $e->getMessage());
+        return false;
+    }
+}
+
+function request_user_is_admin(): bool
+{
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+    global $from_id;
+    if (empty($from_id)) {
+        $cached = false;
+        return false;
+    }
+    $cached = rowExists('admin', 'id_admin', $from_id);
+    return $cached;
+}
+
+function ensureIndex(string $table, string $indexName, string $columnsSql): void
+{
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        return;
+    }
+    $table = preg_replace('/[^A-Za-z0-9_]/', '', $table);
+    $indexName = preg_replace('/[^A-Za-z0-9_]/', '', $indexName);
+    if ($table === '' || $indexName === '') {
+        return;
+    }
+    try {
+        $db = $pdo->query('SELECT DATABASE()')->fetchColumn();
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?');
+        $stmt->execute([$db, $table, $indexName]);
+        if ((int) $stmt->fetchColumn() > 0) {
+            return;
+        }
+        $pdo->exec("ALTER TABLE `$table` ADD INDEX `$indexName` ($columnsSql)");
+    } catch (Throwable $e) {
+        error_log('ensureIndex: ' . $e->getMessage());
+    }
+}
+
+function ensure_hot_path_indexes(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    $logsDir = __DIR__ . '/logs';
+    $marker = $logsDir . '/.hot_path_indexes_v1';
+    if (is_file($marker)) {
+        return;
+    }
+    ensureIndex('invoice', 'idx_invoice_id_user_status', '`id_user`(100), `Status`(50)');
+    ensureIndex('invoice', 'idx_invoice_username', '`username`(191)');
+    ensureIndex('Payment_report', 'idx_payment_id_user_status', '`id_user`(100), `payment_Status`(50)');
+    if (!is_dir($logsDir)) {
+        @mkdir($logsDir, 0755, true);
+    }
+    @file_put_contents($marker, (string) time());
+}
+
 function getPaySettingValue($name, $default = null)
 {
     $result = select("PaySetting", "ValuePay", "NamePay", $name, "select");
@@ -4424,11 +4519,6 @@ function provision_free_service($user_id, $product, $panel, $note = 'referral_re
         return ['ok' => false, 'invoice_id' => null, 'msg' => 'user not found'];
     }
 
-    $usernameinvoice = select("invoice", "username", null, null, "FETCH_COLUMN");
-    if (!is_array($usernameinvoice)) {
-        $usernameinvoice = [];
-    }
-
     $randomString = bin2hex(random_bytes(4));
     $username_ac = generateUsername(
         $user_info['id'],
@@ -4442,7 +4532,7 @@ function provision_free_service($user_id, $product, $panel, $note = 'referral_re
     $username_ac = strtolower((string) $username_ac);
 
     $DataUserOut = $ManagePanel->DataUser($panel['name_panel'], $username_ac);
-    if (isset($DataUserOut['username']) || in_array($username_ac, $usernameinvoice, true)) {
+    if (isset($DataUserOut['username']) || rowExists('invoice', 'username', $username_ac)) {
         return ['ok' => false, 'invoice_id' => null, 'msg' => 'username exists'];
     }
 
@@ -4620,7 +4710,7 @@ function referral_check_and_grant_reward($campaign, $referrer_id)
 
 function handle_referral_start($campaign_key, $referrer_id, $invited_user_id, $was_new_user, $invited_username = '')
 {
-    global $setting, $pdo, $users_ids, $keyboard;
+    global $setting, $pdo, $keyboard;
 
     $referrer_id = referral_get_user_code($referrer_id);
     $campaign = referral_resolve_campaign($campaign_key);
@@ -4634,7 +4724,7 @@ function handle_referral_start($campaign_key, $referrer_id, $invited_user_id, $w
         sendmessage($invited_user_id, "❌ نمی‌توانید از لینک دعوت خودتان استفاده کنید.", null, 'HTML');
         return ['ok' => false, 'reason' => 'self'];
     }
-    if (!in_array((string) $referrer_id, array_map('strval', $users_ids), true)) {
+    if (!rowExists('user', 'id', $referrer_id)) {
         return ['ok' => false, 'reason' => 'invalid_referrer'];
     }
     if (intval($campaign['new_users_only'] ?? 1) === 1 && !$was_new_user) {
@@ -5188,6 +5278,7 @@ function product_ensure_hwid_limit_column(): void
     $ensured = true;
 }
 
+ensure_hot_path_indexes();
 product_ensure_hwid_limit_column();
 product_ensure_sort_order_column();
 
@@ -6584,7 +6675,7 @@ function broadcast_attachable_buttons()
             'fallback' => '🛍 سرویس های من',
             'callback' => 'backorder',
             'legacy' => 'services',
-            'route_text' => '',
+            'route_text' => '/services',
             'route_datain' => 'backorder',
         ],
         'extendbtn' => [
@@ -6602,7 +6693,7 @@ function broadcast_attachable_buttons()
             'fallback' => '🏦 کیف پول + شارژ',
             'callback' => 'account',
             'legacy' => 'wallet',
-            'route_text' => '',
+            'route_text' => '/wallet',
             'route_datain' => 'account',
         ],
         'addbalance' => [
@@ -6638,7 +6729,7 @@ function broadcast_attachable_buttons()
             'fallback' => '☎️ پشتیبانی',
             'callback' => 'supportbtns',
             'legacy' => 'support',
-            'route_text' => '',
+            'route_text' => '/support',
             'route_datain' => 'supportbtns',
         ],
         'affiliatesbtn' => [
@@ -6665,7 +6756,7 @@ function broadcast_attachable_buttons()
             'fallback' => '🎲 گردونه شانس',
             'callback' => 'wheel_luck',
             'legacy' => 'wheel',
-            'route_text' => '',
+            'route_text' => '/gift',
             'route_datain' => 'wheel_luck',
         ],
     ];
@@ -7078,7 +7169,16 @@ function apply_broadcast_start_payload($payload, &$text, &$datain, $from_id)
 
     // Remap routing first so a tracking failure never drops the user on /start.
     $text = (string) ($meta['route_text'] ?? '');
-    $datain = (string) ($meta['route_datain'] ?? $meta['callback']);
+    $action = (string) ($meta['route_datain'] ?? $meta['callback']);
+    // Channel URL buttons arrive as /start messages, not callback queries.
+    // Setting $datain would make handlers try to edit the user's /start message.
+    if (function_exists('telegram_is_callback') && telegram_is_callback()) {
+        $datain = $action;
+    } elseif ($text === '') {
+        $datain = $action;
+    } else {
+        $datain = '';
+    }
 
     try {
         track_broadcast_click($resolved['broadcast_id'], $from_id);

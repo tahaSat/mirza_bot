@@ -68,11 +68,11 @@ if (!isset($setting['active_step_note'])) {
 }
 $settingmain = select("setting", "*", null, null, "select");
 $showcard = 1;
-$users_ids = select("user", "*", "bottype", $ApiToken, "FETCH_COLUMN");
+$user_already_exists = rowExists('user', 'id', $from_id, 'bottype', $ApiToken);
 if (!is_dir('data')) {
     mkdir('data');
 }
-if (!in_array($from_id, $users_ids) && $settingmain['statusnewuser'] == "onnewuser" && $from_id != 0) {
+if (!$user_already_exists && $settingmain['statusnewuser'] == "onnewuser" && $from_id != 0) {
 
     $newuser = sprintf($textbotlang['Admin']['ManageUser']['newuser'], $first_name, $username, "<a href = \"tg://user?id=$from_id\">$from_id</a>");
     foreach ($admin_ids as $admin) {
@@ -104,7 +104,6 @@ if ($from_id != 0) {
 }
 $user = select("user", "*", "id", $from_id, "select");
 $user['Balance'] = json_decode(file_get_contents("data/$from_id/$from_id.json"), true)['Balance'];
-$usernameinvoice = select("invoice", "username", null, null, "FETCH_COLUMN");
 $buyreport = select("topicid", "idreport", "report", "buyreport", "select")['idreport'];
 $reportnight = select("topicid", "idreport", "report", "reportnight", "select")['idreport'];
 $reporttest = select("topicid", "idreport", "report", "reporttest", "select")['idreport'];
@@ -115,7 +114,6 @@ $otherservice = select("topicid", "idreport", "report", "otherservice", "select"
 
 $paymentreports = select("topicid", "idreport", "report", "paymentreport", "select")['idreport'];
 $admin_idsmain = select("admin", "id_admin", null, null, "FETCH_COLUMN");
-$id_invoice = select("invoice", "id_invoice", null, null, "FETCH_COLUMN");
 $userbot = select("user", "*", "id", $dataBase['id_user'], "select");
 if ($user['bottype'] != $ApiToken) {
     update("user", "bottype", $ApiToken, "id", $from_id);
@@ -427,7 +425,7 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
     $username_ac = strtolower($username_ac);
     $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
     $random_number = rand(1000000, 9999999);
-    if (isset($DataUserOut['username']) || in_array($username_ac, $usernameinvoice)) {
+    if (isset($DataUserOut['username']) || rowExists('invoice', 'username', $username_ac)) {
         $username_ac = $random_number . "_" . $username_ac;
     }
     $datac = array(
@@ -853,7 +851,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     savedata("save", "username", $username_ac);
     $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
     $random_number = rand(1000000, 9999999);
-    if (isset($DataUserOut['username']) || in_array($username_ac, $usernameinvoice)) {
+    if (isset($DataUserOut['username']) || rowExists('invoice', 'username', $username_ac)) {
         $username_ac = $random_number . "_" . $username_ac;
     }
     if (intval($datapish['Volume_constraint']) == 0)
@@ -951,7 +949,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     savedata("save", "username", $username_ac);
     $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
     $random_number = rand(1000000, 9999999);
-    if (isset($DataUserOut['username']) || in_array($username_ac, $usernameinvoice)) {
+    if (isset($DataUserOut['username']) || rowExists('invoice', 'username', $username_ac)) {
         $username_ac = $random_number . "_" . $username_ac;
     }
     if (intval($datapish['Volume_constraint']) == 0)
@@ -1089,13 +1087,13 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $username_ac = strtolower($userdate['username']);
     $DataUserOut = $ManagePanel->DataUser($marzban_list_get['name_panel'], $username_ac);
     $random_number = rand(1000000, 9999999);
-    if (isset($DataUserOut['username']) || in_array($username_ac, $usernameinvoice)) {
+    if (isset($DataUserOut['username']) || rowExists('invoice', 'username', $username_ac)) {
         $username_ac = $random_number . "_" . $username_ac;
     }
     $date = time();
     $randomString = bin2hex(random_bytes(4));
     $random_number = rand(1000000, 9999999);
-    if (in_array($randomString, $id_invoice)) {
+    if (rowExists('invoice', 'id_invoice', $randomString)) {
         $randomString = $random_number . $randomString;
     }
     if ($marzban_list_get['type'] == "Manualsale") {

@@ -1840,6 +1840,7 @@ try {
 if ($check && $check->rowCount() != 0) {
     $pdo->exec("ALTER TABLE `user` DROP `ref_code`");
 }
+ensure_hot_path_indexes();
 global $telegram_polling_mode;
 if (empty($telegram_polling_mode)) {
     telegram('setwebhook', [

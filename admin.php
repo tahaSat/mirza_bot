@@ -842,7 +842,7 @@ $paycount
     deletemessage($from_id, $message_id);
     savedata("clear", "type", $typepanel);
 } elseif ($user['step'] == "add_name_panel") {
-    if (in_array($text, $marzban_list)) {
+    if (rowExists('marzban_panel', 'name_panel', $text)) {
         sendmessage($from_id, $textbotlang['Admin']['managepanel']['Repeatpanel'], $backadmin, 'HTML');
         return;
     }
@@ -4094,7 +4094,7 @@ $caption";
         sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $backadmin, 'HTML');
         return;
     }
-    if (in_array($productName, $name_product)) {
+    if (rowExists('product', 'name_product', $productName)) {
         sendmessage($from_id, "❌ محصول با نام $productName وجود دارد", $backadmin, 'HTML');
         return;
     }
@@ -4112,8 +4112,7 @@ $caption";
     sendmessage($from_id, $textbotlang['Admin']['Product']['Service_location'], $json_list_marzban_panel, 'HTML');
     step('get_location', $from_id);
 } elseif ($user['step'] == "get_location") {
-    $marzban_list[] = '/all';
-    if (!in_array($text, $marzban_list)) {
+    if ($text !== '/all' && !rowExists('marzban_panel', 'name_panel', $text)) {
         sendmessage($from_id, "❌ پنل انتخابی اشتباه است", null, 'HTML');
         return;
     }
@@ -4499,7 +4498,7 @@ $caption";
     step('remove-product', $from_id);
     sendmessage($from_id, $textbotlang['Admin']['Product']['selectRemoveProduct'], $json_list_product_list_admin, 'HTML');
 } elseif ($user['step'] == "remove-product") {
-    if (!in_array($text, $name_product)) {
+    if (!rowExists('product', 'name_product', $text)) {
         sendmessage($from_id, $textbotlang['users']['sell']['error-product'], null, 'HTML');
         return;
     }
@@ -4665,7 +4664,7 @@ $caption";
     }
     $currentProduct = select("product", "*", "id", $user['Processing_value'], "select");
     $currentName = is_array($currentProduct) ? (string) ($currentProduct['name_product'] ?? '') : '';
-    if (in_array($productName, $name_product) && $productName !== $currentName) {
+    if (rowExists('product', 'name_product', $productName) && $productName !== $currentName) {
         sendmessage($from_id, "❌ محصول با نام $productName وجود دارد", $backadmin, 'HTML');
         return;
     }
@@ -5109,7 +5108,7 @@ $caption";
     sendmessage($from_id, $textbotlang['Admin']['Balance']['NegativeBalance'], $backadmin, 'HTML');
     step('Negative_Balance', $from_id);
 } elseif ($user['step'] == "Negative_Balance") {
-    if (!in_array($text, $users_ids)) {
+    if (!rowExists('user', 'id', $text)) {
         sendmessage($from_id, $textbotlang['Admin']['not-user'], $backadmin, 'HTML');
         return;
     }
@@ -5173,7 +5172,7 @@ $caption";
     } else {
         $id_user = $dataget[1];
     }
-    if (!in_array($id_user, $users_ids)) {
+    if (!rowExists('user', 'id', $id_user)) {
         sendmessage($from_id, $textbotlang['Admin']['not-user'], null, 'HTML');
         return;
     }
@@ -5396,7 +5395,7 @@ $text_agent_volume$text_expie_agent
     sendmessage($from_id, $textbotlang['Admin']['Discount']['RemoveCode'], $json_list_Discount_list_admin, 'HTML');
     step('remove-Discount', $from_id);
 } elseif ($user['step'] == "remove-Discount") {
-    if (!in_array($text, $code_Discount)) {
+    if (!rowExists('Discount', 'code', $text)) {
         sendmessage($from_id, $textbotlang['Admin']['Discount']['NotCode'], null, 'HTML');
         return;
     }
@@ -5475,7 +5474,7 @@ $text_agent_volume$text_expie_agent
         sendmessage($from_id, "❌شماره کارت باید حتما عدد باشد.", $backuser, 'HTML');
         return;
     }
-    if (in_array($text, $listcard)) {
+    if (rowExists('card_number', 'cardnumber', $text)) {
         sendmessage($from_id, "❌ شماره کارت در دیتابیس وجود دارد.", $backuser, 'HTML');
         return;
     }
@@ -5763,7 +5762,7 @@ $text_agent_volume$text_expie_agent
     sendmessage($from_id, $textbotlang['Admin']['managepanel']['GetNameNew'], $backadmin, 'HTML');
     step('GetNameNew', $from_id);
 } elseif ($user['step'] == "GetNameNew") {
-    if (in_array($text, $marzban_list)) {
+    if (rowExists('marzban_panel', 'name_panel', $text)) {
         sendmessage($from_id, $textbotlang['Admin']['managepanel']['Repeatpanel'], $backadmin, 'HTML');
         return;
     }
@@ -7037,7 +7036,7 @@ $iduser  در ربات  رفع مسدود گردید
     sendmessage($from_id, $textbotlang['Admin']['Discount']['RemoveCode'], $json_list_Discount_list_admin_sell, 'HTML');
     step('remove-Discountsell', $from_id);
 } elseif ($user['step'] == "remove-Discountsell") {
-    if (!in_array($text, $SellDiscount)) {
+    if (!rowExists('DiscountSell', 'codeDiscount', $text)) {
         sendmessage($from_id, $textbotlang['Admin']['Discount']['NotCode'], null, 'HTML');
         return;
     }
@@ -8320,7 +8319,7 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
         sendmessage($from_id, $textbotlang['users']['stateus']['Invalidusername'], $backuser, 'html');
         return;
     }
-    if (in_array($text, $usernameinvoice)) {
+    if (rowExists('invoice', 'username', $text)) {
         sendmessage($from_id, "❌ این نام کاربری از قبل داخل ربات وجود دارد.", null, 'HTML');
         return;
     }
@@ -10817,7 +10816,7 @@ f,n.n2", $backadmin, 'HTML');
     توجه داشتید باشید در کاربر مقصد در صورت داشتن موجودی حذف خواهد شد", $backadmin, 'HTML');
     step("getidfortransfers", $from_id);
 } elseif ($user['step'] == "getidfortransfers") {
-    if (!in_array($text, $users_ids)) {
+    if (!rowExists('user', 'id', $text)) {
         sendmessage($from_id, $textbotlang['Admin']['not-user'], $backadmin, 'HTML');
         return;
     }
@@ -12742,7 +12741,7 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
 } elseif ($user['step'] == "getlistidcart") {
     $list = explode("\n", $text);
     foreach ($list as $id_user) {
-        if (!in_array($id_user, $users_ids)) {
+        if (!rowExists('user', 'id', $id_user)) {
             sendmessage($from_id, "📌 کاربر با آیدی عددی $id_user در  دیتابیس وجود ندارد", $backadmin, 'HTML');
             continue;
         }
@@ -13244,7 +13243,7 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, "📌 آیدی عددی کاربر را ارسال کنید", $backadmin, 'HTML');
     step("getidExceptio", $from_id);
 } elseif ($user['step'] == "getidExceptio") {
-    if (!in_array($text, $users_ids)) {
+    if (!rowExists('user', 'id', $text)) {
         sendmessage($from_id, "❌ کاربر وجود ندارد.", $backadmin, 'HTML');
         return;
     }
@@ -13263,7 +13262,7 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, "📌 آیدی عددی کاربر را جهت حذف از لیست ارسال کنید", $backadmin, 'HTML');
     step("getidExceptioremove", $from_id);
 } elseif ($user['step'] == "getidExceptioremove") {
-    if (!in_array($text, $users_ids)) {
+    if (!rowExists('user', 'id', $text)) {
         sendmessage($from_id, "❌ کاربر وجود ندارد.", $backadmin, 'HTML');
         return;
     }

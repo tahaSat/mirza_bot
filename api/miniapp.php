@@ -754,7 +754,6 @@ switch ($data['actions']) {
             return;
         }
         $user_info = select("user", "*", "token", $tokencheck, "select");
-        $usernameinvoice = select("invoice", "username", null, null, "FETCH_COLUMN");
         if (empty($data['custom_service'])) {
             $product = select("product", "*", "code_product", $data['service_id'], "select");
         } else {
@@ -821,7 +820,7 @@ switch ($data['actions']) {
         $username_ac = generateUsername($user_info['id'], $panel['MethodUsername'], $user_info['username'], $randomString, $data['custom_username'], panel_username_prefix($panel), $user_info['namecustom']);
         $username_ac = strtolower($username_ac);
         $DataUserOut = $ManagePanel->DataUser($panel['name_panel'], $username_ac);
-        if (isset($DataUserOut['username']) || in_array($username_ac, $usernameinvoice)) {
+        if (isset($DataUserOut['username']) || rowExists('invoice', 'username', $username_ac)) {
             http_response_code(500);
             echo json_encode(array(
                 'status' => false,

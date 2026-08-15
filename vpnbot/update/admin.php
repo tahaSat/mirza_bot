@@ -233,7 +233,7 @@ if ($text == "📞 تنظیم نام کاربری پشتیبانی") {
     } else {
         $id_user = $text;
     }
-    if (!in_array($id_user, $users_ids)) {
+    if (!rowExists('user', 'id', $id_user, 'bottype', $ApiToken)) {
         sendmessage($from_id, $textbotlang['Admin']['not-user'], null, 'HTML');
         return;
     }

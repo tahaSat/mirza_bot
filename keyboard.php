@@ -5,6 +5,7 @@ if (!isset($from_id)) {
     $from_id = 0;
 }
 $from_id = (int) $from_id;
+$build_admin_keyboards = request_user_is_admin();
 $setting = select("setting", "*", null, null, "select");
 $textbotlang = languagechange(__DIR__ . '/text.json');
 if (!function_exists('getPaySettingValue')) {
@@ -419,6 +420,7 @@ $backadmin = json_encode([
     'resize_keyboard' => true,
     'input_field_placeholder' => "برای بازگشت روی دکمه زیر کلیک کنید"
 ]);
+if ($build_admin_keyboards) {
 //------------------  [ list panel ]----------------//
 $stmt = $pdo->prepare("SHOW TABLES LIKE 'marzban_panel'");
 $stmt->execute();
@@ -509,6 +511,7 @@ if ($table_exists) {
         ['text' => $textbotlang['Admin']['backmenu']]
     ];
     $list_card_remove = json_encode($list_card_remove);
+}
 }
 //------------------  [ help list ]----------------//
 $stmt = $pdo->prepare("SHOW TABLES LIKE 'help'");
@@ -777,6 +780,7 @@ $textbot_purchase = json_encode([
     ],
     'resize_keyboard' => true
 ]);
+if ($build_admin_keyboards) {
 //--------------------------------------------------
 $stmt = $pdo->prepare("SHOW TABLES LIKE 'protocol'");
 $stmt->execute();
@@ -900,6 +904,7 @@ if ($table_exists) {
         ];
     }
     $json_list_Discount_list_admin_sell = json_encode($list_Discountsell);
+}
 }
 $payment = json_encode([
     'inline_keyboard' => [
@@ -1346,6 +1351,7 @@ $supportcenter = json_encode([
     ],
     'resize_keyboard' => true
 ]);
+if ($build_admin_keyboards) {
 //------------------  [ list departeman ]----------------//
 $stmt = $pdo->prepare("SHOW TABLES LIKE 'departman'");
 $stmt->execute();
@@ -1372,6 +1378,7 @@ if ($table_exists) {
         ['text' => $textbotlang['Admin']['backmenu']]
     ];
     $departemanslist = json_encode($departemans);
+}
 }
 // list departeman
 $list_departman = ['inline_keyboard' => []];

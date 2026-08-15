@@ -3,7 +3,8 @@
 /**
  * When $development_mode is true in config.php the bot answers users with a
  * maintenance message and does not run purchases, crons, or APIs.
- * The /panel admin UI stays available.
+ * The /panel admin UI stays available. Telegram users with the administrator
+ * role (and $adminnumber) can still use the bot.
  */
 
 function mirza_development_mode_message(): string
@@ -20,6 +21,48 @@ function mirza_is_development_mode(): bool
 function mirza_development_mode_script_path(): string
 {
     return (string) ($_SERVER['SCRIPT_FILENAME'] ?? $_SERVER['SCRIPT_NAME'] ?? '');
+}
+
+function mirza_development_mode_user_id(): int
+{
+    global $from_id, $update;
+
+    if (isset($from_id) && intval($from_id) !== 0) {
+        return intval($from_id);
+    }
+
+    if (!is_array($update ?? null)) {
+        return 0;
+    }
+
+    return intval(
+        $update['message']['from']['id']
+        ?? $update['callback_query']['from']['id']
+        ?? $update['inline_query']['from']['id']
+        ?? $update['pre_checkout_query']['from']['id']
+        ?? 0
+    );
+}
+
+function mirza_development_mode_is_administrator(): bool
+{
+    global $adminnumber;
+
+    $userId = mirza_development_mode_user_id();
+    if ($userId === 0) {
+        return false;
+    }
+
+    if (isset($adminnumber) && $adminnumber !== '' && (string) $userId === (string) $adminnumber) {
+        return true;
+    }
+
+    if (!function_exists('select')) {
+        return false;
+    }
+
+    $admin = select('admin', 'rule', 'id_admin', (string) $userId, 'select');
+    return is_array($admin) && ($admin['rule'] ?? '') === 'administrator';
 }
 
 function mirza_development_mode_should_skip_boot(): bool
@@ -117,6 +160,9 @@ function mirza_halt_if_development_mode(): void
     if (!mirza_is_development_mode() || defined('MIRZA_DEV_MODE_HALTED')) {
         return;
     }
+    if (mirza_development_mode_is_administrator()) {
+        return;
+    }
     define('MIRZA_DEV_MODE_HALTED', true);
     mirza_development_mode_reply_telegram();
 }
@@ -127,6 +173,9 @@ function mirza_development_mode_boot(): void
         return;
     }
     if (mirza_development_mode_should_skip_boot()) {
+        return;
+    }
+    if (mirza_development_mode_is_administrator()) {
         return;
     }
 

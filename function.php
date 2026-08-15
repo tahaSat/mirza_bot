@@ -2616,30 +2616,54 @@ function addCronIfNotExists($cronCommand, $removePatterns = [])
 
 function activecron()
 {
-    global $domainhosts;
+    $php = '/usr/bin/php';
+    if (defined('PHP_BINARY') && PHP_BINARY !== '' && is_executable(PHP_BINARY) && strpos(PHP_BINARY, 'php-fpm') === false) {
+        $php = PHP_BINARY;
+    }
+    $cronDir = __DIR__ . '/cronbot';
+    $flock = '/usr/bin/flock';
 
-    $paymentExpireCron = "0 * * * * curl https://$domainhosts/cronbot/payment_expire.php";
+    $job = static function (string $schedule, string $script) use ($php, $cronDir, $flock): string {
+        $lock = '/tmp/mirza.' . basename($script, '.php') . '.lock';
+        return $schedule . ' cd ' . $cronDir . ' && ' . $flock . ' -n ' . $lock . ' ' . $php . ' ' . $script;
+    };
+
     $cronCommands = [
-        "*/15 * * * * curl https://$domainhosts/cronbot/statusday.php",
-        "*/1 * * * * curl https://$domainhosts/cronbot/croncard.php",
-        "*/1 * * * * curl https://$domainhosts/cronbot/NoticationsService.php",
-        $paymentExpireCron,
-        "*/1 * * * * curl https://$domainhosts/cronbot/sendmessage.php",
-        "*/3 * * * * curl https://$domainhosts/cronbot/plisio.php",
-        "*/1 * * * * curl https://$domainhosts/cronbot/activeconfig.php",
-        "*/1 * * * * curl https://$domainhosts/cronbot/disableconfig.php",
-        "*/1 * * * * curl https://$domainhosts/cronbot/iranpay1.php",
-        "0 */5 * * * curl https://$domainhosts/cronbot/backupbot.php",
-        "*/2 * * * * curl https://$domainhosts/cronbot/gift.php",
-        "*/30 * * * * curl https://$domainhosts/cronbot/expireagent.php",
-        "*/15 * * * * curl https://$domainhosts/cronbot/on_hold.php",
-        "*/2 * * * * curl https://$domainhosts/cronbot/configtest.php",
-        "*/15 * * * * curl https://$domainhosts/cronbot/uptime_node.php",
-        "*/15 * * * * curl https://$domainhosts/cronbot/uptime_panel.php",
+        $job('45 23 * * *', 'statusday.php'),
+        $job('*/1 * * * *', 'croncard.php'),
+        $job('*/5 * * * *', 'NoticationsService.php'),
+        $job('0 * * * *', 'payment_expire.php'),
+        $job('*/1 * * * *', 'sendmessage.php'),
+        $job('*/5 * * * *', 'activeconfig.php'),
+        $job('*/5 * * * *', 'disableconfig.php'),
+        $job('0 */5 * * *', 'backupbot.php'),
+        $job('*/2 * * * *', 'gift.php'),
+        $job('*/30 * * * *', 'expireagent.php'),
+        $job('*/15 * * * *', 'on_hold.php'),
+        $job('*/2 * * * *', 'configtest.php'),
+        $job('*/15 * * * *', 'uptime_node.php'),
+        $job('*/15 * * * *', 'uptime_panel.php'),
     ];
 
-    // Replace any previous payment_expire schedule (e.g. every 5 minutes) with hourly.
-    addCronIfNotExists($cronCommands, ['payment_expire.php']);
+    // Replace curl/old schedules and drop unused payment crons (plisio, iranpay1).
+    addCronIfNotExists($cronCommands, [
+        'statusday.php',
+        'croncard.php',
+        'NoticationsService.php',
+        'payment_expire.php',
+        'sendmessage.php',
+        'plisio.php',
+        'activeconfig.php',
+        'disableconfig.php',
+        'iranpay1.php',
+        'backupbot.php',
+        'gift.php',
+        'expireagent.php',
+        'on_hold.php',
+        'configtest.php',
+        'uptime_node.php',
+        'uptime_panel.php',
+    ]);
 }
 function createInvoice($amount)
 {

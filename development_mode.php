@@ -7,9 +7,36 @@
  * role (and $adminnumber) can still use the bot.
  */
 
-function mirza_development_mode_message(): string
+function mirza_development_mode_support_id(): string
 {
-    return 'ربات در حالت توسعه و بروز رسانی میباشد. لطفا پس از مدتی مجددا تلاش نمایید.';
+    global $development_mode_support_id, $adminnumber;
+
+    $id = trim((string) ($development_mode_support_id ?? ''));
+    if ($id === '') {
+        $id = trim((string) ($adminnumber ?? ''));
+    }
+    return $id;
+}
+
+function mirza_development_mode_message(bool $html = false): string
+{
+    $message = 'ربات در حالت توسعه و بروز رسانی میباشد. لطفا پس از مدتی مجددا تلاش نمایید.';
+    $id = mirza_development_mode_support_id();
+    if ($id === '') {
+        return $message;
+    }
+
+    $display = $id;
+    if ($html) {
+        $safe = htmlspecialchars($id, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        if (preg_match('/^\d+$/', $id)) {
+            $display = '<a href="tg://user?id=' . $id . '">' . $safe . '</a>';
+        } else {
+            $display = $safe;
+        }
+    }
+
+    return $message . "\nبرای خرید محصول و پشتیبانی به اکانت " . $display . " پیام دهید";
 }
 
 function mirza_is_development_mode(): bool
@@ -128,7 +155,7 @@ function mirza_development_mode_reply_telegram(): void
     $chatId = intval($from_id ?? 0);
     $isCallbackOnly = !empty($callback_query_id) && !isset($update['message']);
     if ($chatId !== 0 && !$isCallbackOnly && function_exists('sendmessage')) {
-        sendmessage($chatId, $message, null, 'HTML');
+        sendmessage($chatId, mirza_development_mode_message(true), null, 'HTML');
     }
 
     exit;

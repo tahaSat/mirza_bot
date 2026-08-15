@@ -34,6 +34,7 @@ $telegram_proxy_prefer_primary_interval_sec = 0; // 0 disables periodic auto-ret
 $telegram_proxy_state_file = __DIR__ . '/storage/cache/telegram_proxy_state.json';
 $telegram_polling_mode = false;
 $development_mode = false; // true = freeze bot for users (administrators still work; /panel stays open; no crons/payments)
+$development_mode_support_id = $adminnumber; // Telegram id/username shown in the maintenance message
 $telegram_polling_async = true; // process each update in a separate PHP worker (users don't block each other)
 $telegram_local_bot_url = 'http://127.0.0.1/index.php'; // used only when $telegram_polling_async = false
 

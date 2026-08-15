@@ -206,6 +206,7 @@ ${TELEGRAM_PROXIES_PHP}
 \$telegram_polling_log_file = __DIR__ . '/logs/polling.log';
 \$telegram_polling_worker_log_file = __DIR__ . '/logs/polling.worker.log';
 \$telegram_polling_slow_panel_ms = 3000;
+\$development_mode = false;
 ?>
 EOF
 }

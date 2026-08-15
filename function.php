@@ -7350,3 +7350,6 @@ function channel_post_resolve_error_message($error)
     ];
     return $messages[$error] ?? '❌ کانال معتبر نیست.';
 }
+
+require_once __DIR__ . '/development_mode.php';
+mirza_development_mode_boot();

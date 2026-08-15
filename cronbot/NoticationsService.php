@@ -117,6 +117,7 @@ class ServiceMonitor
                 "لطفاً در صورت تمایل برای خرید حجم اضافه و یا تمدید سرویستون از طریق بخش «{$this->text_Purchased_services}» اقدام بفرمایین";
             $reportMessage = "📌 اطلاعیه کرون حجم\n\n" .
                 "نام کاربری سرویس :‌ <code>{$username}</code>\n" .
+                "آیدی عددی کاربر :‌ <code>{$invoice['id_user']}</code>\n" .
                 "وضعیت سرویس : {$userData['status']}\n" .
                 "حجم باقی مانده : {$formattedVolume}";
             $this->send_notifactions($invoice, $user, $message, true, $invoice['bottype']);
@@ -146,7 +147,7 @@ class ServiceMonitor
             update("invoice", "status", "removeTime", "username", $username);
             $this->Panel->RemoveUser($invoice['Service_location'], $username);
             $message = "📌 کاربر گرامی بدلیل عدم تمدید، سرویس {$invoice['username']} از لیست سرویس های شما حذف گردید\n\n🌟 جهت تهیه سرویس جدید از بخش خرید سرویس اقدام فرمایید";
-            $reportMessage = "📌 اطلاعیه کرون حذف\n\nنام کاربری سرویس :‌ <code>{$invoice['username']}</code>\nوضعیت سرویس : $statusText\nتعداد روز باقی مانده ‌:‌$daysRemaining\nحجم باقی مانده : $remainingVolume";
+            $reportMessage = "📌 اطلاعیه کرون حذف\n\nنام کاربری سرویس :‌ <code>{$invoice['username']}</code>\nآیدی عددی کاربر :‌ <code>{$invoice['id_user']}</code>\nوضعیت سرویس : $statusText\nتعداد روز باقی مانده ‌:‌$daysRemaining\nحجم باقی مانده : $remainingVolume";
             $this->send_notifactions($invoice, $user, $message, false, $invoice['bottype']);
             $this->sendReportNotification($reportMessage);
         }
@@ -191,7 +192,7 @@ class ServiceMonitor
             $message = "📌 کاربر گرامی بدلیل عدم تمدید، سرویس $username از لیست سرویس های شما حذف گردید
 
 🌟 جهت تهیه سرویس جدید از بخش خرید سرویس اقدام فرمایید";
-            $reportMessage = "📌  اطلاعیه کرون حذف حجم \nنام کاربری سرویس : $username \n وضعیت سرویس : $statusText \nتعداد روز باقی مانده :$daysRemaining \n حجم باقی مانده : $remainingVolume\nآخرین اتصال کاربر : {$userData['online_at']}";
+            $reportMessage = "📌  اطلاعیه کرون حذف حجم \nنام کاربری سرویس : $username \nآیدی عددی کاربر :‌ <code>{$invoice['id_user']}</code>\n وضعیت سرویس : $statusText \nتعداد روز باقی مانده :$daysRemaining \n حجم باقی مانده : $remainingVolume\nآخرین اتصال کاربر : {$userData['online_at']}";
             $this->send_notifactions($invoice, $user, $message, false, $invoice['bottype']);
             $this->sendReportNotification($reportMessage);
         }
@@ -230,6 +231,7 @@ class ServiceMonitor
                 "با تشکر از همراهی شما";
             $reportMessage = "📌 اطلاعیه کرون زمان\n\n" .
                 "نام کاربری سرویس :‌ <code>{$invoice['username']}</code>\n" .
+                "آیدی عددی کاربر :‌ <code>{$invoice['id_user']}</code>\n" .
                 "وضعیت سرویس : {$userData['status']}\n" .
                 "تعداد روز باقی مانده ‌:‌{$daysRemaining}";
             $this->send_notifactions($invoice, $user, $message, true, $invoice['bottype']);

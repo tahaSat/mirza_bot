@@ -119,9 +119,11 @@ if (!is_array($channels_id)) {
     $channels_id = [];
 }
 $topic_id = select("topicid", "*", null, null, "fetchAll");
-if (!isset($datatextbot) || !is_array($datatextbot) || !isset($datatextbot['text_sell'])) {
-    $datatextbot = $pdo->query("SELECT id_text, text FROM textbot")->fetchAll(PDO::FETCH_KEY_PAIR);
+$loadedTexts = $pdo->query("SELECT id_text, text FROM textbot")->fetchAll(PDO::FETCH_KEY_PAIR);
+if (!is_array($loadedTexts)) {
+    $loadedTexts = [];
 }
+$datatextbot = array_merge(is_array($datatextbot) ? $datatextbot : [], $loadedTexts);
 $setting = select("setting", "*", null, null, "select", ['cache' => false]);
 $keyboard = build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $from_id, [
     'users' => $user,
@@ -4360,18 +4362,15 @@ $textinvite
     $info_product_price_product = number_format($info_product['price_product']);
     $userBalance = number_format($user['Balance']);
     $replacements = [
-        '{username}' => htmlspecialchars((string) $username_ac, ENT_QUOTES, 'UTF-8'),
-        '{name_product}' => htmlspecialchars((string) ($info_product['name_product'] ?? ''), ENT_QUOTES, 'UTF-8'),
+        '{username}' => $username_ac,
+        '{name_product}' => $info_product['name_product'],
         '{Service_time}' => $info_product['Service_time'],
-        '{note}' => htmlspecialchars((string) ($info_product['note'] ?? ''), ENT_QUOTES, 'UTF-8'),
+        '{note}' => $info_product['note'] ?? '',
         '{price}' => $info_product_price_product,
         '{Volume}' => $info_product['Volume_constraint'],
         '{userBalance}' => $userBalance
     ];
-    $textin = strtr((string) ($datatextbot['text_pishinvoice'] ?? ''), $replacements);
-    if ($textin === '') {
-        $textin = "🛍 {$replacements['{name_product}']}\n💸 {$replacements['{price}']}\n⏱ {$replacements['{Service_time}']}\n🔋 {$replacements['{Volume}']}";
-    }
+    $textin = strtr($datatextbot['text_pishinvoice'] ?? '', $replacements);
     if (intval($info_product['Volume_constraint']) == 0) {
         $textin = str_replace('گیگ', "", $textin);
     }

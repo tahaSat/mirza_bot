@@ -1,6 +1,7 @@
 .DS_Store
 **/.DS_Store
-config.php
+# Per-server secrets. Each environment keeps its own copy; do not commit.
+/config.php
 android-sms-forwarder/
 storage/sessions/panel/*
 !storage/sessions/panel/.htaccess

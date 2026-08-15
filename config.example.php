@@ -1,25 +1,28 @@
 <?php
+// Copy this file to config.php on each server and fill in local secrets.
+// config.php is gitignored — never commit passwords, tokens, or API keys.
+
 // This variable added for high load panels which their response time is long and bot can't communicate with online panel!
 // null for default settings
 $request_exec_timeout = null;
 $dbhost = 'localhost';
-$dbname = 'mirza_pr';
-$usernamedb = 'fRLZKZOk';
-$passworddb = 'M5CXcXktskbz';
+$dbname = 'YOUR_DB_NAME';
+$usernamedb = 'YOUR_DB_USER';
+$passworddb = 'YOUR_DB_PASSWORD';
 $connect = mysqli_connect($dbhost, $usernamedb, $passworddb, $dbname);
 if ($connect->connect_error) { die("error" . $connect->connect_error); }
 mysqli_set_charset($connect, "utf8mb4");
 $options = [ PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES => false, ];
 $dsn = "mysql:host=$dbhost;dbname=$dbname;charset=utf8mb4";
 try { $pdo = new PDO($dsn, $usernamedb, $passworddb, $options); } catch (\PDOException $e) { error_log("Database connection failed: " . $e->getMessage()); }
-$APIKEY = '8913088647:AAFT3js74c3IKMJr93DDIn11X_FbiWXNHhQ';
-$adminnumber = '289943892';
-$domainhosts = 'bot.theownlypwcha.top';
-$usernamebot = 'pichanet_bot';
+$APIKEY = 'YOUR_TELEGRAM_BOT_TOKEN';
+$adminnumber = 'YOUR_ADMIN_TELEGRAM_ID';
+$domainhosts = 'your.domain.example';
+$usernamebot = 'your_bot_username';
 
 // Telegram API only (botapi.php / polling.php). Panel and payment URLs must NOT use this proxy.
 $telegram_proxy = '';
-$telegram_proxy_type = 'socks5'; // xray inbound on 10808 is SOCKS; use 'http' only if you run an HTTP proxy th
+$telegram_proxy_type = 'socks5'; // xray inbound on 10808 is SOCKS; use 'http' only if you run an HTTP proxy
 $telegram_proxies = [];
 
     // Add fallback listeners here (example):
@@ -35,13 +38,13 @@ $development_mode = false; // true = freeze bot (maintenance message, no crons/p
 $telegram_polling_async = true; // process each update in a separate PHP worker (users don't block each other)
 $telegram_local_bot_url = 'http://127.0.0.1/index.php'; // used only when $telegram_polling_async = false
 
-$telegram_polling_debug = true;
+$telegram_polling_debug = false;
 $telegram_polling_log_file = __DIR__ . '/logs/polling.log';
 $telegram_polling_worker_log_file = __DIR__ . '/logs/polling.worker.log';
 // Log panel HTTP calls slower than this (ms) when debug is on
 $telegram_polling_slow_panel_ms = 3000;
 
 // Tetraminator payment gateway (https://api.tetraminator.com/v1) — set X-API-KEY here
-$tetraminator_api_key = 'xmqRQOKStDexW9rGN';
+$tetraminator_api_key = '';
 
 ?>

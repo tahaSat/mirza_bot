@@ -394,6 +394,10 @@ class ManagePanel
     {
         $Output = array();
         global $pdo, $domainhosts;
+        // #region agent log
+        $mirzaDbgDataUserT0 = microtime(true);
+        $mirzaDbgPanelType = '';
+        // #endregion
         $Get_Data_Panel = select("marzban_panel", "*", "name_panel", $name_panel, "select");
         if (!$Get_Data_Panel || !is_array($Get_Data_Panel)) {
             return array(
@@ -1169,6 +1173,16 @@ class ManagePanel
                 'msg' => 'Panel Not Found'
             );
         }
+        // #region agent log
+        if (function_exists('mirza_debug_b4b318')) {
+            $panelType = (isset($Get_Data_Panel) && is_array($Get_Data_Panel)) ? (string) ($Get_Data_Panel['type'] ?? '') : '';
+            mirza_debug_b4b318('C', 'panels.php:DataUser', 'datauser_finished', [
+                'duration_ms' => (int) round((microtime(true) - $mirzaDbgDataUserT0) * 1000),
+                'panel_type' => $panelType,
+                'status' => is_array($Output) ? (string) ($Output['status'] ?? '') : '',
+            ]);
+        }
+        // #endregion
         return $Output;
     }
     function RemoveUser($name_panel, $username)

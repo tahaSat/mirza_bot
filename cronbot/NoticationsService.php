@@ -72,8 +72,18 @@ class ServiceMonitor
         $time_hours = time() - 3600;
         $QUERY = "SELECT * FROM invoice WHERE (Status = 'active' OR Status = 'end_of_time' OR Status = 'end_of_volume' OR Status = 'sendedwarn' OR Status = 'send_on_hold') AND name_product != 'سرویس تست' AND (time_cron <= '$time_hours' OR time_cron IS NULL) ORDER BY time_cron  LIMIT 30";
         $stmt = $this->pdo->prepare($QUERY);
+        $t0 = microtime(true);
         $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // #region agent log
+        if (function_exists('mirza_debug_b4b318')) {
+            mirza_debug_b4b318('D', 'NoticationsService.php:getActiveInvoices', 'invoice_cron_scan', [
+                'duration_ms' => (int) round((microtime(true) - $t0) * 1000),
+                'row_count' => count($rows),
+            ]);
+        }
+        // #endregion
+        return $rows;
     }
 
     private function processInvoice($invoice)

@@ -432,6 +432,16 @@ class CurlRequest {
 
         $response = curl_exec($ch);
         $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
+        // #region agent log
+        if ($durationMs >= 400 && function_exists('mirza_debug_b4b318')) {
+            mirza_debug_b4b318('C', 'request.php:execute', 'panel_http', [
+                'duration_ms' => $durationMs,
+                'timeout_ms' => $this->timeout,
+                'host' => (string) (parse_url((string) $this->url, PHP_URL_HOST) ?: ''),
+                'curl_errno' => curl_errno($ch),
+            ]);
+        }
+        // #endregion
         if (curl_errno($ch)) {
             $error = curl_error($ch);
             curl_close($ch);

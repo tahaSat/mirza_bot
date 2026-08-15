@@ -405,7 +405,7 @@ class CurlRequest {
     }
 
     private function execute($method, $data = null) {
-        $this->timeout = !$this->timeout  ?  10000 : $this->timeout;
+        $this->timeout = !$this->timeout  ?  4000 : $this->timeout;
         $startedAt = microtime(true);
         $ch = curl_init();
         curl_disable_proxy($ch);

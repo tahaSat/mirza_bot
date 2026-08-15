@@ -2,9 +2,8 @@
 // Copy this file to config.php on each server and fill in local secrets.
 // config.php is gitignored — never commit passwords, tokens, or API keys.
 
-// This variable added for high load panels which their response time is long and bot can't communicate with online panel!
-// null for default settings
-$request_exec_timeout = null;
+// Panel HTTP timeout in ms. null uses 4000. On a 1 GB VPS keep this at 3000–4000.
+$request_exec_timeout = 4000;
 $dbhost = 'localhost';
 $dbname = 'YOUR_DB_NAME';
 $usernamedb = 'YOUR_DB_USER';

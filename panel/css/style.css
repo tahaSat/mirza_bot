@@ -488,3 +488,7 @@ body.support-sheet-open .bottom-nav{visibility:hidden;pointer-events:none}
 .agent-cat-item.is-on{border-color:var(--ac);background:var(--acs);color:var(--text)}
 @media (max-width:900px){.agent-top{grid-template-columns:1fr}}
 @media (max-width:480px){.agent-cat-grid{grid-template-columns:1fr 1fr;gap:6px}.agent-cat-item{padding:8px 10px;font-size:.78rem}}
+
+.dev-mode-badge{font-weight:600}
+.dev-mode-badge code{font-family:var(--mono,ui-monospace,monospace);font-size:.72rem;font-weight:700}
+@media (max-width:520px){.dev-mode-badge .dev-mode-label{display:none}}

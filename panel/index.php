@@ -7,6 +7,7 @@ $pdo = panel_ensure_pdo();
 $totalUsers = 0;
 $newToday = 0;
 $totalRevenue = 0;
+$adminCreditRevenue = 0;
 $activeNow = 0;
 $pendingPay = 0;
 $txToday = 0;
@@ -18,7 +19,17 @@ try {
 }
 
 try {
-    $totalRevenue = (int) db_query($pdo, "SELECT COALESCE(SUM(price_product),0) FROM invoice WHERE Status IN ('active','end_of_time','end_of_volume','sendedwarn','send_on_hold')")->fetchColumn();
+    $invoiceRevenue = (int) db_query($pdo, "SELECT COALESCE(SUM(price_product),0) FROM invoice WHERE Status IN ('active','end_of_time','end_of_volume','sendedwarn','send_on_hold')")->fetchColumn();
+    $adminCreditRevenue = 0;
+    try {
+        $adminCreditRevenue = (int) db_query(
+            $pdo,
+            "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report
+             WHERE payment_Status = 'paid' AND Payment_Method = 'add balance by admin'"
+        )->fetchColumn();
+    } catch (Exception $e) {
+    }
+    $totalRevenue = $invoiceRevenue + $adminCreditRevenue;
     $activeNow = db_count($pdo, "SELECT COUNT(*) FROM invoice WHERE Status='active'");
 } catch (Exception $e) {
 }
@@ -46,6 +57,19 @@ $showPageHead = false;
 include __DIR__ . '/inc/layout_head.php';
 ?>
 
+<div class="notice <?= $devModeOn ? 'notice-warn' : 'notice-ok' ?> fade-up" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+        <strong>development_mode</strong>
+        = <code><?= $devModeOn ? 'true' : 'false' ?></code>
+        <?php if ($devModeOn): ?>
+            — ربات برای کاربران متوقف است؛ کرون و پرداخت اجرا نمی‌شود. ادمین‌ها همچنان دسترسی دارند.
+        <?php else: ?>
+            — ربات در حالت عادی کار می‌کند.
+        <?php endif; ?>
+    </div>
+    <span class="tag <?= $devModeOn ? 'tag-warn' : 'tag-ok' ?>"><?= $devModeOn ? 'فعال' : 'غیرفعال' ?></span>
+</div>
+
 <div class="stats fade-up">
     <div class="stat">
         <div class="stat-label">کل کاربران</div>
@@ -60,7 +84,7 @@ include __DIR__ . '/inc/layout_head.php';
                 ? number_format($totalRevenue / 1_000_000, 1) . '<small>M ت</small>'
                 : number_format($totalRevenue) . '<small>ت</small>' ?>
         </div>
-        <div class="stat-meta">مجموع فروش</div>
+        <div class="stat-meta"><?= $adminCreditRevenue > 0 ? 'فروش و افزایش ادمین' : 'مجموع فروش' ?></div>
     </div>
     <div class="stat warn">
         <div class="stat-label">سرویس فعال</div>

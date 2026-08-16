@@ -7,6 +7,9 @@ $showPageHead = $showPageHead ?? true;
 $currentUser = $_SESSION['admin_user'] ?? 'ادمین';
 $initials = mb_strtoupper(mb_substr($currentUser, 0, 1, 'UTF-8'), 'UTF-8');
 $supportUnansweredCount = isset($pdo) && $pdo instanceof PDO ? panel_support_unanswered_count($pdo) : 0;
+$devModeOn = function_exists('mirza_is_development_mode')
+    ? mirza_is_development_mode()
+    : !empty($GLOBALS['development_mode']);
 ?>
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
@@ -159,6 +162,10 @@ $supportUnansweredCount = isset($pdo) && $pdo instanceof PDO ? panel_support_una
           </div>
         </div>
         <div class="topbar-tools">
+          <span class="tag <?= $devModeOn ? 'tag-warn' : 'tag-ok' ?> dev-mode-badge" title="development_mode">
+            <span class="dev-mode-label">حالت توسعه</span>
+            <code><?= $devModeOn ? 'true' : 'false' ?></code>
+          </span>
           <a href="settings.php" class="icon-btn" title="تنظیمات"><?= icon('settings', 16) ?></a>
           <a href="logout.php" class="icon-btn" title="خروج"><?= icon('logout', 16) ?></a>
         </div>

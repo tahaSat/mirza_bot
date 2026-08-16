@@ -84,6 +84,7 @@ $summary = [
     'users' => 0,
     'payments' => 0,
     'payment_sum' => 0,
+    'admin_credit_revenue' => 0,
 ];
 
 $chartPayload = [
@@ -155,6 +156,17 @@ try {
            )",
         [$monthStart, $monthEnd, $monthStartDt, $monthEndDt]
     )->fetchColumn();
+    $summary['admin_credit_revenue'] = (int) db_query(
+        $pdo,
+        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report
+         WHERE payment_Status = 'paid'
+           AND Payment_Method = 'add balance by admin'
+           AND (
+             (time REGEXP '^[0-9]+$' AND CAST(time AS UNSIGNED) BETWEEN ? AND ?)
+             OR (time NOT REGEXP '^[0-9]+$' AND STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s') BETWEEN ? AND ?)
+           )",
+        [$monthStart, $monthEnd, $monthStartDt, $monthEndDt]
+    )->fetchColumn();
 } catch (Exception $e) {
 }
 
@@ -166,7 +178,7 @@ if ($saleType === 'buy') {
     $summary['revenue'] = $summary['extend_revenue'];
 } else {
     $summary['orders'] = $summary['buys'] + $summary['extends'];
-    $summary['revenue'] = $summary['buy_revenue'] + $summary['extend_revenue'];
+    $summary['revenue'] = $summary['buy_revenue'] + $summary['extend_revenue'] + $summary['admin_credit_revenue'];
 }
 
 $palette = [
@@ -242,13 +254,51 @@ if (in_array('sales', $selected, true)) {
         }
     }
 
+    $adminByDay = array_fill_keys($dayKeys, 0);
+    if ($saleType === 'all' && $summary['admin_credit_revenue'] > 0) {
+        try {
+            $adminRows = db_fetchAll(
+                $pdo,
+                "SELECT day, SUM(total) AS total FROM (
+                    SELECT DATE_FORMAT(FROM_UNIXTIME(CAST(time AS UNSIGNED)), '%Y-%m-%d') AS day,
+                           COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total
+                    FROM Payment_report
+                    WHERE payment_Status = 'paid'
+                      AND Payment_Method = 'add balance by admin'
+                      AND time REGEXP '^[0-9]+$'
+                      AND CAST(time AS UNSIGNED) BETWEEN ? AND ?
+                    GROUP BY day
+                    UNION ALL
+                    SELECT DATE_FORMAT(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'), '%Y-%m-%d') AS day,
+                           COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total
+                    FROM Payment_report
+                    WHERE payment_Status = 'paid'
+                      AND Payment_Method = 'add balance by admin'
+                      AND time NOT REGEXP '^[0-9]+$'
+                      AND STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s') BETWEEN ? AND ?
+                    GROUP BY day
+                 ) t
+                 WHERE day IS NOT NULL
+                 GROUP BY day",
+                [$monthStart, $monthEnd, $monthStartDt, $monthEndDt]
+            );
+            foreach ($adminRows as $row) {
+                $day = $row['day'] ?? '';
+                if (isset($adminByDay[$day])) {
+                    $adminByDay[$day] = (int) $row['total'];
+                }
+            }
+        } catch (Exception $e) {
+        }
+    }
+
     $buyCounts = [];
     $extendCounts = [];
     $revenues = [];
     foreach ($dayKeys as $key) {
         $buyCounts[] = $buyByDay[$key]['count'];
         $extendCounts[] = $extendByDay[$key]['count'];
-        $dayRevenue = $buyByDay[$key]['revenue'] + $extendByDay[$key]['revenue'];
+        $dayRevenue = $buyByDay[$key]['revenue'] + $extendByDay[$key]['revenue'] + ($adminByDay[$key] ?? 0);
         $revenues[] = $dayRevenue;
         $dayCount = $buyByDay[$key]['count'] + $extendByDay[$key]['count'];
         if ($dayCount > 0 || $dayRevenue > 0) {
@@ -601,6 +651,9 @@ $toggleMetricUrl = static function (string $key) use ($selected, $metricDefs, $s
 };
 
 $saleMeta = number_format($summary['buys']) . ' خرید · ' . number_format($summary['extends']) . ' تمدید';
+if ($summary['admin_credit_revenue'] > 0) {
+    $saleMeta .= ' · ' . number_format($summary['admin_credit_revenue']) . ' ت افزایش ادمین';
+}
 if ($saleType === 'buy') {
     $saleMeta = 'فقط خریدهای پرداخت‌شده';
 } elseif ($saleType === 'extend') {

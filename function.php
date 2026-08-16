@@ -6921,6 +6921,7 @@ function broadcast_audience_label(array $userdata)
         'customer' => 'مشتریان',
         'nonecustomer' => 'بدون خرید',
         'testonly' => 'کاربرانی که فقط تست کرده اند',
+        'notestnopurchase' => 'کاربرانی که تست و خرید نداشته اند',
         'highvolume' => 'مصرف بیش از ۸۰٪',
     ][$userdata['typeusermessage'] ?? ''] ?? ($userdata['typeusermessage'] ?? '-');
     $agent = [

@@ -490,6 +490,8 @@ include __DIR__ . '/inc/layout_head.php';
                         'Currency Rial 3' => 'ریالی ۳',
                         'arze digital offline' => 'ارز دیجیتال',
                         'tetraminator' => 'Tetraminator',
+                        'manual invoice' => 'فاکتور دستی',
+                        'cost' => 'هزینه',
                     ];
                     $payStatusMap = [
                         'paid' => ['tag-ok', 'موفق'],
@@ -498,6 +500,7 @@ include __DIR__ . '/inc/layout_head.php';
                         'reject' => ['tag-no', 'رد'],
                         'waiting' => ['tag-warn', 'در انتظار'],
                         'pending' => ['tag-warn', 'در انتظار'],
+                        'cost' => ['tag-plain', 'هزینه شده'],
                     ];
                     ?>
                     <div class="m-list">

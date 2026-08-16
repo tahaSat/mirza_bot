@@ -113,8 +113,8 @@ $devModeOn = function_exists('mirza_is_development_mode')
           <a href="discounts.php" class="nav-item <?= $activeNav === 'discounts' ? 'active' : '' ?>" title="کدهای تخفیف">
             <span class="nav-icon"><?= icon('wallet') ?></span><span class="nav-label">کدهای تخفیف</span>
           </a>
-          <a href="payment.php" class="nav-item <?= in_array($activeNav, ['payment', 'payment_methods'], true) ? 'active' : '' ?>" title="تراکنش‌ها">
-            <span class="nav-icon"><?= icon('card') ?></span><span class="nav-label">تراکنش‌ها</span>
+          <a href="payment.php" class="nav-item <?= in_array($activeNav, ['payment', 'payment_methods'], true) ? 'active' : '' ?>" title="مالی">
+            <span class="nav-icon"><?= icon('card') ?></span><span class="nav-label">مالی</span>
           </a>
           <a href="payment_methods.php" class="nav-item <?= $activeNav === 'payment_methods' ? 'active' : '' ?>" title="درگاه‌های پرداخت">
             <span class="nav-icon"><?= icon('settings') ?></span><span class="nav-label">درگاه‌ها</span>

@@ -227,6 +227,7 @@ if ($tab === 'payments') {
              ELSE 'wallet'
            END AS service_type
     FROM Payment_report
+    WHERE payment_Status != 'cost'
   ";
 } else {
   // Normalize string collations — invoice vs service_other (and string literals) often differ.

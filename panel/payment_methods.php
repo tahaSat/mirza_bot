@@ -50,7 +50,7 @@ include __DIR__ . '/inc/layout_head.php';
 ?>
 
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px" class="fade-up">
-  <a href="payment.php" class="btn btn-ghost btn-sm"><?= icon('card', 14) ?> تراکنش‌ها</a>
+  <a href="payment.php" class="btn btn-ghost btn-sm"><?= icon('card', 14) ?> مالی</a>
   <a href="payment.php?tab=pending" class="btn btn-ghost btn-sm">رسیدهای در انتظار</a>
 </div>
 

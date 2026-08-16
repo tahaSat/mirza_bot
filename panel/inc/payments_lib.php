@@ -460,6 +460,136 @@ function panel_payment_dismiss(PDO $pdo, string $orderId): array
     return ['ok' => true, 'msg' => 'رسید حذف شد (بدون اطلاع کاربر).'];
 }
 
+function panel_payment_ensure_note_column(PDO $pdo): void
+{
+    static $ready = false;
+    if ($ready) {
+        return;
+    }
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM Payment_report LIKE 'note'");
+        if (!$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE Payment_report ADD note TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL");
+        }
+    } catch (Throwable $e) {
+        error_log('panel_payment_ensure_note_column: ' . $e->getMessage());
+    }
+    $ready = true;
+}
+
+function panel_payment_parse_time($raw): int
+{
+    $raw = trim((string) $raw);
+    if ($raw === '') {
+        return time();
+    }
+    if (ctype_digit($raw) && strlen($raw) >= 9) {
+        return (int) $raw;
+    }
+    $ts = strtotime(str_replace('T', ' ', $raw));
+    return $ts !== false ? $ts : time();
+}
+
+function panel_payment_is_cost(array $payment): bool
+{
+    return ($payment['payment_Status'] ?? '') === 'cost'
+        || ($payment['Payment_Method'] ?? '') === 'cost'
+        || ($payment['id_invoice'] ?? '') === 'cost';
+}
+
+/**
+ * @return array{ok:bool,msg:string}
+ */
+function panel_payment_add_manual(PDO $pdo, array $input): array
+{
+    panel_payment_ensure_note_column($pdo);
+    $amount = (int) ($input['amount'] ?? 0);
+    if ($amount < 1) {
+        return ['ok' => false, 'msg' => 'مبلغ باید عدد مثبت باشد.'];
+    }
+
+    $userId = trim((string) ($input['id_user'] ?? ''));
+    $note = trim((string) ($input['note'] ?? ''));
+    $orderId = trim((string) ($input['id_order'] ?? ''));
+    if ($orderId === '') {
+        $orderId = bin2hex(random_bytes(5));
+    }
+    if (db_fetch($pdo, 'SELECT id FROM Payment_report WHERE id_order = ?', [$orderId])) {
+        return ['ok' => false, 'msg' => 'این شناسه قبلاً ثبت شده است.'];
+    }
+
+    $creditWallet = !empty($input['credit_wallet']);
+    $realUser = $userId !== ''
+        ? db_fetch($pdo, 'SELECT id FROM user WHERE id = ?', [$userId])
+        : null;
+    if ($creditWallet && !$realUser) {
+        return ['ok' => false, 'msg' => 'برای افزودن به کیف پول باید آیدی کاربر معتبر وارد شود.'];
+    }
+
+    $time = panel_payment_parse_time($input['time'] ?? '');
+    $idInvoice = $creditWallet ? 'manual|wallet' : 'manual';
+
+    db_query(
+        $pdo,
+        'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note) VALUES (?,?,?,?,?,?,?,?)',
+        [$userId, $orderId, (string) $time, (string) $amount, 'paid', 'manual invoice', $idInvoice, $note !== '' ? $note : null]
+    );
+
+    if ($creditWallet && $realUser) {
+        db_query($pdo, 'UPDATE user SET Balance = Balance + ? WHERE id = ?', [$amount, $realUser['id']]);
+        require_once __DIR__ . '/users_lib.php';
+        panel_notify_user(
+            $realUser['id'],
+            '💎 کاربر عزیز مبلغ ' . number_format($amount) . ' تومان به موجودی کیف پول تان اضافه گردید.'
+        );
+    }
+
+    return ['ok' => true, 'msg' => 'فاکتور دستی ثبت شد.'];
+}
+
+/**
+ * @return array{ok:bool,msg:string}
+ */
+function panel_payment_add_cost(PDO $pdo, array $input): array
+{
+    panel_payment_ensure_note_column($pdo);
+    $amount = (int) ($input['amount'] ?? 0);
+    if ($amount < 1) {
+        return ['ok' => false, 'msg' => 'مبلغ باید عدد مثبت باشد.'];
+    }
+
+    $note = trim((string) ($input['note'] ?? ''));
+    $orderId = trim((string) ($input['id_order'] ?? ''));
+    if ($orderId === '') {
+        $orderId = bin2hex(random_bytes(5));
+    }
+    if (db_fetch($pdo, 'SELECT id FROM Payment_report WHERE id_order = ?', [$orderId])) {
+        return ['ok' => false, 'msg' => 'این شناسه قبلاً ثبت شده است.'];
+    }
+
+    $time = panel_payment_parse_time($input['time'] ?? '');
+    db_query(
+        $pdo,
+        'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note) VALUES (?,?,?,?,?,?,?,?)',
+        ['', $orderId, (string) $time, (string) $amount, 'cost', 'cost', 'cost', $note !== '' ? $note : null]
+    );
+
+    return ['ok' => true, 'msg' => 'هزینه ثبت شد.'];
+}
+
+/**
+ * @return array{ok:bool,msg:string}
+ */
+function panel_payment_delete_cost(PDO $pdo, string $orderId): array
+{
+    $row = db_fetch($pdo, "SELECT id FROM Payment_report WHERE id_order = ? AND payment_Status = 'cost'", [$orderId]);
+    if (!$row) {
+        return ['ok' => false, 'msg' => 'هزینه یافت نشد.'];
+    }
+    db_query($pdo, "DELETE FROM Payment_report WHERE id_order = ? AND payment_Status = 'cost'", [$orderId]);
+    return ['ok' => true, 'msg' => 'هزینه حذف شد.'];
+}
+
 /** Allowed payment_Status values for admin updates. */
 function panel_payment_status_values(): array
 {
@@ -510,6 +640,9 @@ function panel_payment_set_status(
     if (!$payment) {
         return ['ok' => false, 'msg' => 'تراکنش یافت نشد.'];
     }
+    if (panel_payment_is_cost($payment)) {
+        return ['ok' => false, 'msg' => 'تغییر وضعیت برای هزینه مجاز نیست.'];
+    }
 
     $oldStatus = (string) ($payment['payment_Status'] ?? '');
     if ($oldStatus === $newStatus) {
@@ -521,10 +654,15 @@ function panel_payment_set_status(
     $notes = [];
     $wasPaid = $oldStatus === 'paid';
     $leavingPaid = $wasPaid && $newStatus !== 'paid';
+    $method = (string) ($payment['Payment_Method'] ?? '');
+    $idInvoice = (string) ($payment['id_invoice'] ?? '');
+    $skipWalletClawback = in_array($method, ['add balance by admin', 'low balance by admin', 'cost'], true)
+        || $idInvoice === 'manual'
+        || $idInvoice === 'cost';
 
-    if ($leavingPaid && panel_payment_is_wallet($payment)) {
+    if ($leavingPaid && panel_payment_is_wallet($payment) && !$skipWalletClawback) {
         $price = (int) ($payment['price'] ?? 0);
-        if ($price > 0 && !in_array((string) ($payment['Payment_Method'] ?? ''), ['add balance by admin', 'low balance by admin'], true)) {
+        if ($price > 0) {
             db_query($pdo, 'UPDATE user SET Balance = GREATEST(0, CAST(Balance AS SIGNED) - ?) WHERE id = ?', [$price, $payment['id_user']]);
             $notes[] = 'مبلغ از کیف پول کاربر کسر شد.';
         }
@@ -618,6 +756,8 @@ function panel_payment_method_label(string $method): string
         'Star Telegram' => 'استار تلگرام',
         'nowpayment' => 'NowPayment',
         'tetraminator' => 'Tetraminator',
+        'manual invoice' => 'فاکتور دستی',
+        'cost' => 'هزینه',
     ];
     return $map[$method] ?? ($method ?: '—');
 }

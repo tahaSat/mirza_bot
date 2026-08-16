@@ -25,9 +25,40 @@ function payment_redirect_url(string $tab, array $extra = []): string
         'price_max' => $extra['price_max'] ?? '',
         'from' => $extra['from'] ?? '',
         'to' => $extra['to'] ?? '',
+        'method' => $extra['method'] ?? '',
         'page' => $extra['page'] ?? '',
     ], static fn($v) => $v !== null && $v !== '');
     return $qs ? ('payment.php?' . http_build_query($qs)) : 'payment.php';
+}
+
+function payment_shared_filter_clauses(
+    string $search,
+    $priceMin,
+    $priceMax,
+    ?array $fromFilter,
+    ?array $toFilter,
+    string $method = ''
+): array {
+    $where = [];
+    $params = [];
+    if ($search !== '') {
+        $where[] = "(`id_user` LIKE ? OR `id_order` LIKE ? OR COALESCE(`note`,'') LIKE ?)";
+        $params = ["%$search%", "%$search%", "%$search%"];
+    }
+    if ($method !== '') {
+        $where[] = 'Payment_Method = ?';
+        $params[] = $method;
+    }
+    if ($priceMin !== null) {
+        $where[] = 'CAST(price AS DECIMAL(20,0)) >= ?';
+        $params[] = $priceMin;
+    }
+    if ($priceMax !== null) {
+        $where[] = 'CAST(price AS DECIMAL(20,0)) <= ?';
+        $params[] = $priceMax;
+    }
+    panel_payment_append_time_range($where, $params, $fromFilter, $toFilter);
+    return [$where, $params];
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -41,6 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'price_max' => isset($_POST['price_max']) && $_POST['price_max'] !== '' ? (int) $_POST['price_max'] : '',
         'from' => trim((string) ($_POST['from'] ?? '')),
         'to' => trim((string) ($_POST['to'] ?? '')),
+        'method' => trim((string) ($_POST['method'] ?? '')),
         'page' => !empty($_POST['page']) ? (int) $_POST['page'] : '',
     ]);
 
@@ -125,6 +157,7 @@ if ($fromFilter && $toFilter && $fromFilter['ts'] > $toFilter['ts']) {
 }
 $fromInput = $fromFilter['input'] ?? '';
 $toInput = $toFilter['input'] ?? '';
+$method = trim((string) ($_GET['method'] ?? ''));
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 30;
 $offset = ($page - 1) * $perPage;
@@ -148,6 +181,10 @@ if ($tab === 'pending') {
         $where[] = 'CAST(price AS DECIMAL(20,0)) <= ?';
         $params[] = $priceMax;
     }
+    if ($method !== '') {
+        $where[] = 'Payment_Method = ?';
+        $params[] = $method;
+    }
     panel_payment_append_time_range($where, $params, $fromFilter, $toFilter);
 } else {
     $where[] = "payment_Status != 'cost'";
@@ -160,6 +197,10 @@ if ($tab === 'pending') {
     } elseif ($status !== '') {
         $where[] = "payment_Status = ?";
         $params[] = $status;
+    }
+    if ($method !== '') {
+        $where[] = 'Payment_Method = ?';
+        $params[] = $method;
     }
     if ($priceMin !== null) {
         $where[] = 'CAST(price AS DECIMAL(20,0)) >= ?';
@@ -209,8 +250,28 @@ $forecastIncome = 0;
 $todayCount = 0;
 $pendingCount = 0;
 try {
-    $totalSuccess = (int) db_query($pdo, "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report WHERE payment_Status ='paid'")->fetchColumn();
-    $totalCosts = (int) db_query($pdo, "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report WHERE payment_Status ='cost'")->fetchColumn();
+    [$cardWhere, $cardParams] = payment_shared_filter_clauses($search, $priceMin, $priceMax, $fromFilter, $toFilter, $method);
+
+    $successWhere = array_merge(["payment_Status = 'paid'"], $cardWhere);
+    $successParams = $cardParams;
+    if ($status === 'manual') {
+        $successWhere[] = "Payment_Method = 'manual invoice'";
+    }
+    $successSQL = 'WHERE ' . implode(' AND ', $successWhere);
+    $totalSuccess = (int) db_query(
+        $pdo,
+        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report $successSQL",
+        $successParams
+    )->fetchColumn();
+
+    $costWhere = array_merge(["payment_Status = 'cost'"], $cardWhere);
+    $costSQL = 'WHERE ' . implode(' AND ', $costWhere);
+    $totalCosts = (int) db_query(
+        $pdo,
+        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report $costSQL",
+        $cardParams
+    )->fetchColumn();
+
     $forecastIncome = (int) round(forecast_monthly_paid_income($pdo));
     $todayWhere = $tab === 'costs' ? "payment_Status = 'cost'" : "payment_Status != 'cost'";
     $tehran = new DateTimeZone('Asia/Tehran');
@@ -237,6 +298,10 @@ try {
 } catch (Exception $e) {
 }
 $netIncome = $totalSuccess - $totalCosts;
+$cardsFiltered = $search !== '' || $priceMin !== null || $priceMax !== null || $fromFilter || $toFilter || $method !== '' || ($tab !== 'costs' && $status !== '');
+$successMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'از ابتدای فعالیت';
+$costMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'هزینه شده';
+$netMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'درآمد منهای هزینه';
 
 $statusMap = [
     'paid' => ['tag-ok', 'پرداخت شده'],
@@ -253,6 +318,31 @@ $filterStatusMap = [
     'manual' => ['tag-mint', 'فاکتور دستی'],
 ] + $listStatusMap;
 
+$methodOptions = [];
+try {
+    $methodRows = db_fetchAll(
+        $pdo,
+        "SELECT DISTINCT Payment_Method FROM Payment_report
+         WHERE Payment_Method IS NOT NULL AND Payment_Method != '' AND Payment_Method != 'cost'
+         ORDER BY Payment_Method"
+    );
+    foreach ($methodRows as $row) {
+        $key = (string) ($row['Payment_Method'] ?? '');
+        if ($key === '') {
+            continue;
+        }
+        $methodOptions[$key] = panel_payment_method_label($key);
+    }
+} catch (Exception $e) {
+}
+if (!isset($methodOptions['manual invoice'])) {
+    $methodOptions['manual invoice'] = panel_payment_method_label('manual invoice');
+}
+if ($method !== '' && !isset($methodOptions[$method]) && $method !== 'cost') {
+    $methodOptions[$method] = panel_payment_method_label($method);
+}
+asort($methodOptions, SORT_STRING);
+
 $activeFilterCount = 0;
 if ($tab !== 'pending') {
     if ($tab !== 'costs' && $status !== '') {
@@ -268,6 +358,9 @@ if ($tab !== 'pending') {
         $activeFilterCount++;
     }
     if ($toFilter) {
+        $activeFilterCount++;
+    }
+    if ($method !== '') {
         $activeFilterCount++;
     }
 }
@@ -301,7 +394,7 @@ include __DIR__ . '/inc/layout_head.php';
   <div class="stat success">
     <div class="stat-label">جمع تراکنش‌های موفق</div>
     <div class="stat-num"><?= number_format($totalSuccess) ?><small>تومان</small></div>
-    <div class="stat-meta">از ابتدای فعالیت</div>
+    <div class="stat-meta"><?= $successMeta ?></div>
   </div>
   <div class="stat">
     <div class="stat-label">درآمد پیش‌بینی‌شده ماهانه</div>
@@ -311,12 +404,12 @@ include __DIR__ . '/inc/layout_head.php';
   <div class="stat warn">
     <div class="stat-label">جمع هزینه‌ها</div>
     <div class="stat-num"><?= number_format($totalCosts) ?><small>تومان</small></div>
-    <div class="stat-meta">هزینه شده</div>
+    <div class="stat-meta"><?= $costMeta ?></div>
   </div>
   <div class="stat <?= $netIncome >= 0 ? 'ok' : 'no' ?>">
     <div class="stat-label">درآمد خالص</div>
     <div class="stat-num"><?= number_format($netIncome) ?><small>تومان</small></div>
-    <div class="stat-meta">درآمد منهای هزینه</div>
+    <div class="stat-meta"><?= $netMeta ?></div>
   </div>
   <div class="stat">
     <div class="stat-label">تعداد کل</div>
@@ -378,6 +471,7 @@ include __DIR__ . '/inc/layout_head.php';
         <input type="hidden" name="price_max" value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
         <input type="hidden" name="from" value="<?= htmlspecialchars($fromInput) ?>">
         <input type="hidden" name="to" value="<?= htmlspecialchars($toInput) ?>">
+        <input type="hidden" name="method" value="<?= htmlspecialchars($method) ?>">
         <div class="search-box">
           <?= icon('search', 14) ?>
           <input type="text" name="q" placeholder="<?= $tab === 'costs' ? 'شناسه، یادداشت...' : 'آیدی کاربر، شماره تراکنش یا یادداشت...' ?>"
@@ -518,6 +612,7 @@ include __DIR__ . '/inc/layout_head.php';
               'price_max' => $priceMax,
               'from' => $fromInput,
               'to' => $toInput,
+              'method' => $method,
           ]);
       }
       $qs = fn($p) => $base . (str_contains($base, '?') ? '&' : '?') . 'page=' . $p;
@@ -652,6 +747,7 @@ function openRejectModal(orderId) {
         <input type="hidden" name="price_max" value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
         <input type="hidden" name="from" value="<?= htmlspecialchars($fromInput) ?>">
         <input type="hidden" name="to" value="<?= htmlspecialchars($toInput) ?>">
+        <input type="hidden" name="method" value="<?= htmlspecialchars($method) ?>">
         <input type="hidden" name="page" value="<?= (int) $page ?>">
         <div class="field" style="margin-bottom:14px">
           <label class="lbl">وضعیت جدید</label>
@@ -735,12 +831,21 @@ function openRejectModal(orderId) {
         <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
         <div class="form-grid">
           <?php if ($tab !== 'costs'): ?>
-          <div class="field full">
+          <div class="field">
             <label class="lbl">وضعیت</label>
             <select name="status" class="select" style="width:100%">
               <option value="">همه وضعیت‌ها</option>
               <?php foreach ($filterStatusMap as $k => [$_, $lbl]): ?>
                 <option value="<?= htmlspecialchars($k) ?>" <?= $status === $k ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="field">
+            <label class="lbl">روش پرداخت</label>
+            <select name="method" class="select" style="width:100%">
+              <option value="">همه روش‌ها</option>
+              <?php foreach ($methodOptions as $k => $lbl): ?>
+                <option value="<?= htmlspecialchars($k) ?>" <?= $method === $k ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
               <?php endforeach; ?>
             </select>
           </div>

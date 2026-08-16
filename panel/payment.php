@@ -352,8 +352,24 @@ include __DIR__ . '/inc/layout_head.php';
         <button type="submit" class="btn btn-no btn-sm">حذف همه</button>
       </form>
     <?php elseif ($tab !== 'pending'): ?>
-    <div class="toolbar-end" style="flex-wrap:wrap;gap:8px">
-      <form method="GET" class="toolbar-end" style="flex-wrap:wrap;gap:8px">
+    <div class="toolbar-end pay-toolbar">
+      <div class="pay-toolbar-actions">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="openModal('paymentFilterModal')">
+          <?= icon('filter', 14) ?> فیلترها
+          <?php if ($activeFilterCount > 0): ?>
+            <span class="tag tag-info" style="margin-right:4px"><?= $activeFilterCount ?></span>
+          <?php endif; ?>
+        </button>
+        <?php if ($tab === 'costs'): ?>
+          <button type="button" class="btn btn-primary btn-sm" onclick="openModal('costModal')"><?= icon('plus', 14) ?> افزودن هزینه</button>
+        <?php else: ?>
+          <button type="button" class="btn btn-primary btn-sm" onclick="openModal('manualModal')"><?= icon('plus', 14) ?> افزودن فاکتور دستی</button>
+        <?php endif; ?>
+        <?php if ($search || $activeFilterCount > 0): ?>
+          <a href="<?= $tab === 'costs' ? 'payment.php?tab=costs' : 'payment.php' ?>" class="btn btn-ghost btn-sm pay-toolbar-clear">پاک</a>
+        <?php endif; ?>
+      </div>
+      <form method="GET" class="pay-toolbar-search">
         <?php if ($tab === 'costs'): ?>
           <input type="hidden" name="tab" value="costs">
         <?php endif; ?>
@@ -362,28 +378,14 @@ include __DIR__ . '/inc/layout_head.php';
         <input type="hidden" name="price_max" value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
         <input type="hidden" name="from" value="<?= htmlspecialchars($fromInput) ?>">
         <input type="hidden" name="to" value="<?= htmlspecialchars($toInput) ?>">
-        <button type="button" class="btn btn-ghost btn-sm" onclick="openModal('paymentFilterModal')">
-          <?= icon('filter', 14) ?> فیلترها
-          <?php if ($activeFilterCount > 0): ?>
-            <span class="tag tag-info" style="margin-right:4px"><?= $activeFilterCount ?></span>
-          <?php endif; ?>
-        </button>
-        <div class="search-box" style="min-width:230px">
+        <div class="search-box">
           <?= icon('search', 14) ?>
           <input type="text" name="q" placeholder="<?= $tab === 'costs' ? 'شناسه، یادداشت...' : 'آیدی کاربر، شماره تراکنش یا یادداشت...' ?>"
             value="<?= htmlspecialchars($search) ?>">
           <button type="button" class="search-clear">✕</button>
           <button type="submit" class="search-btn">جستجو</button>
         </div>
-        <?php if ($search || $activeFilterCount > 0): ?>
-          <a href="<?= $tab === 'costs' ? 'payment.php?tab=costs' : 'payment.php' ?>" class="btn-link" style="font-size:.78rem">پاک</a>
-        <?php endif; ?>
       </form>
-      <?php if ($tab === 'costs'): ?>
-        <button type="button" class="btn btn-primary btn-sm" onclick="openModal('costModal')"><?= icon('plus', 14) ?> افزودن هزینه</button>
-      <?php else: ?>
-        <button type="button" class="btn btn-primary btn-sm" onclick="openModal('manualModal')"><?= icon('plus', 14) ?> افزودن فاکتور دستی</button>
-      <?php endif; ?>
     </div>
     <?php endif; ?>
   </div>

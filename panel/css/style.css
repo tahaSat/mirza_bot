@@ -370,6 +370,17 @@ html[data-theme=lavender] .tag-mint,
 html[data-theme=light] .tag-mint,
 html[data-theme=linen] .tag-mint,
 html[data-theme=mint] .tag-mint{background:rgba(13,148,136,.12);color:#0F766E}
+.pay-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%;justify-content:flex-end}
+.pay-toolbar-actions{display:flex;align-items:center;gap:8px;flex-wrap:nowrap}
+.pay-toolbar-search{display:flex;flex:1;min-width:220px}
+.pay-toolbar-search .search-box{width:100%;min-width:0}
+@media (max-width:768px){
+  .pay-toolbar{flex-direction:column;align-items:stretch;width:100%}
+  .pay-toolbar-actions{width:100%}
+  .pay-toolbar-actions .btn{flex:1;justify-content:center;white-space:nowrap}
+  .pay-toolbar-clear{flex:0 0 auto}
+  .pay-toolbar-search{width:100%;min-width:0}
+}
 .support-close-form-head{flex:0 0 auto;margin:0}
 .support-close-form-head .btn{white-space:nowrap;padding:6px 8px;font-size:.7rem}
 .support-close-short{display:none}

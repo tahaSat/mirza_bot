@@ -271,36 +271,14 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $statispay = $stmt->fetchAll();
     $date = date("Y-m-d");
     $timeacc = jdate('H:i:s', time());
-    $start_time = date('d.m.Y', strtotime("-1 days")) . " 00:00:00";
-    $end_time = date('d.m.Y', strtotime("-1 days")) . " 23:59:59";
-    $start_time_timestamp = strtotime($start_time);
-    $end_time_timestamp = strtotime($end_time);
-    $sql = "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_price FROM Payment_report
-            WHERE payment_Status = 'paid'
-              AND Payment_Method NOT IN ('add balance by admin','low balance by admin')
-              AND (
-                (time REGEXP '^[0-9]{9,}$' AND CAST(time AS UNSIGNED) BETWEEN :requestedDate AND :requestedDateend)
-                OR (time NOT REGEXP '^[0-9]{9,}$' AND COALESCE(
-                      UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s')),
-                      UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
-                    ) BETWEEN :requestedDate2 AND :requestedDateend2)
-              )";
-    $stmt = $pdo->prepare($sql);
-    $stmt->bindParam(':requestedDate', $start_time_timestamp);
-    $stmt->bindParam(':requestedDateend', $end_time_timestamp);
-    $stmt->bindParam(':requestedDate2', $start_time_timestamp);
-    $stmt->bindParam(':requestedDateend2', $end_time_timestamp);
-    $stmt->execute();
-    $suminvoiceday = $stmt->fetch(PDO::FETCH_ASSOC)['total_price'];
     $invoicesum = (float) ($invoicesum ?? 0);
     $extendsum = (float) ($extendsum ?? 0);
-    $suminvoiceday = (float) ($suminvoiceday ?? 0);
     $statistics = (int) ($statistics ?? 0);
     $paycount = "";
     $ratecustomer = $statistics > 0 ? round(($statisticsorder / $statistics) * 100, 2) : 0;
     $ratetest = $statistics > 0 ? round(($count_users_test / $statistics) * 100, 2) : 0;
     $avgbuy_customer = $statisticsorder > 0 ? number_format($invoiceTotal / $statisticsorder) : '0';
-    $monthe_buy = number_format($suminvoiceday * 30);
+    $monthe_buy = number_format(forecast_monthly_paid_income($pdo));
     $percent_of_extend = $invoiceTotal > 0 ? round(($extendsum / $invoiceTotal) * 100, 2) : 0;
     $percent_of_extend = $percent_of_extend > 100 ? 100 : $percent_of_extend;
     $extendsum = number_format($extendsum, 0);
@@ -1130,10 +1108,7 @@ elseif ($datain == "systemsms") {
             ['text' => "مشتریانی که خرید داشتند", 'callback_data' => 'typeusermessage-customer'],
         ],
         [
-            ['text' => "کاربرانی که خرید نداشتند", 'callback_data' => 'typeusermessage-nonecustomer'],
-        ],
-        [
-            ['text' => "کاربرانی که فقط تست کرده اند", 'callback_data' => 'typeusermessage-testonly'],
+            ['text' => "کاربرانی که تست کردند ولی خرید نداشتند", 'callback_data' => 'typeusermessage-testonly'],
         ],
         [
             ['text' => "کاربرانی که تست و خرید نداشته اند", 'callback_data' => 'typeusermessage-notestnopurchase'],
@@ -1630,7 +1605,7 @@ elseif ($datain == "systemsms") {
         "all" => "ارسال به همه کاربران",
         "customer" => "مشتریان",
         "nonecustomer" => "کسانی که خرید نداشتند",
-        "testonly" => "کاربرانی که فقط تست کرده اند",
+        "testonly" => "کاربرانی که تست کردند ولی خرید نداشتند",
         "notestnopurchase" => "کاربرانی که تست و خرید نداشته اند",
         "highvolume" => "کاربرانی که بیش از ۸۰٪ مصرف کرده‌اند",
     ][$userdata['typeusermessage']];

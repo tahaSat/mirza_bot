@@ -359,6 +359,76 @@ function invoice_paid_status_sql(string $statusCol = 'Status'): string
     return "$statusCol NOT IN (" . implode(',', $quoted) . ") AND $statusCol IS NOT NULL AND $statusCol != ''";
 }
 
+function forecast_monthly_paid_income(PDO $pdo): float
+{
+    $days = 28;
+    $monthLength = 365.25 / 12;
+    $windowStart = strtotime('today -' . $days . ' days');
+    $windowEnd = strtotime('today') - 1;
+    if ($windowStart === false || $windowEnd === false) {
+        return 0.0;
+    }
+    $windowStart = (int) $windowStart;
+    $windowEnd = (int) $windowEnd;
+
+    $unixExpr = "CASE
+        WHEN time REGEXP '^[0-9]{9,}$' THEN CAST(time AS UNSIGNED)
+        ELSE COALESCE(
+            UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s')),
+            UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
+        )
+    END";
+    $sql = "SELECT FLOOR(($unixExpr - :window_start) / 86400) AS day_index,
+                   COALESCE(SUM(CAST(price AS DECIMAL(20,0))), 0) AS total
+            FROM Payment_report
+            WHERE payment_Status = 'paid'
+              AND Payment_Method NOT IN ('add balance by admin','low balance by admin')
+              AND (
+                (time REGEXP '^[0-9]{9,}$' AND CAST(time AS UNSIGNED) BETWEEN :start AND :end)
+                OR (time NOT REGEXP '^[0-9]{9,}$' AND COALESCE(
+                      UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s')),
+                      UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
+                    ) BETWEEN :start2 AND :end2)
+              )
+            GROUP BY day_index
+            HAVING day_index IS NOT NULL AND day_index >= 0 AND day_index < :days";
+    $stmt = $pdo->prepare($sql);
+    $stmt->bindValue(':window_start', $windowStart, PDO::PARAM_INT);
+    $stmt->bindValue(':start', $windowStart, PDO::PARAM_INT);
+    $stmt->bindValue(':end', $windowEnd, PDO::PARAM_INT);
+    $stmt->bindValue(':start2', $windowStart, PDO::PARAM_INT);
+    $stmt->bindValue(':end2', $windowEnd, PDO::PARAM_INT);
+    $stmt->bindValue(':days', $days, PDO::PARAM_INT);
+    $stmt->execute();
+
+    $daily = array_fill(0, $days, 0.0);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $idx = (int) $row['day_index'];
+        if ($idx < 0 || $idx >= $days) {
+            continue;
+        }
+        $daily[$idx] = (float) $row['total'];
+    }
+
+    $sum28 = array_sum($daily);
+    if ($sum28 <= 0) {
+        return 0.0;
+    }
+
+    $sorted = $daily;
+    sort($sorted, SORT_NUMERIC);
+    $mid = intdiv($days, 2);
+    $median28 = ($days % 2 === 1)
+        ? (float) $sorted[$mid]
+        : ((float) $sorted[$mid - 1] + (float) $sorted[$mid]) / 2.0;
+
+    $runrate7 = (array_sum(array_slice($daily, -7)) / 7.0) * $monthLength;
+    $meanMonth = ($sum28 / $days) * $monthLength;
+    $medianMonth = $median28 * $monthLength;
+
+    return (0.5 * $runrate7) + (0.25 * $meanMonth) + (0.25 * $medianMonth);
+}
+
 function panel_is_hidden_from_user($panel, $user_id): bool
 {
     if (!is_array($panel) || empty($panel['hide_user'])) {
@@ -6920,7 +6990,7 @@ function broadcast_audience_label(array $userdata)
         'all' => 'همه کاربران',
         'customer' => 'مشتریان',
         'nonecustomer' => 'بدون خرید',
-        'testonly' => 'کاربرانی که فقط تست کرده اند',
+        'testonly' => 'کاربرانی که تست کردند ولی خرید نداشتند',
         'notestnopurchase' => 'کاربرانی که تست و خرید نداشته اند',
         'highvolume' => 'مصرف بیش از ۸۰٪',
     ][$userdata['typeusermessage'] ?? ''] ?? ($userdata['typeusermessage'] ?? '-');

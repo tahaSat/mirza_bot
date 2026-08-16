@@ -143,7 +143,9 @@ if ($tab === 'pending') {
         $where[] = "(`id_user` LIKE ? OR `id_order` LIKE ? OR COALESCE(`note`,'') LIKE ?)";
         $params = ["%$search%", "%$search%", "%$search%"];
     }
-    if ($status !== '') {
+    if ($status === 'manual') {
+        $where[] = "Payment_Method = 'manual invoice'";
+    } elseif ($status !== '') {
         $where[] = "payment_Status = ?";
         $params[] = $status;
     }
@@ -233,6 +235,10 @@ $statusMap = [
 ];
 $listStatusMap = $statusMap;
 unset($listStatusMap['cost']);
+$filterStatusMap = [
+    'paid' => $listStatusMap['paid'],
+    'manual' => ['tag-ok', 'فاکتور دستی'],
+] + $listStatusMap;
 
 $pageTitle = 'مالی';
 $pageLede = 'گزارش پرداخت‌ها، فاکتور دستی، هزینه‌ها و درآمد خالص.';
@@ -337,7 +343,7 @@ include __DIR__ . '/inc/layout_head.php';
       <form method="GET" class="toolbar-end" style="flex-wrap:wrap;gap:8px">
         <select name="status" class="select" style="width:auto" onchange="this.form.submit()">
           <option value="">همه وضعیت‌ها</option>
-          <?php foreach ($listStatusMap as $k => [$_, $lbl]): ?>
+          <?php foreach ($filterStatusMap as $k => [$_, $lbl]): ?>
             <option value="<?= $k ?>" <?= $status === $k ? 'selected' : '' ?>><?= $lbl ?></option>
           <?php endforeach; ?>
         </select>
@@ -401,6 +407,9 @@ include __DIR__ . '/inc/layout_head.php';
           foreach ($payments as $p):
             $st = $p['payment_Status'] ?? '';
             [$cls, $lbl] = $statusMap[$st] ?? ['tag-plain', $st ?: '—'];
+            if (($p['Payment_Method'] ?? '') === 'manual invoice') {
+                [$cls, $lbl] = ['tag-ok', 'فاکتور دستی'];
+            }
             $method = panel_payment_method_label($p['Payment_Method'] ?? '');
             $oid = $p['id_order'] ?? '';
             $hasProduct = strncmp((string) ($p['id_invoice'] ?? ''), 'getconfigafterpay|', 18) === 0;

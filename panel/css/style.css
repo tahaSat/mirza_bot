@@ -365,6 +365,11 @@
 .support-status-option{display:flex;align-items:center;width:100%;padding:7px 8px;border:0;border-radius:8px;background:transparent;cursor:pointer;text-align:right}
 .support-status-option:hover,.support-status-option.active{background:var(--sf2)}
 .tag-flag{background:var(--nos);color:var(--no)}
+.tag-mint{background:rgba(45,212,191,.16);color:#2DD4BF}
+html[data-theme=lavender] .tag-mint,
+html[data-theme=light] .tag-mint,
+html[data-theme=linen] .tag-mint,
+html[data-theme=mint] .tag-mint{background:rgba(13,148,136,.12);color:#0F766E}
 .support-close-form-head{flex:0 0 auto;margin:0}
 .support-close-form-head .btn{white-space:nowrap;padding:6px 8px;font-size:.7rem}
 .support-close-short{display:none}

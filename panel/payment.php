@@ -237,7 +237,7 @@ $listStatusMap = $statusMap;
 unset($listStatusMap['cost']);
 $filterStatusMap = [
     'paid' => $listStatusMap['paid'],
-    'manual' => ['tag-ok', 'فاکتور دستی'],
+    'manual' => ['tag-mint', 'فاکتور دستی'],
 ] + $listStatusMap;
 
 $pageTitle = 'مالی';
@@ -408,7 +408,7 @@ include __DIR__ . '/inc/layout_head.php';
             $st = $p['payment_Status'] ?? '';
             [$cls, $lbl] = $statusMap[$st] ?? ['tag-plain', $st ?: '—'];
             if (($p['Payment_Method'] ?? '') === 'manual invoice') {
-                [$cls, $lbl] = ['tag-ok', 'فاکتور دستی'];
+                [$cls, $lbl] = ['tag-mint', 'فاکتور دستی'];
             }
             $method = panel_payment_method_label($p['Payment_Method'] ?? '');
             $oid = $p['id_order'] ?? '';

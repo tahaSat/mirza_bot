@@ -246,14 +246,25 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $timeacc = jdate('H:i:s', time());
     $paidSql = invoice_paid_status_sql('Status');
     $stmt2 = $pdo->query("SELECT
-        COUNT(DISTINCT id_user) AS users_with_account,
-        COUNT(DISTINCT CASE WHEN name_product != 'سرویس تست' THEN id_user END) AS users_with_purchase,
-        COUNT(DISTINCT CASE WHEN name_product = 'سرویس تست' THEN id_user END) AS users_with_test
-        FROM invoice WHERE $paidSql");
+        COUNT(*) AS users_with_account,
+        COALESCE(SUM(has_purchase), 0) AS users_with_purchase,
+        COALESCE(SUM(has_test), 0) AS users_with_test,
+        COALESCE(SUM(has_test AND NOT has_purchase), 0) AS users_with_test_no_purchase,
+        COALESCE(SUM(has_test AND has_purchase), 0) AS users_with_test_and_purchase
+        FROM (
+            SELECT id_user,
+                   MAX(name_product = 'سرویس تست') AS has_test,
+                   MAX(name_product != 'سرویس تست') AS has_purchase
+            FROM invoice
+            WHERE $paidSql
+            GROUP BY id_user
+        ) user_invoice_flags");
     $statsUsers = $stmt2->fetch(PDO::FETCH_ASSOC);
     $count_users_account = (int) ($statsUsers['users_with_account'] ?? 0);
     $statisticsorder = (int) ($statsUsers['users_with_purchase'] ?? 0);
     $count_users_test = (int) ($statsUsers['users_with_test'] ?? 0);
+    $count_users_test_no_purchase = (int) ($statsUsers['users_with_test_no_purchase'] ?? 0);
+    $count_users_test_and_purchase = (int) ($statsUsers['users_with_test_and_purchase'] ?? 0);
     $sqlsum = "SELECT SUM(price) AS sumpay , Payment_Method,COUNT(price) AS countpay FROM Payment_report WHERE payment_Status = 'paid' AND Payment_Method NOT IN ('add balance by admin','low balance by admin') GROUP BY  Payment_Method;";
     $stmt = $pdo->prepare($sqlsum);
     $stmt->execute();
@@ -321,6 +332,8 @@ if (in_array($text, $textadmin) || $datain == "admin") {
 👤 <b>تعداد کاربران دارای اکانت:</b> <code>$count_users_account</code> نفر  
 💳 <b>کاربران دارای خرید:</b> <code>$statisticsorder</code> نفر  
 🧪 <b>اکانت‌های تست:</b> <code>$count_usertest</code> نفر  
+🧪 <b>کاربران دارای تست بدون خرید:</b> <code>$count_users_test_no_purchase</code> نفر  
+🧪💳 <b>کاربران دارای تست با خرید:</b> <code>$count_users_test_and_purchase</code> نفر  
 💰 <b>موجودی کل کاربران:</b> <code>$Balanceall</code> تومان  
 
 🧾 <b>تعداد کل فروش:</b> <code>$invoice</code> عدد  

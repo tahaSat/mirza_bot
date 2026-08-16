@@ -6705,26 +6705,26 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
 توضیحات: $caption $text
 ✍️ در صورت درست بودن رسید پرداخت را تایید نمایید.";
     }
-    foreach ($admin_ids as $id_admin) {
-        $adminrulecheck = select("admin", "*", "id_admin", $id_admin, "select");
-        if ($adminrulecheck['rule'] == "support")
-            continue;
-        if ($photo) {
-            telegram('sendphoto', [
-                'chat_id' => $id_admin,
-                'photo' => $photoid,
-                'caption' => $textbotlang['users']['Balance']['receiptimage'],
-                'parse_mode' => "HTML",
-            ]);
-        }
-        sendmessage($id_admin, $textsendrasid, $Confirm_pay, 'HTML');
+    $paymentAlreadyPaid = paymentReportIsPaid($PaymentReport['id_order']);
+    if ($paymentAlreadyPaid) {
+        $Confirm_pay = paymentReceiptAutoConfirmedKeyboard();
     }
-    if ($user['Processing_value_tow'] == "getconfigafterpay") {
+    notifyAdminsCardReceipt(
+        $PaymentReport['id_order'],
+        $textsendrasid,
+        $Confirm_pay,
+        $photo ? $photoid : null,
+        $textbotlang['users']['Balance']['receiptimage']
+    );
+    if ($paymentAlreadyPaid || finalizeAdminReceiptAfterSend($PaymentReport['id_order'])) {
+        sendmessage($from_id, "❗️ تراکنش شما توسط ربات تایید گردیده است.", $keyboard, 'HTML');
+    } elseif ($user['Processing_value_tow'] == "getconfigafterpay") {
         sendmessage($from_id, $textbotlang['users']['Balance']['Send-receiptadnsendconfig'], $keyboard, 'HTML');
+        markPaymentWaitingIfStillOpen($PaymentReport['id_order']);
     } else {
         sendmessage($from_id, $textbotlang['users']['Balance']['Send-receipt'], $keyboard, 'HTML');
+        markPaymentWaitingIfStillOpen($PaymentReport['id_order']);
     }
-    update("Payment_report", "payment_Status", "waiting", "id_order", $PaymentReport['id_order']);
     update("Payment_report", "dec_not_confirmed", "$text $caption", "id_order", $PaymentReport['id_order']);
     $dateacc = date('Y/m/d H:i:s');
     update("Payment_report", "at_updated", $dateacc, "id_order", $PaymentReport['id_order']);
@@ -6760,6 +6760,7 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
     ]);
     $format_price_cart = number_format($PaymentReport['price'], 0);
     $split_data = explode('|', $PaymentReport['id_invoice']);
+    $userReceiptPendingAck = '';
     if ($split_data[0] == "getconfigafterpay") {
         $get_invoice = select("invoice", "*", "username", $split_data[1], "select");
         if ($get_invoice == false) {
@@ -6784,7 +6785,7 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
 💸 مبلغ پرداختی: $format_price_cart تومان
                 
 ✍️ در صورت درست بودن رسید پرداخت را تایید نمایید.";
-        sendmessage($from_id, $textbotlang['users']['Balance']['Send-receiptadnsendconfig'], $keyboard, 'HTML');
+        $userReceiptPendingAck = $textbotlang['users']['Balance']['Send-receiptadnsendconfig'];
     } elseif ($split_data[0] == "getextenduser") {
         $partsdic = explode("%", $split_data[1]);
         $usernamepanel = $partsdic[0];
@@ -6846,7 +6847,7 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
 💸 مبلغ پرداختی: $format_price_cart تومان
                 
 ✍️ در صورت درست بودن رسید پرداخت را تایید نمایید.";
-        sendmessage($from_id, "🚀 رسید شما ارسال و پس از بررسی سرویس شما تمدید خواهد شد", $keyboard, 'HTML');
+        $userReceiptPendingAck = "🚀 رسید شما ارسال و پس از بررسی سرویس شما تمدید خواهد شد";
     } elseif ($split_data[0] == "getextravolumeuser") {
         $partsdic = explode("%", $split_data[1]);
         $usernamepanel = $partsdic[0];
@@ -6866,7 +6867,7 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
 💸 مبلغ پرداختی: $format_price_cart تومان
                 
 ✍️ در صورت درست بودن رسید پرداخت را تایید نمایید.";
-        sendmessage($from_id, "🚀 رسید شما ارسال و پس از بررسی  به سرویس شما حجم اضافه خواهد شد.", $keyboard, 'HTML');
+        $userReceiptPendingAck = "🚀 رسید شما ارسال و پس از بررسی  به سرویس شما حجم اضافه خواهد شد.";
     } elseif ($split_data[0] == "getextratimeuser") {
         $partsdic = explode("%", $split_data[1]);
         $usernamepanel = $partsdic[0];
@@ -6886,7 +6887,7 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
 💸 مبلغ پرداختی: $format_price_cart تومان
                 
 ✍️ در صورت درست بودن رسید پرداخت را تایید نمایید.";
-        sendmessage($from_id, "🚀 رسید شما ارسال و پس از بررسی به سرویس شما زمان اضافه خواهد شد", $keyboard, 'HTML');
+        $userReceiptPendingAck = "🚀 رسید شما ارسال و پس از بررسی به سرویس شما زمان اضافه خواهد شد";
     } else {
 
         $textsendrasid = "
@@ -6900,21 +6901,27 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
 💸 مبلغ پرداختی: $format_price_cart تومان
                 
 ✍️ در صورت درست بودن رسید پرداخت را تایید نمایید.";
-        sendmessage($from_id, $textbotlang['users']['Balance']['Send-receipt'], $keyboard, 'HTML');
+        $userReceiptPendingAck = $textbotlang['users']['Balance']['Send-receipt'];
     }
-    foreach ($admin_ids as $id_admin) {
-        $adminrulecheck = select("admin", "*", "id_admin", $id_admin, "select");
-        if ($adminrulecheck['rule'] == "support")
-            continue;
-        telegram('sendphoto', [
-            'chat_id' => $id_admin,
-            'photo' => $photoid,
-            'caption' => $caption,
-            'parse_mode' => "HTML",
-        ]);
-        sendmessage($id_admin, $textsendrasid, $Confirm_pay, 'HTML');
+    $paymentAlreadyPaid = paymentReportIsPaid($PaymentReport['id_order']);
+    if ($paymentAlreadyPaid) {
+        $Confirm_pay = paymentReceiptAutoConfirmedKeyboard();
     }
-    update("Payment_report", "payment_Status", "waiting", "id_order", $PaymentReport['id_order']);
+    notifyAdminsCardReceipt(
+        $PaymentReport['id_order'],
+        $textsendrasid,
+        $Confirm_pay,
+        $photoid,
+        $caption
+    );
+    if ($paymentAlreadyPaid || finalizeAdminReceiptAfterSend($PaymentReport['id_order'])) {
+        sendmessage($from_id, "❗️ تراکنش شما توسط ربات تایید گردیده است.", $keyboard, 'HTML');
+    } else {
+        if (!empty($userReceiptPendingAck)) {
+            sendmessage($from_id, $userReceiptPendingAck, $keyboard, 'HTML');
+        }
+        markPaymentWaitingIfStillOpen($PaymentReport['id_order']);
+    }
     $dateacc = date('Y/m/d H:i:s');
     update("Payment_report", "at_updated", $dateacc, "id_order", $PaymentReport['id_order']);
 } elseif ($datain == "Discount") {

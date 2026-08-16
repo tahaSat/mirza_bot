@@ -132,6 +132,7 @@ if(isset($amountInteger) && $amountInteger !== NULL){
         return;}
         DirectPayment($order_id,"../images.jpg");
         update("Payment_report","payment_Status","paid",'id_order',$order_id);
+        markAdminReceiptsAutoConfirmed($order_id);
     $balanceformatsell = number_format(mysqli_fetch_assoc(mysqli_query($connect, "SELECT (Balance) FROM user WHERE id = '{$Payment_report['id_user']}' LIMIT 1"))['Balance'], 0);
     $paymentreports = select("topicid","idreport","report","paymentreport","select")['idreport'];
     $text_report = "یک رسید توسط ربات  تایید شد

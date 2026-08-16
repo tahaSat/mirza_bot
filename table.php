@@ -620,6 +620,7 @@ try {
         payment_Status varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
         bottype varchar(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
         message_id INT NULL,
+        admin_receipt_msgs TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
         id_invoice varchar(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         if (!$result) {
@@ -628,6 +629,7 @@ try {
     } else {
         ensureTableUtf8mb4('Payment_report');
         addFieldToTable("Payment_report", "message_id", null, "INT");
+        addFieldToTable("Payment_report", "admin_receipt_msgs", null, "TEXT");
         $Check_filde = $connect->query("SHOW COLUMNS FROM Payment_report LIKE 'Payment_Method'");
         if (mysqli_num_rows($Check_filde) != 1) {
             $connect->query("ALTER TABLE Payment_report ADD Payment_Method VARCHAR(200)");

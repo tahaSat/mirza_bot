@@ -763,6 +763,158 @@ function updatePaymentMessageId($response, $orderId)
     return true;
 }
 
+function telegramSentMessageId($response)
+{
+    if (!is_array($response) || empty($response['ok']) || !isset($response['result']['message_id'])) {
+        return 0;
+    }
+    return intval($response['result']['message_id']);
+}
+
+function paymentReceiptAutoConfirmedKeyboard()
+{
+    return json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => 'رسید توسط ربات تایید شده', 'callback_data' => 'receipt_bot_confirmed'],
+            ],
+        ],
+    ]);
+}
+
+function ensureAdminReceiptMsgsColumn()
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    addFieldToTable('Payment_report', 'admin_receipt_msgs', null, 'TEXT');
+}
+
+function paymentReportIsPaid($orderId)
+{
+    $row = select("Payment_report", "payment_Status", "id_order", $orderId, "select");
+    return is_array($row) && ($row['payment_Status'] ?? '') === 'paid';
+}
+
+function decodeAdminReceiptMessages($raw)
+{
+    if (!is_string($raw) || $raw === '') {
+        return [];
+    }
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function appendAdminReceiptMessages($orderId, array $messages)
+{
+    if ($orderId === null || $orderId === '' || $messages === []) {
+        return;
+    }
+    ensureAdminReceiptMsgsColumn();
+    $row = select("Payment_report", "admin_receipt_msgs", "id_order", $orderId, "select");
+    $existing = [];
+    if (is_array($row)) {
+        $existing = decodeAdminReceiptMessages($row['admin_receipt_msgs'] ?? '');
+    }
+    $merged = array_merge($existing, $messages);
+    update(
+        "Payment_report",
+        "admin_receipt_msgs",
+        json_encode($merged, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        "id_order",
+        $orderId
+    );
+}
+
+function notifyAdminsCardReceipt($orderId, $text, $keyboard, $photoId = null, $photoCaption = null)
+{
+    $admin_ids = select("admin", "id_admin", null, null, "FETCH_COLUMN") ?: [];
+    $stored = [];
+    foreach ($admin_ids as $id_admin) {
+        $adminrulecheck = select("admin", "*", "id_admin", $id_admin, "select");
+        if (!is_array($adminrulecheck) || ($adminrulecheck['rule'] ?? '') === 'support') {
+            continue;
+        }
+        if ($photoId) {
+            telegram('sendphoto', [
+                'chat_id' => $id_admin,
+                'photo' => $photoId,
+                'caption' => $photoCaption,
+                'parse_mode' => "HTML",
+            ]);
+        }
+        $sent = sendmessage($id_admin, $text, $keyboard, 'HTML');
+        $mid = telegramSentMessageId($sent);
+        if ($mid > 0) {
+            $stored[] = [
+                'chat_id' => (int) $id_admin,
+                'message_id' => $mid,
+            ];
+        }
+    }
+    appendAdminReceiptMessages($orderId, $stored);
+}
+
+function markAdminReceiptsAutoConfirmed($orderId)
+{
+    if ($orderId === null || $orderId === '') {
+        return;
+    }
+    ensureAdminReceiptMsgsColumn();
+    $row = select("Payment_report", "admin_receipt_msgs", "id_order", $orderId, "select");
+    if (!is_array($row)) {
+        return;
+    }
+    $messages = decodeAdminReceiptMessages($row['admin_receipt_msgs'] ?? '');
+    if ($messages === []) {
+        return;
+    }
+    $keyboard = paymentReceiptAutoConfirmedKeyboard();
+    foreach ($messages as $item) {
+        $chatId = intval($item['chat_id'] ?? 0);
+        $messageId = intval($item['message_id'] ?? 0);
+        if ($chatId === 0 || $messageId === 0) {
+            continue;
+        }
+        if (function_exists('EditMessageReplyMarkup')) {
+            EditMessageReplyMarkup($chatId, $messageId, $keyboard);
+        } else {
+            telegram('editMessageReplyMarkup', [
+                'chat_id' => $chatId,
+                'message_id' => $messageId,
+                'reply_markup' => $keyboard,
+            ]);
+        }
+    }
+}
+
+function finalizeAdminReceiptAfterSend($orderId)
+{
+    if (paymentReportIsPaid($orderId)) {
+        markAdminReceiptsAutoConfirmed($orderId);
+        return true;
+    }
+    return false;
+}
+
+function markPaymentWaitingIfStillOpen($orderId)
+{
+    global $pdo;
+    if ($orderId === null || $orderId === '' || !isset($pdo)) {
+        return false;
+    }
+    $stmt = $pdo->prepare("UPDATE Payment_report SET payment_Status = 'waiting' WHERE id_order = ? AND payment_Status NOT IN ('paid', 'reject', 'expire')");
+    $stmt->execute([$orderId]);
+    clearSelectCache('Payment_report');
+    if (paymentReportIsPaid($orderId)) {
+        markAdminReceiptsAutoConfirmed($orderId);
+        return false;
+    }
+    return $stmt->rowCount() > 0;
+}
+
 /** Unpaid payment invoices are valid for 24 hours. */
 function paymentInvoiceTtlSeconds()
 {

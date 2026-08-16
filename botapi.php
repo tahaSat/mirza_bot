@@ -225,6 +225,15 @@ function Editmessagetext($chat_id, $message_id, $text, $keyboard,$parse_mode = '
     ]);
 }
 
+function EditMessageReplyMarkup($chat_id, $message_id, $keyboard)
+{
+    return telegram('editMessageReplyMarkup', [
+        'chat_id' => $chat_id,
+        'message_id' => $message_id,
+        'reply_markup' => $keyboard,
+    ]);
+}
+
 /**
  * Edit the current callback message, or send a new one for /start deep links.
  * Channel buttons open the bot with a user /start message that cannot be edited.

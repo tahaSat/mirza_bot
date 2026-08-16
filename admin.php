@@ -4382,6 +4382,12 @@ $caption";
     sendmessage($from_id, $textbotlang['users']['selectoption'], $setting_panel, 'HTML');
 } elseif ($text == "🤙 بخش پشتیبانی" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['users']['selectoption'], $supportcenter, 'HTML');
+} elseif ($datain == "receipt_bot_confirmed") {
+    telegram('answerCallbackQuery', [
+        'callback_query_id' => $callback_query_id,
+        'cache_time' => 5,
+    ]);
+    return;
 } elseif (preg_match('/Confirm_pay_(\w+)/', $datain, $dataget) && ($adminrulecheck['rule'] == "administrator" || $adminrulecheck['rule'] == "Seller")) {
     $order_id = $dataget[1];
     $Payment_report = select("Payment_report", "*", "id_order", $order_id, "select");

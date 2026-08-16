@@ -55,6 +55,7 @@ while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
         update("Payment_report","payment_Status","paid","id_order",$Payment_report['id_order']);
         update("Payment_report","dec_not_confirmed","تایید توسط ربات بدون بررسی","id_order",$Payment_report['id_order']);
         DirectPayment($Payment_report['id_order'],"../images.jpg");
+        markAdminReceiptsAutoConfirmed($Payment_report['id_order']);
         $pricecashback = select("PaySetting", "ValuePay", "NamePay", "chashbackcart","select")['ValuePay'];
     $Balance_id = select("user","*","id",$Payment_report['id_user'],"select");
     if($pricecashback != "0"){

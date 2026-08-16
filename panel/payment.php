@@ -17,21 +17,14 @@ function payment_redirect_url(string $tab, array $extra = []): string
     if ($tab === 'pending') {
         return 'payment.php?tab=pending';
     }
-    if ($tab === 'costs') {
-        $qs = array_filter([
-            'tab' => 'costs',
-            'q' => $extra['q'] ?? '',
-            'price_min' => $extra['price_min'] ?? '',
-            'price_max' => $extra['price_max'] ?? '',
-            'page' => $extra['page'] ?? '',
-        ], static fn($v) => $v !== null && $v !== '');
-        return 'payment.php?' . http_build_query($qs);
-    }
     $qs = array_filter([
+        'tab' => $tab === 'costs' ? 'costs' : '',
         'q' => $extra['q'] ?? '',
         'status' => $extra['status'] ?? '',
         'price_min' => $extra['price_min'] ?? '',
         'price_max' => $extra['price_max'] ?? '',
+        'from' => $extra['from'] ?? '',
+        'to' => $extra['to'] ?? '',
         'page' => $extra['page'] ?? '',
     ], static fn($v) => $v !== null && $v !== '');
     return $qs ? ('payment.php?' . http_build_query($qs)) : 'payment.php';
@@ -46,6 +39,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'status' => trim((string) ($_POST['status_filter'] ?? '')),
         'price_min' => isset($_POST['price_min']) && $_POST['price_min'] !== '' ? (int) $_POST['price_min'] : '',
         'price_max' => isset($_POST['price_max']) && $_POST['price_max'] !== '' ? (int) $_POST['price_max'] : '',
+        'from' => trim((string) ($_POST['from'] ?? '')),
+        'to' => trim((string) ($_POST['to'] ?? '')),
         'page' => !empty($_POST['page']) ? (int) $_POST['page'] : '',
     ]);
 
@@ -114,6 +109,22 @@ $priceMax = $priceMaxRaw !== '' && is_numeric($priceMaxRaw) ? (int) $priceMaxRaw
 if ($priceMin !== null && $priceMax !== null && $priceMin > $priceMax) {
     [$priceMin, $priceMax] = [$priceMax, $priceMin];
 }
+$fromRaw = trim((string) ($_GET['from'] ?? ''));
+$toRaw = trim((string) ($_GET['to'] ?? ''));
+$fromFilter = $fromRaw !== '' ? panel_payment_parse_filter_datetime($fromRaw, false) : null;
+$toFilter = $toRaw !== '' ? panel_payment_parse_filter_datetime($toRaw, true) : null;
+if ($fromRaw !== '' && $fromFilter === null) {
+    flash('error', 'تاریخ و ساعت شروع معتبر نیست.');
+}
+if ($toRaw !== '' && $toFilter === null) {
+    flash('error', 'تاریخ و ساعت پایان معتبر نیست.');
+}
+if ($fromFilter && $toFilter && $fromFilter['ts'] > $toFilter['ts']) {
+    flash('error', 'زمان شروع باید قبل از زمان پایان باشد.');
+    $fromFilter = $toFilter = null;
+}
+$fromInput = $fromFilter['input'] ?? '';
+$toInput = $toFilter['input'] ?? '';
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 30;
 $offset = ($page - 1) * $perPage;
@@ -137,6 +148,7 @@ if ($tab === 'pending') {
         $where[] = 'CAST(price AS DECIMAL(20,0)) <= ?';
         $params[] = $priceMax;
     }
+    panel_payment_append_time_range($where, $params, $fromFilter, $toFilter);
 } else {
     $where[] = "payment_Status != 'cost'";
     if ($search !== '') {
@@ -157,6 +169,7 @@ if ($tab === 'pending') {
         $where[] = 'CAST(price AS DECIMAL(20,0)) <= ?';
         $params[] = $priceMax;
     }
+    panel_payment_append_time_range($where, $params, $fromFilter, $toFilter);
 }
 $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 $orderSQL = 'ORDER BY (' . panel_payment_time_sort_sql() . ') DESC, id DESC';
@@ -240,6 +253,29 @@ $filterStatusMap = [
     'manual' => ['tag-mint', 'فاکتور دستی'],
 ] + $listStatusMap;
 
+$activeFilterCount = 0;
+if ($tab !== 'pending') {
+    if ($tab !== 'costs' && $status !== '') {
+        $activeFilterCount++;
+    }
+    if ($priceMin !== null) {
+        $activeFilterCount++;
+    }
+    if ($priceMax !== null) {
+        $activeFilterCount++;
+    }
+    if ($fromFilter) {
+        $activeFilterCount++;
+    }
+    if ($toFilter) {
+        $activeFilterCount++;
+    }
+}
+$clearFiltersUrl = $tab === 'costs' ? 'payment.php?tab=costs' : 'payment.php';
+if ($search !== '') {
+    $clearFiltersUrl .= (str_contains($clearFiltersUrl, '?') ? '&' : '?') . 'q=' . urlencode($search);
+}
+
 $pageTitle = 'مالی';
 $pageLede = 'گزارش پرداخت‌ها، فاکتور دستی، هزینه‌ها و درآمد خالص.';
 $activeNav = 'payment';
@@ -315,56 +351,39 @@ include __DIR__ . '/inc/layout_head.php';
         <input type="hidden" name="action" value="reject_all">
         <button type="submit" class="btn btn-no btn-sm">حذف همه</button>
       </form>
-    <?php elseif ($tab === 'costs'): ?>
-    <div class="toolbar-end" style="flex-wrap:wrap;gap:8px">
-      <form method="GET" class="toolbar-end" style="flex-wrap:wrap;gap:8px">
-        <input type="hidden" name="tab" value="costs">
-        <input type="number" name="price_min" class="select" style="width:120px" min="0" step="1"
-          placeholder="حداقل مبلغ"
-          value="<?= $priceMin !== null ? (int) $priceMin : '' ?>">
-        <input type="number" name="price_max" class="select" style="width:120px" min="0" step="1"
-          placeholder="حداکثر مبلغ"
-          value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
-        <div class="search-box" style="min-width:230px">
-          <?= icon('search', 14) ?>
-          <input type="text" name="q" placeholder="شناسه، یادداشت..."
-            value="<?= htmlspecialchars($search) ?>">
-          <button type="button" class="search-clear">✕</button>
-          <button type="submit" class="search-btn">جستجو</button>
-        </div>
-        <?php if ($search || $priceMin !== null || $priceMax !== null): ?>
-          <a href="payment.php?tab=costs" class="btn-link" style="font-size:.78rem">پاک</a>
-        <?php endif; ?>
-      </form>
-      <button type="button" class="btn btn-primary btn-sm" onclick="openModal('costModal')"><?= icon('plus', 14) ?> افزودن هزینه</button>
-    </div>
     <?php elseif ($tab !== 'pending'): ?>
     <div class="toolbar-end" style="flex-wrap:wrap;gap:8px">
       <form method="GET" class="toolbar-end" style="flex-wrap:wrap;gap:8px">
-        <select name="status" class="select" style="width:auto" onchange="this.form.submit()">
-          <option value="">همه وضعیت‌ها</option>
-          <?php foreach ($filterStatusMap as $k => [$_, $lbl]): ?>
-            <option value="<?= $k ?>" <?= $status === $k ? 'selected' : '' ?>><?= $lbl ?></option>
-          <?php endforeach; ?>
-        </select>
-        <input type="number" name="price_min" class="select" style="width:120px" min="0" step="1"
-          placeholder="حداقل مبلغ"
-          value="<?= $priceMin !== null ? (int) $priceMin : '' ?>">
-        <input type="number" name="price_max" class="select" style="width:120px" min="0" step="1"
-          placeholder="حداکثر مبلغ"
-          value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
+        <?php if ($tab === 'costs'): ?>
+          <input type="hidden" name="tab" value="costs">
+        <?php endif; ?>
+        <input type="hidden" name="status" value="<?= htmlspecialchars($status) ?>">
+        <input type="hidden" name="price_min" value="<?= $priceMin !== null ? (int) $priceMin : '' ?>">
+        <input type="hidden" name="price_max" value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
+        <input type="hidden" name="from" value="<?= htmlspecialchars($fromInput) ?>">
+        <input type="hidden" name="to" value="<?= htmlspecialchars($toInput) ?>">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="openModal('paymentFilterModal')">
+          <?= icon('filter', 14) ?> فیلترها
+          <?php if ($activeFilterCount > 0): ?>
+            <span class="tag tag-info" style="margin-right:4px"><?= $activeFilterCount ?></span>
+          <?php endif; ?>
+        </button>
         <div class="search-box" style="min-width:230px">
           <?= icon('search', 14) ?>
-          <input type="text" name="q" placeholder="آیدی کاربر، شماره تراکنش یا یادداشت..."
+          <input type="text" name="q" placeholder="<?= $tab === 'costs' ? 'شناسه، یادداشت...' : 'آیدی کاربر، شماره تراکنش یا یادداشت...' ?>"
             value="<?= htmlspecialchars($search) ?>">
           <button type="button" class="search-clear">✕</button>
           <button type="submit" class="search-btn">جستجو</button>
         </div>
-        <?php if ($search || $status || $priceMin !== null || $priceMax !== null): ?>
-          <a href="payment.php" class="btn-link" style="font-size:.78rem">پاک</a>
+        <?php if ($search || $activeFilterCount > 0): ?>
+          <a href="<?= $tab === 'costs' ? 'payment.php?tab=costs' : 'payment.php' ?>" class="btn-link" style="font-size:.78rem">پاک</a>
         <?php endif; ?>
       </form>
-      <button type="button" class="btn btn-primary btn-sm" onclick="openModal('manualModal')"><?= icon('plus', 14) ?> افزودن فاکتور دستی</button>
+      <?php if ($tab === 'costs'): ?>
+        <button type="button" class="btn btn-primary btn-sm" onclick="openModal('costModal')"><?= icon('plus', 14) ?> افزودن هزینه</button>
+      <?php else: ?>
+        <button type="button" class="btn btn-primary btn-sm" onclick="openModal('manualModal')"><?= icon('plus', 14) ?> افزودن فاکتور دستی</button>
+      <?php endif; ?>
     </div>
     <?php endif; ?>
   </div>
@@ -489,20 +508,15 @@ include __DIR__ . '/inc/layout_head.php';
       <?php
       if ($tab === 'pending') {
           $base = 'payment.php?tab=pending';
-      } elseif ($tab === 'costs') {
-          $base = 'payment.php?' . http_build_query(array_filter([
-              'tab' => 'costs',
-              'q' => $search,
-              'price_min' => $priceMin,
-              'price_max' => $priceMax,
-          ], static fn($v) => $v !== null && $v !== ''));
       } else {
-          $base = 'payment.php?' . http_build_query(array_filter([
+          $base = payment_redirect_url($tab, [
               'q' => $search,
               'status' => $status,
               'price_min' => $priceMin,
               'price_max' => $priceMax,
-          ], static fn($v) => $v !== null && $v !== ''));
+              'from' => $fromInput,
+              'to' => $toInput,
+          ]);
       }
       $qs = fn($p) => $base . (str_contains($base, '?') ? '&' : '?') . 'page=' . $p;
       ?>
@@ -634,6 +648,8 @@ function openRejectModal(orderId) {
         <input type="hidden" name="status_filter" value="<?= htmlspecialchars($status) ?>">
         <input type="hidden" name="price_min" value="<?= $priceMin !== null ? (int) $priceMin : '' ?>">
         <input type="hidden" name="price_max" value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
+        <input type="hidden" name="from" value="<?= htmlspecialchars($fromInput) ?>">
+        <input type="hidden" name="to" value="<?= htmlspecialchars($toInput) ?>">
         <input type="hidden" name="page" value="<?= (int) $page ?>">
         <div class="field" style="margin-bottom:14px">
           <label class="lbl">وضعیت جدید</label>
@@ -700,6 +716,61 @@ function openRejectModal(orderId) {
   selectEl.addEventListener('change', syncRejectPrompts);
 })();
 </script>
+<?php endif; ?>
+
+<?php if ($tab !== 'pending'): ?>
+<div class="modal-veil" id="paymentFilterModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>فیلترها</h3>
+      <button type="button" class="modal-x" onclick="closeModal('paymentFilterModal')"><?= icon('close', 14) ?></button>
+    </div>
+    <form method="GET">
+      <div class="modal-body">
+        <?php if ($tab === 'costs'): ?>
+          <input type="hidden" name="tab" value="costs">
+        <?php endif; ?>
+        <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
+        <div class="form-grid">
+          <?php if ($tab !== 'costs'): ?>
+          <div class="field full">
+            <label class="lbl">وضعیت</label>
+            <select name="status" class="select" style="width:100%">
+              <option value="">همه وضعیت‌ها</option>
+              <?php foreach ($filterStatusMap as $k => [$_, $lbl]): ?>
+                <option value="<?= htmlspecialchars($k) ?>" <?= $status === $k ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <?php endif; ?>
+          <div class="field">
+            <label class="lbl">حداقل مبلغ</label>
+            <input type="number" name="price_min" class="input" min="0" step="1" placeholder="تومان"
+              value="<?= $priceMin !== null ? (int) $priceMin : '' ?>">
+          </div>
+          <div class="field">
+            <label class="lbl">حداکثر مبلغ</label>
+            <input type="number" name="price_max" class="input" min="0" step="1" placeholder="تومان"
+              value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
+          </div>
+          <div class="field">
+            <label class="lbl">از تاریخ و ساعت</label>
+            <input type="datetime-local" name="from" class="input" value="<?= htmlspecialchars($fromInput) ?>">
+          </div>
+          <div class="field">
+            <label class="lbl">تا تاریخ و ساعت</label>
+            <input type="datetime-local" name="to" class="input" value="<?= htmlspecialchars($toInput) ?>">
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="submit" class="btn btn-primary">اعمال فیلتر</button>
+        <a class="btn btn-ghost" href="<?= htmlspecialchars($clearFiltersUrl) ?>">پاک کردن</a>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('paymentFilterModal')">انصراف</button>
+      </div>
+    </form>
+  </div>
+</div>
 <?php endif; ?>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

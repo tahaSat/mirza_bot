@@ -508,6 +508,55 @@ function panel_payment_time_sort_sql(string $column = 'time'): string
     END";
 }
 
+/**
+ * @return array{ts:int,sql:string,input:string}|null
+ */
+function panel_payment_parse_filter_datetime(string $raw, bool $endOfRange = false): ?array
+{
+    $raw = trim(str_replace(' ', 'T', $raw));
+    if ($raw === '') {
+        return null;
+    }
+    $tz = new DateTimeZone('Asia/Tehran');
+    $dt = DateTime::createFromFormat('Y-m-d\TH:i', $raw, $tz)
+        ?: DateTime::createFromFormat('Y-m-d\TH:i:s', $raw, $tz)
+        ?: DateTime::createFromFormat('Y-m-d', substr($raw, 0, 10), $tz);
+    if (!$dt) {
+        return null;
+    }
+    $hasTime = str_contains($raw, 'T');
+    if (!$hasTime) {
+        $dt->setTime($endOfRange ? 23 : 0, $endOfRange ? 59 : 0, $endOfRange ? 59 : 0);
+    }
+    return [
+        'ts' => $dt->getTimestamp(),
+        'sql' => $dt->format('Y/m/d H:i:s'),
+        'input' => $dt->format('Y-m-d\TH:i'),
+    ];
+}
+
+function panel_payment_append_time_range(array &$where, array &$params, ?array $from, ?array $to): void
+{
+    if ($from === null && $to === null) {
+        return;
+    }
+    $startTs = $from['ts'] ?? 0;
+    $endTs = $to['ts'] ?? 2147483647;
+    $startDt = $from['sql'] ?? '1970/01/01 00:00:00';
+    $endDt = $to['sql'] ?? '2038/01/19 03:14:07';
+    $where[] = "(
+        (time REGEXP '^[0-9]{9,}$' AND CAST(time AS UNSIGNED) BETWEEN ? AND ?)
+        OR (time NOT REGEXP '^[0-9]{9,}$' AND COALESCE(
+              STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
+              STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
+            ) BETWEEN ? AND ?)
+    )";
+    $params[] = $startTs;
+    $params[] = $endTs;
+    $params[] = $startDt;
+    $params[] = $endDt;
+}
+
 function panel_payment_is_cost(array $payment): bool
 {
     return ($payment['payment_Status'] ?? '') === 'cost'

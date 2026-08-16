@@ -169,10 +169,6 @@ $devModeOn = function_exists('mirza_is_development_mode')
           </div>
         </div>
         <div class="topbar-tools">
-          <span class="tag <?= $devModeOn ? 'tag-warn' : 'tag-ok' ?> dev-mode-badge" title="development_mode">
-            <span class="dev-mode-label">حالت توسعه</span>
-            <code><?= $devModeOn ? 'true' : 'false' ?></code>
-          </span>
           <a href="settings.php" class="icon-btn" title="تنظیمات"><?= icon('settings', 16) ?></a>
           <a href="logout.php" class="icon-btn" title="خروج"><?= icon('logout', 16) ?></a>
         </div>

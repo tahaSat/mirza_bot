@@ -864,6 +864,6 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
 </div>
 
-<script src="js/profile.js"></script>
+<script src="<?= htmlspecialchars(panel_asset('js/profile.js')) ?>"></script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

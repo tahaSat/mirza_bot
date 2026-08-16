@@ -521,5 +521,33 @@ function panel_web_base(): string
 
 function panel_asset(string $path): string
 {
-    return panel_web_base() . '/' . ltrim($path, '/');
+    $rel = ltrim($path, '/');
+    $url = panel_web_base() . '/' . $rel;
+    $file = dirname(__DIR__) . '/' . $rel;
+    if (is_file($file)) {
+        $url .= '?v=' . filemtime($file);
+    }
+    return $url;
+}
+
+function panel_sw_register_script(): void
+{
+    echo <<<'HTML'
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/panel/sw.js', { scope: '/panel/', updateViaCache: 'none' })
+    .then(function (reg) { return reg.update(); })
+    .catch(function () {});
+  if (!window.__panelSwReloadBound) {
+    window.__panelSwReloadBound = true;
+    var reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (reloaded) return;
+      reloaded = true;
+      location.reload();
+    });
+  }
+}
+</script>
+HTML;
 }

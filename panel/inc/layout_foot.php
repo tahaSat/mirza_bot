@@ -14,5 +14,18 @@
 </div>
 
 <script src="<?= htmlspecialchars(panel_asset('js/app.js')) ?>"></script>
+<script>
+window.openModal = function (id) {
+  var m = document.getElementById(id);
+  if (!m) return;
+  if (m.parentNode !== document.body) document.body.appendChild(m);
+  m.offsetWidth;
+  m.classList.add('open');
+};
+window.closeModal = function (id) {
+  var m = document.getElementById(id);
+  if (m) m.classList.remove('open');
+};
+</script>
 </body>
 </html>

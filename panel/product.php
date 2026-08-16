@@ -501,6 +501,6 @@ window.PASARGUARD_PANELS = <?= json_encode($pasarguardPanels, JSON_UNESCAPED_UNI
 window.PRODUCT_CSRF = <?= json_encode(csrf_token(), JSON_UNESCAPED_UNICODE) ?>;
 </script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
-<script src="js/product.js"></script>
+<script src="<?= htmlspecialchars(panel_asset('js/product.js')) ?>"></script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

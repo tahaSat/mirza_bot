@@ -25,6 +25,7 @@ $devModeOn = function_exists('mirza_is_development_mode')
   <link rel="apple-touch-icon" href="/panel/icons/apple-touch-icon.png">
   <title>پنل مدیریت پیچا</title>
   <link rel="stylesheet" href="<?= htmlspecialchars(panel_asset('css/style.css')) ?>">
+  <?php panel_sw_register_script(); ?>
   <script>
     window.openModal = function (id) {
       var m = document.getElementById(id);

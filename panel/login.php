@@ -93,8 +93,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <title>ورود — پیچا</title>
   <meta name="apple-mobile-web-app-title" content="پیچا">
   <link rel="icon" href="/panel/icons/icon-192.png" type="image/png">
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/login.css">
+  <link rel="stylesheet" href="<?= htmlspecialchars(panel_asset('css/style.css')) ?>">
+  <link rel="stylesheet" href="<?= htmlspecialchars(panel_asset('css/login.css')) ?>">
   <script>document.documentElement.setAttribute('data-theme', 'slate');</script>
 </head>
 
@@ -140,17 +140,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <p class="login-foot">© <?= date('Y') ?> · پیچا</p>
     </div>
   </div>
-  <script src="js/login.js"></script>
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function () {
-        navigator.serviceWorker.register('/panel/sw.js', { scope: '/panel/' })
-          .catch(function (error) {
-            console.warn('Panel service worker registration failed:', error);
-          });
-      });
-    }
-  </script>
+  <script src="<?= htmlspecialchars(panel_asset('js/login.js')) ?>"></script>
+  <?php panel_sw_register_script(); ?>
 </body>
 
 </html>

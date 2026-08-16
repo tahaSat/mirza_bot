@@ -43,7 +43,8 @@ var _lb = (function () {
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-        navigator.serviceWorker.register('/panel/sw.js', { scope: '/panel/' })
+        navigator.serviceWorker.register('/panel/sw.js', { scope: '/panel/', updateViaCache: 'none' })
+            .then(function (reg) { return reg.update(); })
             .catch(function (error) {
                 console.warn('Panel service worker registration failed:', error);
             });

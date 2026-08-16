@@ -739,5 +739,5 @@ include __DIR__ . '/inc/layout_head.php';
 </div>
 <?php endif; ?>
 
-<script src="js/users.js"></script>
+<script src="<?= htmlspecialchars(panel_asset('js/users.js')) ?>"></script>
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

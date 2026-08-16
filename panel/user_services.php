@@ -215,6 +215,6 @@ include __DIR__ . '/inc/layout_head.php';
 <script>
 window.__serviceProducts = <?= json_encode($products, JSON_UNESCAPED_UNICODE) ?>;
 </script>
-<script src="js/user_services.js"></script>
+<script src="<?= htmlspecialchars(panel_asset('js/user_services.js')) ?>"></script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

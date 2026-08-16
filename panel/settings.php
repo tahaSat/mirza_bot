@@ -704,6 +704,6 @@ include __DIR__ . '/inc/layout_head.php';
 
 <?php endif; ?>
 
-<script src="js/settings.js"></script>
+<script src="<?= htmlspecialchars(panel_asset('js/settings.js')) ?>"></script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

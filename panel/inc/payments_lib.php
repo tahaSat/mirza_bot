@@ -490,6 +490,24 @@ function panel_payment_parse_time($raw): int
     return $ts !== false ? $ts : time();
 }
 
+function panel_payment_format_time(int $ts): string
+{
+    return (new DateTime('@' . $ts))
+        ->setTimezone(new DateTimeZone('Asia/Tehran'))
+        ->format('Y/m/d H:i:s');
+}
+
+function panel_payment_time_sort_sql(string $column = 'time'): string
+{
+    return "CASE
+        WHEN $column REGEXP '^[0-9]{9,}$' THEN CAST($column AS UNSIGNED)
+        ELSE COALESCE(
+            UNIX_TIMESTAMP(STR_TO_DATE($column, '%Y-%m-%d %H:%i:%s')),
+            UNIX_TIMESTAMP(STR_TO_DATE($column, '%Y/%m/%d %H:%i:%s'))
+        )
+    END";
+}
+
 function panel_payment_is_cost(array $payment): bool
 {
     return ($payment['payment_Status'] ?? '') === 'cost'
@@ -526,13 +544,13 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
         return ['ok' => false, 'msg' => 'برای افزودن به کیف پول باید آیدی کاربر معتبر وارد شود.'];
     }
 
-    $time = panel_payment_parse_time($input['time'] ?? '');
+    $time = panel_payment_format_time(panel_payment_parse_time($input['time'] ?? ''));
     $idInvoice = $creditWallet ? 'manual|wallet' : 'manual';
 
     db_query(
         $pdo,
         'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note) VALUES (?,?,?,?,?,?,?,?)',
-        [$userId, $orderId, (string) $time, (string) $amount, 'paid', 'manual invoice', $idInvoice, $note !== '' ? $note : null]
+        [$userId, $orderId, $time, (string) $amount, 'paid', 'manual invoice', $idInvoice, $note !== '' ? $note : null]
     );
 
     if ($creditWallet && $realUser) {
@@ -567,11 +585,11 @@ function panel_payment_add_cost(PDO $pdo, array $input): array
         return ['ok' => false, 'msg' => 'این شناسه قبلاً ثبت شده است.'];
     }
 
-    $time = panel_payment_parse_time($input['time'] ?? '');
+    $time = panel_payment_format_time(panel_payment_parse_time($input['time'] ?? ''));
     db_query(
         $pdo,
         'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note) VALUES (?,?,?,?,?,?,?,?)',
-        ['', $orderId, (string) $time, (string) $amount, 'cost', 'cost', 'cost', $note !== '' ? $note : null]
+        ['', $orderId, $time, (string) $amount, 'cost', 'cost', 'cost', $note !== '' ? $note : null]
     );
 
     return ['ok' => true, 'msg' => 'هزینه ثبت شد.'];

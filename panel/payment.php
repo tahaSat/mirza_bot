@@ -85,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'credit_wallet' => !empty($_POST['credit_wallet']),
         ]);
         flash($r['ok'] ? 'success' : 'error', $r['msg']);
-        $redirect = 'payment.php';
+        $redirect = $r['ok'] ? 'payment.php?status=manual' : 'payment.php';
     } elseif ($action === 'add_cost') {
         $r = panel_payment_add_cost($pdo, [
             'amount' => $_POST['amount'] ?? 0,
@@ -159,7 +159,7 @@ if ($tab === 'pending') {
     }
 }
 $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
-$orderSQL = "ORDER BY time DESC";
+$orderSQL = 'ORDER BY (' . panel_payment_time_sort_sql() . ') DESC, id DESC';
 
 try {
     $total = db_count($pdo, "SELECT COUNT(*) FROM Payment_report $whereSQL", $params);

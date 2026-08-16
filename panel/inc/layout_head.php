@@ -26,7 +26,13 @@ $devModeOn = function_exists('mirza_is_development_mode')
   <title>پنل مدیریت پیچا</title>
   <link rel="stylesheet" href="<?= htmlspecialchars(panel_asset('css/style.css')) ?>">
   <script>
-    window.openModal = function (id) { var m = document.getElementById(id); if (m) m.classList.add('open'); };
+    window.openModal = function (id) {
+      var m = document.getElementById(id);
+      if (!m) return;
+      if (m.parentNode !== document.body) document.body.appendChild(m);
+      m.offsetWidth;
+      m.classList.add('open');
+    };
     window.closeModal = function (id) { var m = document.getElementById(id); if (m) m.classList.remove('open'); };
   </script>
   <script>

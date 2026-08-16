@@ -52,7 +52,10 @@ if ('serviceWorker' in navigator) {
 
 window.openModal = function (id) {
     var m = document.getElementById(id);
-    if (m) m.classList.add('open');
+    if (!m) return;
+    if (m.parentNode !== document.body) document.body.appendChild(m);
+    m.offsetWidth;
+    m.classList.add('open');
 };
 window.closeModal = function (id) {
     var m = document.getElementById(id);

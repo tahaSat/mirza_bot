@@ -250,6 +250,40 @@ include __DIR__ . '/inc/layout_head.php';
         </form>
     </div>
 
+    <?php if ($view === 'users'): ?>
+    <style>
+      .user-data-row{align-items:center}
+      .user-select{display:flex;align-items:center;padding:4px 2px 4px 8px;flex-shrink:0}
+      .user-select input{width:16px;height:16px;accent-color:var(--ac);cursor:pointer}
+      .users-campaign-bar{display:none;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--bd);background:var(--sf2)}
+      .users-campaign-bar.open{display:flex}
+      .users-campaign-bar-start{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+      .users-filter-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+      .users-filter-shortcuts{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+      @media (max-width:560px){
+        .users-filter-grid{grid-template-columns:1fr}
+        .users-campaign-bar{padding:10px 12px;align-items:stretch}
+        .users-campaign-bar-start{flex:1}
+        .users-campaign-bar > .btn{width:100%;justify-content:center}
+      }
+    </style>
+    <?php if ($total > 0): ?>
+    <div class="users-campaign-bar open" id="usersCampaignBar">
+        <div class="users-campaign-bar-start">
+            <label class="user-select" style="padding:0">
+                <input type="checkbox" id="selectPageUsers">
+            </label>
+            <strong id="campaignSelectedLabel">۰ کاربر انتخاب شده</strong>
+            <button type="button" class="btn btn-ghost btn-sm" id="selectFilteredBtn">انتخاب همه نتایج (<?= number_format($total) ?>)</button>
+            <button type="button" class="btn btn-link btn-sm" id="clearSelectedBtn">لغو انتخاب</button>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" id="openCampaignBtn" <?= $campaignJob ? 'disabled data-busy="1"' : '' ?>>
+            <?= icon('send', 14) ?> ارسال پیام
+        </button>
+    </div>
+    <?php endif; ?>
+    <?php endif; ?>
+
     <?php if ($view === 'admins'): ?>
         <?php if (empty($users)): ?>
             <div class="empty"><p><?= $search ? 'ادمینی یافت نشد' : 'هنوز ادمینی ثبت نشده' ?></p></div>
@@ -434,31 +468,6 @@ include __DIR__ . '/inc/layout_head.php';
 </div>
 
 <?php if ($view === 'users'): ?>
-<style>
-  .user-data-row{align-items:center}
-  .user-select{display:flex;align-items:center;padding:4px 2px 4px 8px;flex-shrink:0}
-  .user-select input{width:16px;height:16px;accent-color:var(--ac);cursor:pointer}
-  .users-campaign-bar{position:sticky;bottom:12px;margin:12px 12px 16px;padding:12px 14px;display:none;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--sf);border:1px solid var(--ac);border-radius:12px;box-shadow:var(--shlg);z-index:20}
-  .users-campaign-bar.open{display:flex}
-  .users-filter-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .users-filter-shortcuts{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
-  @media (max-width:560px){.users-filter-grid{grid-template-columns:1fr}.users-campaign-bar{bottom:84px}}
-</style>
-<?php if ($total > 0): ?>
-<div class="users-campaign-bar open" id="usersCampaignBar">
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <label class="user-select" style="padding:0">
-            <input type="checkbox" id="selectPageUsers">
-        </label>
-        <strong id="campaignSelectedLabel">۰ کاربر انتخاب شده</strong>
-        <button type="button" class="btn btn-ghost btn-sm" id="selectFilteredBtn">انتخاب همه نتایج (<?= number_format($total) ?>)</button>
-        <button type="button" class="btn btn-link btn-sm" id="clearSelectedBtn">لغو انتخاب</button>
-    </div>
-    <button type="button" class="btn btn-primary btn-sm" id="openCampaignBtn" <?= $campaignJob ? 'disabled' : '' ?>>
-        <?= icon('send', 14) ?> ارسال پیام
-    </button>
-</div>
-<?php endif; ?>
 <div class="modal-veil" id="usersFilterModal">
     <div class="modal">
         <div class="modal-head">

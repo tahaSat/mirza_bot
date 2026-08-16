@@ -27,11 +27,13 @@
     } catch (e) {}
 
     function persist() {
-        sessionStorage.setItem(storageKey, JSON.stringify({
-            filterKey: filterKey,
-            allFiltered: allFiltered,
-            ids: Array.from(selected),
-        }));
+        try {
+            sessionStorage.setItem(storageKey, JSON.stringify({
+                filterKey: filterKey,
+                allFiltered: allFiltered,
+                ids: Array.from(selected),
+            }));
+        } catch (e) {}
     }
 
     function selectedCount() {
@@ -99,9 +101,8 @@
     }
 
     if (openBtn) {
-        if (openBtn.disabled) openBtn.setAttribute('data-busy', '1');
         openBtn.addEventListener('click', function () {
-            if (selectedCount() < 1) return;
+            if (openBtn.hasAttribute('data-busy') || selectedCount() < 1) return;
             if (scopeInput) scopeInput.value = allFiltered ? 'filtered' : 'selected';
             if (idsWrap) {
                 idsWrap.innerHTML = '';

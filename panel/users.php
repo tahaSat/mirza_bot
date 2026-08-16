@@ -506,6 +506,7 @@ include __DIR__ . '/inc/layout_head.php';
                             <option value="">همه</option>
                             <option value="yes" <?= $userFilters['test'] === 'yes' ? 'selected' : '' ?>>دارای اکانت تست</option>
                             <option value="no" <?= $userFilters['test'] === 'no' ? 'selected' : '' ?>>بدون اکانت تست</option>
+                            <option value="only" <?= $userFilters['test'] === 'only' ? 'selected' : '' ?>>فقط اکانت تست</option>
                         </select>
                     </div>
                     <div class="field">

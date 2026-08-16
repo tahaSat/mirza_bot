@@ -661,10 +661,9 @@ if ($saleType === 'buy') {
 }
 
 $userFilterLabels = [];
-if ($userFilters['test'] === 'yes') {
-    $userFilterLabels[] = 'دارای اکانت تست';
-} elseif ($userFilters['test'] === 'no') {
-    $userFilterLabels[] = 'بدون اکانت تست';
+$testFilterLabel = panel_user_test_filter_label($userFilters['test']);
+if ($testFilterLabel !== '') {
+    $userFilterLabels[] = $testFilterLabel;
 }
 if ($userFilters['min_buys'] !== null) {
     $userFilterLabels[] = 'حداقل ' . number_format($userFilters['min_buys']) . ' خرید';
@@ -817,6 +816,7 @@ if ($userFilters['min_extends'] !== null) {
           <option value="" <?= $userFilters['test'] === '' ? 'selected' : '' ?>>همه</option>
           <option value="yes" <?= $userFilters['test'] === 'yes' ? 'selected' : '' ?>>دارای اکانت تست</option>
           <option value="no" <?= $userFilters['test'] === 'no' ? 'selected' : '' ?>>بدون اکانت تست</option>
+          <option value="only" <?= $userFilters['test'] === 'only' ? 'selected' : '' ?>>فقط اکانت تست</option>
         </select>
       </div>
       <div class="field">

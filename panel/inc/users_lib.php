@@ -40,10 +40,24 @@ function panel_datetime_epoch_sql(string $column): string
     END";
 }
 
+function panel_user_test_filter_values(): array
+{
+    return ['yes', 'no', 'only'];
+}
+
+function panel_user_test_filter_label(string $test): string
+{
+    return [
+        'yes' => 'دارای اکانت تست',
+        'no' => 'بدون اکانت تست',
+        'only' => 'فقط اکانت تست',
+    ][$test] ?? '';
+}
+
 function panel_user_segment_from_request(): array
 {
     $test = (string) ($_GET['test'] ?? '');
-    if (!in_array($test, ['yes', 'no'], true)) {
+    if (!in_array($test, panel_user_test_filter_values(), true)) {
         $test = '';
     }
     $minBuysRaw = trim((string) ($_GET['min_buys'] ?? ''));
@@ -135,9 +149,10 @@ function panel_user_segment_query_parts(array $filters, bool $alwaysJoin = false
     }
     if ($needTest) {
         $joins[] = "LEFT JOIN (
-            SELECT id_user, COUNT(*) AS test_count
+            SELECT id_user,
+                   SUM(name_product = 'سرویس تست') AS test_count,
+                   SUM(name_product != 'سرویس تست') AS non_test_count
             FROM invoice
-            WHERE name_product = 'سرویس تست'
             GROUP BY id_user
         ) seg_tests ON CONVERT(seg_tests.id_user USING utf8mb4) COLLATE utf8mb4_unicode_ci = CONVERT(u.id USING utf8mb4) COLLATE utf8mb4_unicode_ci";
         $select[] = 'COALESCE(seg_tests.test_count, 0) AS test_count';
@@ -147,6 +162,9 @@ function panel_user_segment_query_parts(array $filters, bool $alwaysJoin = false
         $where[] = 'COALESCE(seg_tests.test_count, 0) > 0';
     } elseif (($filters['test'] ?? '') === 'no') {
         $where[] = 'COALESCE(seg_tests.test_count, 0) = 0';
+    } elseif (($filters['test'] ?? '') === 'only') {
+        $where[] = 'COALESCE(seg_tests.test_count, 0) > 0';
+        $where[] = 'COALESCE(seg_tests.non_test_count, 0) = 0';
     }
     if (($filters['min_buys'] ?? null) !== null) {
         $where[] = 'COALESCE(seg_buys.buy_count, 0) >= ?';

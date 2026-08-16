@@ -81,7 +81,7 @@ if ($queueBusy) {
 $userIds = [];
 if ($scope === 'filtered') {
     $userFilters = [
-        'test' => in_array($redirectQs['test'] ?? '', ['yes', 'no'], true) ? $redirectQs['test'] : '',
+        'test' => in_array($redirectQs['test'] ?? '', panel_user_test_filter_values(), true) ? $redirectQs['test'] : '',
         'min_buys' => isset($redirectQs['min_buys']) && ctype_digit($redirectQs['min_buys']) ? (int) $redirectQs['min_buys'] : null,
         'min_extends' => isset($redirectQs['min_extends']) && ctype_digit($redirectQs['min_extends']) ? (int) $redirectQs['min_extends'] : null,
     ];

@@ -4491,6 +4491,82 @@ function button_label_and_icon_from_update($update): array
 }
 
 /**
+ * Category name from a Telegram update (original text; premium emoji stripped).
+ * Do not use globally converted $text — Persian digits in names would be rewritten
+ * and can match a different category.
+ */
+function category_remark_from_update($update): string
+{
+    $parsed = button_label_and_icon_from_update($update);
+    if ($parsed['text'] !== '') {
+        return trim($parsed['text']);
+    }
+    if (is_array($update) && isset($update['message']['text']) && is_string($update['message']['text'])) {
+        return trim($update['message']['text']);
+    }
+    return '';
+}
+
+function fetch_categories_by_remark(string $remark): array
+{
+    global $pdo;
+    $remark = trim($remark);
+    if ($remark === '' || !($pdo instanceof PDO)) {
+        return [];
+    }
+    $stmt = $pdo->prepare('SELECT * FROM category WHERE remark = ?');
+    $stmt->execute([$remark]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    return is_array($rows) ? $rows : [];
+}
+
+/**
+ * Unique category row from a keyboard tap / typed name.
+ * @return array{ok: true, category: array}|array{ok: false, error: 'empty'|'missing'|'ambiguous'}
+ */
+function resolve_category_from_update($update): array
+{
+    $remark = category_remark_from_update($update);
+    if ($remark === '') {
+        return ['ok' => false, 'error' => 'empty'];
+    }
+    $rows = fetch_categories_by_remark($remark);
+    if ($rows === []) {
+        return ['ok' => false, 'error' => 'missing'];
+    }
+    if (count($rows) > 1) {
+        return ['ok' => false, 'error' => 'ambiguous'];
+    }
+    return ['ok' => true, 'category' => $rows[0]];
+}
+
+function category_remark_taken(string $remark, $exceptId = null): bool
+{
+    $rows = fetch_categories_by_remark($remark);
+    if ($exceptId === null) {
+        return $rows !== [];
+    }
+    $exceptId = (int) $exceptId;
+    foreach ($rows as $row) {
+        if ((int) ($row['id'] ?? 0) !== $exceptId) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function category_resolve_error_text(string $error): string
+{
+    if ($error === 'ambiguous') {
+        return '❌ چند دسته‌بندی با این نام وجود دارد. از پنل وب ویرایش کنید تا فقط همان یکی عوض شود.';
+    }
+    if ($error === 'empty') {
+        return '❌ نام دسته‌بندی خالی است.';
+    }
+    return '❌ دسته بندی انتخاب شده وجود ندارد از بخش پلن ها > اضافه کردن دسته بندی دسته بندی خود را اضافه کنید سپس محصول را اضافه نمایید.';
+}
+
+/**
  * Plain button label + first custom emoji id from an admin message.
  * @return array{text: string, emoji_id: string}
  */

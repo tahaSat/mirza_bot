@@ -4207,12 +4207,12 @@ $caption";
     sendmessage($from_id, $textbotlang['Admin']['Product']['GetLimit'], $backadmin, 'HTML');
     step('get_time', $from_id);
 } elseif ($user['step'] == "getcategory") {
-    $category = select("category", "*", "remark", $text, "count");
-    if ($category == 0) {
-        sendmessage($from_id, "❌ دسته بندی انتخاب شده وجود ندارد از بخش پلن ها > اضافه کردن دسته بندی دسته بندی خود را اضافه کنید سپس محصول را اضافه نمایید.", KeyboardCategoryadmin(), 'HTML');
+    $resolved = resolve_category_from_update($update);
+    if (!$resolved['ok']) {
+        sendmessage($from_id, category_resolve_error_text($resolved['error']), KeyboardCategoryadmin(), 'HTML');
         return;
     }
-    savedata("save", "category", $text);
+    savedata("save", "category", $resolved['category']['remark']);
     $userdata = json_decode($user['Processing_value'], true);
     $panel = select("marzban_panel", "*", "name_panel", $userdata['Location'], "select");
     if ($panel['type'] == "Manualsale") {
@@ -4714,14 +4714,15 @@ $caption";
     sendmessage($from_id, "نام دسته بندی جدید را انتخاب کنید", KeyboardCategoryadmin(), 'HTML');
     step('change_categroy', $from_id);
 } elseif ($user['step'] == "change_categroy") {
-    $category = select("category", "*", "remark", $text, "count");
-    if ($category == 0) {
-        sendmessage($from_id, "❌ دسته بندی انتخاب شده وجود ندارد از بخش پلن ها > اضافه کردن دسته بندی ُ دسته بندی خود را اضافه کنید سپس محصول را اضافه نمایید.", KeyboardCategoryadmin(), 'HTML');
+    $resolved = resolve_category_from_update($update);
+    if (!$resolved['ok']) {
+        sendmessage($from_id, category_resolve_error_text($resolved['error']), KeyboardCategoryadmin(), 'HTML');
         return;
     }
+    $categoryRemark = (string) $resolved['category']['remark'];
     $panel = select("marzban_panel", "*", "code_panel", $user['Processing_value_one'], "select");
     $stmt = $pdo->prepare("UPDATE product SET category = :categroy WHERE id = :name_product AND (Location = :Location OR Location = '/all') AND agent = :agent");
-    $stmt->bindParam(':categroy', $text);
+    $stmt->bindParam(':categroy', $categoryRemark);
     $stmt->bindParam(':name_product', $user['Processing_value']);
     $stmt->bindParam(':Location', $panel['name_panel']);
     $stmt->bindParam(':agent', $user['Processing_value_tow']);
@@ -12984,9 +12985,13 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
     step("getremarkcategory", $from_id);
 } elseif ($user['step'] == "getremarkcategory") {
     $parsed = button_label_and_icon_from_update($update);
-    $remark = $parsed['text'] !== '' ? $parsed['text'] : (string) $text;
+    $remark = $parsed['text'] !== '' ? $parsed['text'] : category_remark_from_update($update);
     if ($remark === '') {
         sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $backadmin, 'HTML');
+        return;
+    }
+    if (category_remark_taken($remark)) {
+        sendmessage($from_id, '❌ دسته‌بندی با این نام قبلاً ثبت شده.', $backadmin, 'HTML');
         return;
     }
     ensure_shop_button_emoji_columns();
@@ -12999,11 +13004,16 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, "📌 دسته بندی خود را جهت حذف انتخاب کنید", KeyboardCategoryadmin(), 'HTML');
     step("removecategory", $from_id);
 } elseif ($user['step'] == "removecategory") {
+    $resolved = resolve_category_from_update($update);
+    if (!$resolved['ok']) {
+        sendmessage($from_id, category_resolve_error_text($resolved['error']), KeyboardCategoryadmin(), 'HTML');
+        return;
+    }
+    $stmt = $pdo->prepare("DELETE FROM category WHERE id = :id");
+    $stmt->bindValue(':id', (int) $resolved['category']['id'], PDO::PARAM_INT);
+    $stmt->execute();
     sendmessage($from_id, "✅ دسته بندی با موفقیت حذف گردید.", $shopkeyboard, 'HTML');
     step("home", $from_id);
-    $stmt = $pdo->prepare("DELETE FROM category WHERE remark = :remark ");
-    $stmt->bindParam(':remark', $text);
-    $stmt->execute();
 } elseif ($text == "مخفی کردن پنل" && $adminrulecheck['rule'] == "administrator") {
     if ($user['Processing_value_one'] != "/all") {
         sendmessage($from_id, "📌 این قابلیت فقط زمانی کاربرد دارد که شما لوکیشن محصول را /all تعریف کرده باشید.", null, 'HTML');
@@ -13059,23 +13069,60 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, "📌 دسته بندی خود را جهت ویرایش انتخاب کنید", KeyboardCategoryadmin(), 'HTML');
     step("editcategory_name", $from_id);
 } elseif ($user['step'] == "editcategory_name") {
-    savedata("clear", "category", $text);
+    $resolved = resolve_category_from_update($update);
+    if (!$resolved['ok']) {
+        sendmessage($from_id, category_resolve_error_text($resolved['error']), KeyboardCategoryadmin(), 'HTML');
+        return;
+    }
+    savedata("clear", "category_id", (string) $resolved['category']['id']);
+    savedata("save", "category", $resolved['category']['remark']);
     sendmessage($from_id, "📌  نام جدید دسته بندی را ارسال کنید\n✨ اگر ایموجی پرمیوم بفرستید، روی دکمه دسته نمایش داده می‌شود.", $backadmin, 'HTML');
     step("get_name_new_category", $from_id);
 } elseif ($user['step'] == "get_name_new_category") {
     $userdata = json_decode($user['Processing_value'], true);
+    if (!is_array($userdata)) {
+        $userdata = [];
+    }
+    $categoryId = (int) ($userdata['category_id'] ?? 0);
+    $old = $categoryId > 0 ? select("category", "*", "id", $categoryId, "select") : null;
+    if (!is_array($old) && !empty($userdata['category'])) {
+        $matches = fetch_categories_by_remark((string) $userdata['category']);
+        if (count($matches) === 1) {
+            $old = $matches[0];
+            $categoryId = (int) ($old['id'] ?? 0);
+        }
+    }
+    if (!is_array($old) || $categoryId <= 0) {
+        sendmessage($from_id, '❌ دسته‌بندی یافت نشد. دوباره انتخاب کنید.', $keyboard_Category_manage, 'HTML');
+        step("home", $from_id);
+        return;
+    }
     $parsed = button_label_and_icon_from_update($update);
-    $remark = $parsed['text'] !== '' ? $parsed['text'] : (string) $text;
+    $remark = $parsed['text'] !== '' ? $parsed['text'] : category_remark_from_update($update);
     if ($remark === '') {
         sendmessage($from_id, $textbotlang['Admin']['ManageUser']['ErrorText'], $backadmin, 'HTML');
         return;
     }
+    if (category_remark_taken($remark, $categoryId)) {
+        sendmessage($from_id, '❌ دسته‌بندی با این نام قبلاً ثبت شده.', $backadmin, 'HTML');
+        return;
+    }
     ensure_shop_button_emoji_columns();
     $emoji_id = stored_custom_emoji_id($parsed['emoji_id']);
-    $oldRemark = $userdata['category'] ?? '';
-    update("category", "remark", $remark, "remark", $oldRemark);
-    update("category", "emoji_id", $emoji_id !== '' ? $emoji_id : null, "remark", $remark);
-    update("product", "category", $remark, "category", $oldRemark);
+    $oldRemark = (string) ($old['remark'] ?? '');
+    if ($emoji_id !== '') {
+        $stmt = $pdo->prepare("UPDATE category SET remark = ?, emoji_id = ? WHERE id = ?");
+        $stmt->execute([$remark, $emoji_id, $categoryId]);
+    } else {
+        $stmt = $pdo->prepare("UPDATE category SET remark = ? WHERE id = ?");
+        $stmt->execute([$remark, $categoryId]);
+    }
+    if ($oldRemark !== $remark) {
+        $stmt = $pdo->prepare("UPDATE product SET category = ? WHERE category = ?");
+        $stmt->execute([$remark, $oldRemark]);
+    }
+    clearSelectCache('category');
+    clearSelectCache('product');
     sendmessage($from_id, "✅ نام دسته بندی با موفقیت تغییر کرد.", $keyboard_Category_manage, 'HTML');
     step("home", $from_id);
 } elseif ($datain == "zerobalance") {

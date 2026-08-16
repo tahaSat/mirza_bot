@@ -198,7 +198,26 @@ try {
     $totalCosts = (int) db_query($pdo, "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report WHERE payment_Status ='cost'")->fetchColumn();
     $forecastIncome = (int) round(forecast_monthly_paid_income($pdo));
     $todayWhere = $tab === 'costs' ? "payment_Status = 'cost'" : "payment_Status != 'cost'";
-    $todayCount = db_count($pdo, "SELECT COUNT(*) FROM Payment_report WHERE $todayWhere AND time > ?", [strtotime('today')]);
+    $tehran = new DateTimeZone('Asia/Tehran');
+    $dayStart = new DateTime('today', $tehran);
+    $dayEnd = (clone $dayStart)->modify('+1 day');
+    $todayStart = $dayStart->getTimestamp();
+    $todayEnd = $dayEnd->getTimestamp();
+    $todayDtStart = $dayStart->format('Y/m/d H:i:s');
+    $todayDtEnd = (clone $dayEnd)->modify('-1 second')->format('Y/m/d H:i:s');
+    $todayCount = db_count(
+        $pdo,
+        "SELECT COUNT(*) FROM Payment_report
+         WHERE $todayWhere
+           AND (
+             (time REGEXP '^[0-9]{9,}$' AND CAST(time AS UNSIGNED) >= ? AND CAST(time AS UNSIGNED) < ?)
+             OR (time NOT REGEXP '^[0-9]{9,}$' AND COALESCE(
+                   STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
+                   STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
+                 ) BETWEEN ? AND ?)
+           )",
+        [$todayStart, $todayEnd, $todayDtStart, $todayDtEnd]
+    );
     $pendingCount = db_count($pdo, "SELECT COUNT(*) FROM Payment_report WHERE Payment_Method = 'cart to cart' AND payment_Status = 'waiting'");
 } catch (Exception $e) {
 }

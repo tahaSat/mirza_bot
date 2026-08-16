@@ -5518,27 +5518,17 @@ $textonebuy
         $stmt->bind_param("sssssss", $from_id, $randomString, $dateacc, $user['Processing_value'], $payment_Status, $Payment_Method, $invoice);
         $stmt->execute();
         deletemessage($from_id, $message_id);
-        if ($setting['statuscopycart'] == "1") {
-            $sendresidcart = json_encode([
-                'inline_keyboard' => [
-                    [
-                        ['text' => "کپی شماره کارت", 'copy_text' => ["text" => $card_number]],
-                        ['text' => "کپی مبلغ", 'copy_text' => ["text" => $price_copy]]
-                    ],
-                    [
-                        ['text' => "✅ پرداخت کردم | ارسال رسید.", 'callback_data' => "sendresidcart-" . $randomString]
-                    ]
+        $sendresidcart = json_encode([
+            'inline_keyboard' => [
+                [
+                    ['text' => "کپی مبلغ", 'copy_text' => ["text" => (string) $price_copy]],
+                    ['text' => "کپی شماره کارت", 'copy_text' => ["text" => (string) $card_number]],
+                ],
+                [
+                    ['text' => "✅ پرداخت کردم | ارسال رسید.", 'callback_data' => "sendresidcart-" . $randomString]
                 ]
-            ]);
-        } else {
-            $sendresidcart = json_encode([
-                'inline_keyboard' => [
-                    [
-                        ['text' => "✅ پرداخت کردم | ارسال رسید.", 'callback_data' => "sendresidcart-" . $randomString]
-                    ]
-                ]
-            ]);
-        }
+            ]
+        ], JSON_UNESCAPED_UNICODE);
         $gethelp = select("PaySetting", "ValuePay", "NamePay", "helpcart", "select")['ValuePay'];
         if ($gethelp != 2) {
             $data = json_decode($gethelp, true);

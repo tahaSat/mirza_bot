@@ -359,6 +359,111 @@ function invoice_paid_status_sql(string $statusCol = 'Status'): string
     return "$statusCol NOT IN (" . implode(',', $quoted) . ") AND $statusCol IS NOT NULL AND $statusCol != ''";
 }
 
+function unix_column_epoch_sql(string $column): string
+{
+    return "CASE
+        WHEN $column REGEXP '^[0-9]{9,}$' THEN CAST($column AS UNSIGNED)
+        ELSE COALESCE(
+            UNIX_TIMESTAMP(STR_TO_DATE($column, '%Y-%m-%d %H:%i:%s')),
+            UNIX_TIMESTAMP(STR_TO_DATE($column, '%Y/%m/%d %H:%i:%s'))
+        )
+    END";
+}
+
+function format_duration_fa(?float $seconds): string
+{
+    if ($seconds === null || $seconds < 0) {
+        return '—';
+    }
+    $seconds = (int) round($seconds);
+    if ($seconds < 60) {
+        return 'کمتر از ۱ دقیقه';
+    }
+    $days = intdiv($seconds, 86400);
+    $hours = intdiv($seconds % 86400, 3600);
+    $minutes = intdiv($seconds % 3600, 60);
+    $parts = [];
+    if ($days > 0) {
+        $parts[] = $days . ' روز';
+    }
+    if ($hours > 0) {
+        $parts[] = $hours . ' ساعت';
+    }
+    if ($minutes > 0 && $days === 0) {
+        $parts[] = $minutes . ' دقیقه';
+    }
+    return $parts === [] ? 'کمتر از ۱ دقیقه' : implode(' و ', $parts);
+}
+
+/**
+ * Average seconds from join (user.register) to first paid non-test purchase.
+ * Optional window filters users by join date; first purchase may be later.
+ *
+ * @return array{avg_seconds: ?float, buyers: int, formatted: string}
+ */
+function avg_join_to_first_purchase(PDO $pdo, ?int $joinStart = null, ?int $joinEnd = null): array
+{
+    $empty = ['avg_seconds' => null, 'buyers' => 0, 'formatted' => 'داده کافی نیست'];
+    $registerEpoch = unix_column_epoch_sql('u.register');
+    $sellEpoch = unix_column_epoch_sql('i.time_sell');
+    $paidSql = invoice_paid_status_sql('i.Status');
+    $joinFilter = '';
+    $params = [];
+    if ($joinStart !== null && $joinEnd !== null) {
+        $joinFilter = "AND ($registerEpoch) BETWEEN :join_start AND :join_end";
+        $params[':join_start'] = $joinStart;
+        $params[':join_end'] = $joinEnd;
+    }
+    $sql = "SELECT AVG(fp.first_ts - joins.join_ts) AS avg_seconds,
+                   COUNT(*) AS buyers
+            FROM (
+                SELECT u.id AS user_id, ($registerEpoch) AS join_ts
+                FROM user u
+                WHERE u.register IS NOT NULL
+                  AND u.register != ''
+                  AND u.register != 'none'
+                  AND ($registerEpoch) IS NOT NULL
+                  AND ($registerEpoch) > 0
+                  $joinFilter
+            ) joins
+            INNER JOIN (
+                SELECT i.id_user, MIN($sellEpoch) AS first_ts
+                FROM invoice i
+                WHERE i.name_product != 'سرویس تست'
+                  AND $paidSql
+                  AND ($sellEpoch) IS NOT NULL
+                  AND ($sellEpoch) > 0
+                GROUP BY i.id_user
+            ) fp ON fp.id_user = joins.user_id
+            WHERE fp.first_ts >= joins.join_ts";
+    try {
+        $stmt = $pdo->prepare($sql);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value, PDO::PARAM_INT);
+        }
+        $stmt->execute();
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $buyers = (int) ($row['buyers'] ?? 0);
+        $avg = isset($row['avg_seconds']) && $row['avg_seconds'] !== null ? (float) $row['avg_seconds'] : null;
+        if ($buyers <= 0 || $avg === null) {
+            return $empty;
+        }
+        return [
+            'avg_seconds' => $avg,
+            'buyers' => $buyers,
+            'formatted' => format_duration_fa($avg) . ' (' . number_format($buyers) . ' کاربر)',
+        ];
+    } catch (Exception $e) {
+        error_log('avg_join_to_first_purchase: ' . $e->getMessage());
+        return $empty;
+    }
+}
+
+function avg_join_to_first_purchase_label(PDO $pdo, ?int $joinStart = null, ?int $joinEnd = null): string
+{
+    return avg_join_to_first_purchase($pdo, $joinStart, $joinEnd)['formatted'];
+}
+
 function forecast_monthly_paid_income(PDO $pdo): float
 {
     $days = 28;

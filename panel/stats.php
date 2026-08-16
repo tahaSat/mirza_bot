@@ -85,6 +85,8 @@ $summary = [
     'payments' => 0,
     'payment_sum' => 0,
     'admin_credit_revenue' => 0,
+    'avg_join_buy' => 'داده کافی نیست',
+    'avg_join_buyers' => 0,
 ];
 
 $chartPayload = [
@@ -167,6 +169,11 @@ try {
            )",
         [$monthStart, $monthEnd, $monthStartDt, $monthEndDt]
     )->fetchColumn();
+    $joinBuy = avg_join_to_first_purchase($pdo, $monthStart, $monthEnd);
+    $summary['avg_join_buy'] = $joinBuy['buyers'] > 0
+        ? format_duration_fa($joinBuy['avg_seconds'])
+        : '—';
+    $summary['avg_join_buyers'] = $joinBuy['buyers'];
 } catch (Exception $e) {
 }
 
@@ -685,7 +692,7 @@ if ($userFilters['min_extends'] !== null) {
   @media (max-width:560px){.stats-user-filters{grid-template-columns:1fr}}
 </style>
 
-<div class="stats fade-up" style="margin-bottom:18px">
+<div class="stats fade-up" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:18px">
   <div class="stat ok">
     <div class="stat-label">فروش ماه</div>
     <div class="stat-num">
@@ -704,6 +711,13 @@ if ($userFilters['min_extends'] !== null) {
     <div class="stat-label">کاربران جدید</div>
     <div class="stat-num"><?= number_format($summary['users']) ?></div>
     <div class="stat-meta">ثبت‌نام در ماه</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">میانگین تا خرید اول</div>
+    <div class="stat-num" style="font-size:1rem"><?= htmlspecialchars($summary['avg_join_buy']) ?></div>
+    <div class="stat-meta"><?= $summary['avg_join_buyers'] > 0
+        ? number_format($summary['avg_join_buyers']) . ' خریدار از اعضای این ماه'
+        : 'عضویت در ماه انتخابی · حداقل یک خرید غیرتست' ?></div>
   </div>
   <div class="stat warn">
     <div class="stat-label">پرداخت موفق</div>

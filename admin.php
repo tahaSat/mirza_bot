@@ -282,6 +282,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $percent_of_extend = $invoiceTotal > 0 ? round(($extendsum / $invoiceTotal) * 100, 2) : 0;
     $percent_of_extend = $percent_of_extend > 100 ? 100 : $percent_of_extend;
     $extendsum = number_format($extendsum, 0);
+    $avgJoinBuy = avg_join_to_first_purchase_label($pdo);
     if (count($statispay) != 0) {
         foreach ($statispay as $tracepay) {
             $status_var = [
@@ -322,6 +323,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
 📈 <b>نرخ تبدیل به مشتری:</b> <code>$ratecustomer</code>٪  
 🧪 <b>نرخ دریافت تست:</b> <code>$ratetest</code>٪  
 💳 <b>میانگین خرید هر مشتری:</b> <code>$avgbuy_customer</code> تومان  
+⏱ <b>میانگین زمان عضویت تا اولین خرید:</b> <code>$avgJoinBuy</code>  
 📅 <b>درآمد پیش‌بینی‌شده ماهانه:</b> <code>$monthe_buy</code> تومان  
 📊 <b>درصد تمدید از فروش:</b> <code>$percent_of_extend</code>٪  
 
@@ -387,6 +389,7 @@ $paycount
     $stmt->bindParam(':requestedDateend', $time_current);
     $stmt->execute();
     $countextendday = $stmt->rowCount();
+    $avgJoinBuy = avg_join_to_first_purchase_label($pdo, (int) $desired_date_time_start, (int) $time_current);
     $count_total = intval($count_order) + intval($count_extend) + intval($count_extra_volume) + intval($count_extra_time) + intval($count_change_location);
     $sum_total = number_format(floatval($statorder['sum'] ?? 0) + floatval($extend_stat['sum'] ?? 0) + floatval($extra_volume_stat['sum'] ?? 0) + floatval($extra_time_stat['sum'] ?? 0) + floatval($change_location_stat['sum'] ?? 0), 0);
     $statisticsall = "
@@ -413,6 +416,7 @@ $paycount
 
 🔑 اکانت‌های تست  : $count_test عدد
 👤 تعداد کاربران  : $countextendday نفر
+⏱ میانگین زمان عضویت تا اولین خرید : $avgJoinBuy
 ";
     Editmessagetext($from_id, $message_id, $statisticsall, $keyboard_stat, 'HTML');
 } elseif ($datain == "yesterday_stat") {
@@ -471,6 +475,7 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $countuser_new = $stmt->rowCount();
+    $avgJoinBuy = avg_join_to_first_purchase_label($pdo, (int) $start_time_timestamp, (int) $end_time_timestamp);
     $count_total = intval($count_order) + intval($count_extend) + intval($count_extra_volume) + intval($count_extra_time) + intval($count_change_location);
     $sum_total = number_format(floatval($statorder['sum'] ?? 0) + floatval($extend_stat['sum'] ?? 0) + floatval($extra_volume_stat['sum'] ?? 0) + floatval($extra_time_stat['sum'] ?? 0) + floatval($change_location_stat['sum'] ?? 0), 0);
     $statisticsall = "
@@ -498,6 +503,7 @@ $paycount
 
 🔑 اکانت‌های تست  : $count_test عدد
 👤 تعداد کاربران  : $countuser_new نفر
+⏱ میانگین زمان عضویت تا اولین خرید : $avgJoinBuy
 ";
     Editmessagetext($from_id, $message_id, $statisticsall, $keyboard_stat, 'HTML');
 } elseif ($datain == "today_stat") {
@@ -556,6 +562,7 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $countuser_new = $stmt->rowCount();
+    $avgJoinBuy = avg_join_to_first_purchase_label($pdo, (int) $start_time_timestamp, (int) $end_time_timestamp);
     $count_total = intval($count_order) + intval($count_extend) + intval($count_extra_volume) + intval($count_extra_time) + intval($count_change_location);
     $sum_total = number_format(floatval($statorder['sum'] ?? 0) + floatval($extend_stat['sum'] ?? 0) + floatval($extra_volume_stat['sum'] ?? 0) + floatval($extra_time_stat['sum'] ?? 0) + floatval($change_location_stat['sum'] ?? 0), 0);
     $statisticsall = "
@@ -583,6 +590,7 @@ $paycount
 
 🔑 اکانت‌های تست  : $count_test عدد
 👤 تعداد کاربران  : $countuser_new نفر
+⏱ میانگین زمان عضویت تا اولین خرید : $avgJoinBuy
 ";
     Editmessagetext($from_id, $message_id, $statisticsall, $keyboard_stat, 'HTML');
 } elseif ($datain == "month_old_stat") {
@@ -643,6 +651,7 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $countuser_new = $stmt->rowCount();
+    $avgJoinBuy = avg_join_to_first_purchase_label($pdo, (int) $start_time_timestamp, (int) $end_time_timestamp);
     $count_total = intval($count_order) + intval($count_extend) + intval($count_extra_volume) + intval($count_extra_time) + intval($count_change_location);
     $sum_total = number_format(floatval($statorder['sum'] ?? 0) + floatval($extend_stat['sum'] ?? 0) + floatval($extra_volume_stat['sum'] ?? 0) + floatval($extra_time_stat['sum'] ?? 0) + floatval($change_location_stat['sum'] ?? 0), 0);
     $statisticsall = "
@@ -670,6 +679,7 @@ $paycount
 
 🔑 اکانت‌های تست  : $count_test عدد
 👤 تعداد کاربران  : $countuser_new نفر
+⏱ میانگین زمان عضویت تا اولین خرید : $avgJoinBuy
 ";
     Editmessagetext($from_id, $message_id, $statisticsall, $keyboard_stat, 'HTML');
 } elseif ($datain == "month_current_stat") {
@@ -730,6 +740,7 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $countuser_new = $stmt->rowCount();
+    $avgJoinBuy = avg_join_to_first_purchase_label($pdo, (int) $start_time_timestamp, (int) $end_time_timestamp);
     $count_total = intval($count_order) + intval($count_extend) + intval($count_extra_volume) + intval($count_extra_time) + intval($count_change_location);
     $sum_total = number_format(floatval($statorder['sum'] ?? 0) + floatval($extend_stat['sum'] ?? 0) + floatval($extra_volume_stat['sum'] ?? 0) + floatval($extra_time_stat['sum'] ?? 0) + floatval($change_location_stat['sum'] ?? 0), 0);
     $statisticsall = "
@@ -757,6 +768,7 @@ $paycount
 
 🔑 اکانت‌های تست  : $count_test عدد
 👤 تعداد کاربران  : $countuser_new نفر
+⏱ میانگین زمان عضویت تا اولین خرید : $avgJoinBuy
 ";
     Editmessagetext($from_id, $message_id, $statisticsall, $keyboard_stat, 'HTML');
 } elseif ($datain == "view_stat_time") {
@@ -831,6 +843,7 @@ $paycount
     $stmt->bindParam(':requestedDateend', $end_time_timestamp);
     $stmt->execute();
     $countuser_new = $stmt->rowCount();
+    $avgJoinBuy = avg_join_to_first_purchase_label($pdo, (int) $start_time_timestamp, (int) $end_time_timestamp);
     $count_total = intval($count_order) + intval($count_extend) + intval($count_extra_volume) + intval($count_extra_time) + intval($count_change_location);
     $sum_total = number_format(floatval($statorder['sum'] ?? 0) + floatval($extend_stat['sum'] ?? 0) + floatval($extra_volume_stat['sum'] ?? 0) + floatval($extra_time_stat['sum'] ?? 0) + floatval($change_location_stat['sum'] ?? 0), 0);
     $statisticsall = "
@@ -858,6 +871,7 @@ $paycount
 
 🔑 اکانت‌های تست  : $count_test عدد
 👤 تعداد کاربران  : $countuser_new نفر
+⏱ میانگین زمان عضویت تا اولین خرید : $avgJoinBuy
 ";
     step('home', $from_id);
     sendmessage($from_id, $statisticsall, $keyboardadmin, 'HTML');

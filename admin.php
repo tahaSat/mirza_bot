@@ -244,9 +244,16 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $extendsum = isset($extendSumRow['total_extend']) ? (float) $extendSumRow['total_extend'] : 0;
     $count_usertest = select("invoice", "*", "name_product", "سرویس تست", "count");
     $timeacc = jdate('H:i:s', time());
-    $stmt2 = $pdo->prepare("SELECT COUNT(DISTINCT id_user) as count FROM `invoice` WHERE " . invoice_paid_status_sql('Status'));
-    $stmt2->execute();
-    $statisticsorder = $stmt2->fetch(PDO::FETCH_ASSOC)['count'];
+    $paidSql = invoice_paid_status_sql('Status');
+    $stmt2 = $pdo->query("SELECT
+        COUNT(DISTINCT id_user) AS users_with_account,
+        COUNT(DISTINCT CASE WHEN name_product != 'سرویس تست' THEN id_user END) AS users_with_purchase,
+        COUNT(DISTINCT CASE WHEN name_product = 'سرویس تست' THEN id_user END) AS users_with_test
+        FROM invoice WHERE $paidSql");
+    $statsUsers = $stmt2->fetch(PDO::FETCH_ASSOC);
+    $count_users_account = (int) ($statsUsers['users_with_account'] ?? 0);
+    $statisticsorder = (int) ($statsUsers['users_with_purchase'] ?? 0);
+    $count_users_test = (int) ($statsUsers['users_with_test'] ?? 0);
     $sqlsum = "SELECT SUM(price) AS sumpay , Payment_Method,COUNT(price) AS countpay FROM Payment_report WHERE payment_Status = 'paid' AND Payment_Method NOT IN ('add balance by admin','low balance by admin') GROUP BY  Payment_Method;";
     $stmt = $pdo->prepare($sqlsum);
     $stmt->execute();
@@ -278,9 +285,9 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $extendsum = (float) ($extendsum ?? 0);
     $suminvoiceday = (float) ($suminvoiceday ?? 0);
     $statistics = (int) ($statistics ?? 0);
-    $statisticsorder = (int) ($statisticsorder ?? 0);
     $paycount = "";
     $ratecustomer = $statistics > 0 ? round(($statisticsorder / $statistics) * 100, 2) : 0;
+    $ratetest = $statistics > 0 ? round(($count_users_test / $statistics) * 100, 2) : 0;
     $avgbuy_customer = $statisticsorder > 0 ? number_format($invoiceTotal / $statisticsorder) : '0';
     $monthe_buy = number_format($suminvoiceday * 30);
     $percent_of_extend = $invoiceTotal > 0 ? round(($extendsum / $invoiceTotal) * 100, 2) : 0;
@@ -311,6 +318,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $statisticsall = "📊 <b>آمار کلی ربات</b>
 ━━━━━━━━━━━━━━━━━━
 👥 <b>تعداد کل کاربران:</b> <code>$statistics</code> نفر  
+👤 <b>تعداد کاربران دارای اکانت:</b> <code>$count_users_account</code> نفر  
 💳 <b>کاربران دارای خرید:</b> <code>$statisticsorder</code> نفر  
 🧪 <b>اکانت‌های تست:</b> <code>$count_usertest</code> نفر  
 💰 <b>موجودی کل کاربران:</b> <code>$Balanceall</code> تومان  
@@ -321,6 +329,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
 💵 <b>جمع کل فروش سرویس های فعال:</b> <code>$invoicesum</code> تومان  
 🔄 <b>جمع کل تمدید:</b> <code>$extendsum</code> تومان  
 📈 <b>نرخ تبدیل به مشتری:</b> <code>$ratecustomer</code>٪  
+🧪 <b>نرخ دریافت تست:</b> <code>$ratetest</code>٪  
 💳 <b>میانگین خرید هر مشتری:</b> <code>$avgbuy_customer</code> تومان  
 📅 <b>درآمد پیش‌بینی‌شده ماهانه:</b> <code>$monthe_buy</code> تومان  
 📊 <b>درصد تمدید از فروش:</b> <code>$percent_of_extend</code>٪  

@@ -113,7 +113,57 @@ $summary = [
     'admin_credit_revenue' => 0,
     'avg_join_buy' => 'داده کافی نیست',
     'avg_join_buyers' => 0,
+    'paying_users' => 0,
+    'avg_per_user' => 0,
 ];
+
+$idUserCol = "CONVERT(id_user USING utf8mb4) COLLATE utf8mb4_unicode_ci";
+$purchaseUserParts = [];
+$purchaseUserParams = [];
+if ($saleType !== 'extend') {
+    $purchaseUserParts[] = "SELECT $invoiceDaySql AS day, $idUserCol AS id_user
+        FROM invoice
+        WHERE name_product != 'سرویس تست'
+          AND $paidInvoiceSql
+          AND time_sell BETWEEN ? AND ?";
+    $purchaseUserParams[] = $monthStart;
+    $purchaseUserParams[] = $monthEnd;
+}
+if ($saleType !== 'buy') {
+    $purchaseUserParts[] = "SELECT $unixTimeDaySql AS day, $idUserCol AS id_user
+        FROM service_other
+        WHERE $extendPaidSql
+          AND time REGEXP '^[0-9]{9,}$'
+          AND CAST(time AS UNSIGNED) BETWEEN ? AND ?";
+    $purchaseUserParts[] = "SELECT $datetimeDaySql AS day, $idUserCol AS id_user
+        FROM service_other
+        WHERE $extendPaidSql
+          AND time NOT REGEXP '^[0-9]{9,}$'
+          AND COALESCE(
+                STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
+                STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
+              ) BETWEEN ? AND ?";
+    $purchaseUserParams = array_merge($purchaseUserParams, $mixedTimeParams);
+}
+if ($saleType === 'all') {
+    $purchaseUserParts[] = "SELECT $unixTimeDaySql AS day, $idUserCol AS id_user
+        FROM Payment_report
+        WHERE payment_Status = 'paid'
+          AND Payment_Method = 'add balance by admin'
+          AND time REGEXP '^[0-9]{9,}$'
+          AND CAST(time AS UNSIGNED) BETWEEN ? AND ?";
+    $purchaseUserParts[] = "SELECT $datetimeDaySql AS day, $idUserCol AS id_user
+        FROM Payment_report
+        WHERE payment_Status = 'paid'
+          AND Payment_Method = 'add balance by admin'
+          AND time NOT REGEXP '^[0-9]{9,}$'
+          AND COALESCE(
+                STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
+                STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
+              ) BETWEEN ? AND ?";
+    $purchaseUserParams = array_merge($purchaseUserParams, $mixedTimeParams);
+}
+$purchaseUserUnion = implode(' UNION ALL ', $purchaseUserParts);
 
 $chartPayload = [
     'labels' => $dayLabels,
@@ -191,6 +241,14 @@ try {
         ? format_duration_fa($joinBuy['avg_seconds'])
         : '—';
     $summary['avg_join_buyers'] = $joinBuy['buyers'];
+    if ($purchaseUserUnion !== '') {
+        $summary['paying_users'] = db_count(
+            $pdo,
+            "SELECT COUNT(DISTINCT id_user) FROM ($purchaseUserUnion) t
+             WHERE id_user IS NOT NULL AND id_user != ''",
+            $purchaseUserParams
+        );
+    }
 } catch (Exception $e) {
 }
 
@@ -204,6 +262,9 @@ if ($saleType === 'buy') {
     $summary['orders'] = $summary['buys'] + $summary['extends'];
     $summary['revenue'] = $summary['buy_revenue'] + $summary['extend_revenue'] + $summary['admin_credit_revenue'];
 }
+$summary['avg_per_user'] = $summary['paying_users'] > 0
+    ? (int) round($summary['revenue'] / $summary['paying_users'])
+    : 0;
 
 $palette = [
     'rgba(6,182,212,0.85)',
@@ -337,14 +398,41 @@ if (in_array('sales', $selected, true)) {
         }
     }
 
+    $usersByDay = array_fill_keys($dayKeys, 0);
+    if ($purchaseUserUnion !== '') {
+        try {
+            $userRows = db_fetchAll(
+                $pdo,
+                "SELECT day, COUNT(DISTINCT id_user) AS users
+                 FROM ($purchaseUserUnion) t
+                 WHERE day IS NOT NULL
+                   AND id_user IS NOT NULL
+                   AND id_user != ''
+                 GROUP BY day",
+                $purchaseUserParams
+            );
+            foreach ($userRows as $row) {
+                $day = $toJalaliDay($row['day'] ?? '');
+                if ($day !== null) {
+                    $usersByDay[$day] = (int) $row['users'];
+                }
+            }
+        } catch (Exception $e) {
+        }
+    }
+
     $buyCounts = [];
     $extendCounts = [];
     $revenues = [];
+    $averages = [];
     foreach ($dayKeys as $key) {
         $buyCounts[] = $buyByDay[$key]['count'];
         $extendCounts[] = $extendByDay[$key]['count'];
         $dayRevenue = $buyByDay[$key]['revenue'] + $extendByDay[$key]['revenue'] + ($adminByDay[$key] ?? 0);
         $revenues[] = $dayRevenue;
+        $dayUsers = $usersByDay[$key] ?? 0;
+        $dayAvg = $dayUsers > 0 ? (int) round($dayRevenue / $dayUsers) : 0;
+        $averages[] = $dayAvg;
         $dayCount = $buyByDay[$key]['count'] + $extendByDay[$key]['count'];
         if ($dayCount > 0 || $dayRevenue > 0) {
             if ($saleType === 'all') {
@@ -357,6 +445,8 @@ if (in_array('sales', $selected, true)) {
                 'label' => str_replace('-', '/', $key),
                 'count' => $dayCount,
                 'extra' => $extra,
+                'avg' => $dayAvg,
+                'buyers' => $dayUsers,
             ];
         }
     }
@@ -393,6 +483,19 @@ if (in_array('sales', $selected, true)) {
         'fill' => true,
         'yAxisID' => 'y1',
         'order' => 1,
+    ];
+    $chartPayload['datasets'][] = [
+        'label' => 'میانگین هر کاربر (تومان)',
+        'data' => $averages,
+        'type' => 'line',
+        'borderColor' => 'rgba(167,139,250,0.95)',
+        'backgroundColor' => 'rgba(167,139,250,0.12)',
+        'borderDash' => [6, 4],
+        'tension' => 0.3,
+        'fill' => false,
+        'pointRadius' => 3,
+        'yAxisID' => 'yAvg',
+        'order' => 0,
     ];
     if ($saleType === 'all') {
         $hasStacked = true;
@@ -647,6 +750,7 @@ if (in_array('sales', $selected, true)) {
 }
 $showGroupCol = $multi;
 $showAmountCol = in_array('sales', $selected, true) || in_array('payments', $selected, true);
+$showAvgCol = in_array('sales', $selected, true);
 
 $statsUrl = static function (array $overrides = []) use ($selected, $monthParam, $saleType, $userFilters, $userPage): string {
     $q = [
@@ -752,6 +856,13 @@ if ($userFilters['min_extends'] !== null) {
     <div class="stat-meta">پرداخت‌شده در ماه</div>
   </div>
   <div class="stat">
+    <div class="stat-label">میانگین خرید هر کاربر</div>
+    <div class="stat-num"><?= number_format($summary['avg_per_user']) ?><small>ت</small></div>
+    <div class="stat-meta"><?= $summary['paying_users'] > 0
+        ? number_format($summary['paying_users']) . ' خریدار در ماه'
+        : 'درآمد ماه ÷ کاربران پرداخت‌کننده' ?></div>
+  </div>
+  <div class="stat">
     <div class="stat-label">کاربران جدید</div>
     <div class="stat-num"><?= number_format($summary['users']) ?></div>
     <div class="stat-meta">ثبت‌نام در ماه</div>
@@ -837,6 +948,7 @@ if ($userFilters['min_extends'] !== null) {
           <th>عنوان</th>
           <th>تعداد</th>
           <th><?= $showAmountCol ? 'مبلغ / توضیح' : 'توضیح' ?></th>
+          <?php if ($showAvgCol): ?><th>میانگین / کاربر</th><?php endif; ?>
         </tr>
       </thead>
       <tbody>
@@ -848,6 +960,14 @@ if ($userFilters['min_extends'] !== null) {
             <td class="cm"><?= htmlspecialchars($row['label']) ?></td>
             <td><?= number_format((int) $row['count']) ?></td>
             <td><?= htmlspecialchars($row['extra']) ?></td>
+            <?php if ($showAvgCol): ?>
+              <td><?= isset($row['avg'])
+                  ? htmlspecialchars(
+                      number_format((int) $row['avg']) . ' ت'
+                      . (((int) ($row['buyers'] ?? 0) > 0) ? ' · ' . number_format((int) $row['buyers']) . ' کاربر' : '')
+                  )
+                  : '—' ?></td>
+            <?php endif; ?>
           </tr>
         <?php endforeach; ?>
       </tbody>
@@ -1005,6 +1125,7 @@ if ($userFilters['min_extends'] !== null) {
   const gridColor = styles.getPropertyValue('--bd').trim() || '#2A3A55';
   const stacked = !!payload.stacked;
   const hasDual = payload.datasets.some(d => d.yAxisID === 'y1');
+  const hasAvg = payload.datasets.some(d => d.yAxisID === 'yAvg');
 
   new Chart(el, {
     type: payload.type || 'bar',
@@ -1029,7 +1150,7 @@ if ($userFilters['min_extends'] !== null) {
             label(ctx) {
               const v = ctx.parsed.y ?? 0;
               const name = ctx.dataset.label || '';
-              if (ctx.dataset.yAxisID === 'y1' || /تومان|مبلغ/.test(name)) {
+              if (ctx.dataset.yAxisID === 'y1' || ctx.dataset.yAxisID === 'yAvg' || /تومان|مبلغ|میانگین/.test(name)) {
                 return name + ': ' + Number(v).toLocaleString('en-US') + ' ت';
               }
               return name + ': ' + Number(v).toLocaleString('en-US');
@@ -1059,6 +1180,12 @@ if ($userFilters['min_extends'] !== null) {
               callback: (v) => Number(v).toLocaleString('en-US'),
             },
             grid: { drawOnChartArea: false },
+          }
+        } : {}),
+        ...(hasAvg ? {
+          yAvg: {
+            display: false,
+            beginAtZero: true,
           }
         } : {}),
       },

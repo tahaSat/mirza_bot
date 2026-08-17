@@ -76,7 +76,7 @@ include __DIR__ . '/inc/layout_head.php';
                     <th>باقیمانده زمان</th>
                     <th>تاریخ خرید</th>
                     <th>وضعیت</th>
-                    <th style="width:88px"></th>
+                    <th style="width:120px"></th>
                 </tr>
             </thead>
             <tbody>
@@ -116,6 +116,12 @@ include __DIR__ . '/inc/layout_head.php';
                                         title="جستجو در سفارشات">
                                         <?= icon('search', 13) ?>
                                     </a>
+                                    <button type="button" class="btn btn-ghost btn-sm btn-icon btn-refund-service"
+                                        title="مرجوعی"
+                                        data-invoice="<?= htmlspecialchars($svc['id_invoice'] ?? '') ?>"
+                                        data-username="<?= htmlspecialchars($svc['username'] ?? '') ?>">
+                                        <?= icon('block', 13) ?>
+                                    </button>
                                     <button type="button" class="btn btn-no btn-sm btn-icon btn-remove-service"
                                         title="حذف سرویس"
                                         data-invoice="<?= htmlspecialchars($svc['id_invoice'] ?? '') ?>"
@@ -207,6 +213,36 @@ include __DIR__ . '/inc/layout_head.php';
             <div class="modal-foot">
                 <button type="submit" class="btn btn-no"><?= icon('trash', 13) ?> حذف سرویس</button>
                 <button type="button" class="btn btn-ghost" onclick="closeModal('removeServiceModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="refundServiceModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h3>مرجوعی سرویس</h3>
+            <button type="button" class="modal-x" onclick="closeModal('refundServiceModal')"><?= icon('close', 14) ?></button>
+        </div>
+        <form method="POST" action="user_service_action.php" id="refundServiceForm">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="refund_service">
+                <input type="hidden" name="user_id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="user_services.php?id=<?= $id ?>">
+                <input type="hidden" name="id_invoice" id="refundInvoiceId" value="">
+                <p id="refundServiceText" style="font-size:.88rem;color:var(--mute);line-height:1.7;margin-bottom:14px"></p>
+                <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
+                    <input type="checkbox" name="disable_product" id="refundDisableProduct" value="1" checked style="width:16px;height:16px;margin-top:3px">
+                    <span>سرویس در پنل ساب‌لینک و ربات غیرفعال شود؟</span>
+                </label>
+                <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
+                    پرداخت مرتبط مرجوعی می‌شود. رکورد سفارش باقی می‌ماند و در صورت تأیید، وضعیت سرویس «غیرفعال توسط ادمین» می‌گردد.
+                </p>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-no"><?= icon('block', 13) ?> ثبت مرجوعی</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('refundServiceModal')">انصراف</button>
             </div>
         </form>
     </div>

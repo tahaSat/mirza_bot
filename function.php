@@ -345,7 +345,8 @@ function invoice_unpaid_statuses(): array
 {
     return [
         'Unpaid', 'unpaid', 'unpiad', 'Unpiad',
-        'reject', 'waiting', 'expire',
+        'reject', 'waiting', 'expire', 'refunded',
+        'disabled', 'disabledn', 'disablebyadmin',
         'removebyadmin', 'removedbyadmin',
     ];
 }
@@ -620,15 +621,15 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
     $stmt->execute($mixedParams);
     $extends = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'extra_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')");
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'extra_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject','refunded')");
     $stmt->execute($mixedParams);
     $extraVolume = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'extra_time_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')");
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'extra_time_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject','refunded')");
     $stmt->execute($mixedParams);
     $extraTime = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')");
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject','refunded')");
     $stmt->execute($mixedParams);
     $changeLocation = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
 
@@ -1410,7 +1411,7 @@ function markPaymentWaitingIfStillOpen($orderId)
     if ($orderId === null || $orderId === '' || !isset($pdo)) {
         return false;
     }
-    $stmt = $pdo->prepare("UPDATE Payment_report SET payment_Status = 'waiting' WHERE id_order = ? AND payment_Status NOT IN ('paid', 'reject', 'expire')");
+    $stmt = $pdo->prepare("UPDATE Payment_report SET payment_Status = 'waiting' WHERE id_order = ? AND payment_Status NOT IN ('paid', 'reject', 'expire', 'refunded')");
     $stmt->execute([$orderId]);
     clearSelectCache('Payment_report');
     if (paymentReportIsPaid($orderId)) {
@@ -1515,8 +1516,8 @@ function ensurePaymentReportActive($payment)
         return false;
     }
     $status = (string) ($payment['payment_Status'] ?? '');
-    if (in_array($status, ['paid', 'waiting', 'reject'], true)) {
-        return $status !== 'reject';
+    if (in_array($status, ['paid', 'waiting', 'reject', 'refunded'], true)) {
+        return $status !== 'reject' && $status !== 'refunded';
     }
     if ($status === 'expire') {
         return false;

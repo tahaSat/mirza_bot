@@ -308,6 +308,7 @@ $statusMap = [
     'Unpaid' => ['tag-no', 'پرداخت نشده'],
     'expire' => ['tag-plain', 'منقضی'],
     'reject' => ['tag-no', 'رد شده'],
+    'refunded' => ['tag-no', 'مرجوعی'],
     'waiting' => ['tag-warn', 'در انتظار'],
     'cost' => ['tag-plain', 'هزینه شده'],
 ];
@@ -766,12 +767,17 @@ function openRejectModal(orderId) {
             برای اینکه از آمار سفارشات تلگرام هم خارج شود.
           </p>
         </div>
+        <div id="refundInvoiceNote" style="display:none;margin-bottom:12px">
+          <p style="font-size:.8rem;color:var(--text);line-height:1.7;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px 12px">
+            این پرداخت «مرجوعی» می‌شود (بازگشت وجه به مشتری). سرویس در ربات حذف نمی‌شود.
+          </p>
+        </div>
         <div id="removeProductWrap" style="display:none">
           <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
             <input type="checkbox" name="remove_product" id="removeProductCheck" value="1" style="width:16px;height:16px;margin-top:3px">
-            <span>سرویس ساخته‌شده برای این پرداخت هم حذف شود؟</span>
+            <span id="removeProductLabel">سرویس ساخته‌شده برای این پرداخت هم حذف شود؟</span>
           </label>
-          <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
+          <p id="removeProductHint" style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
             فقط برای خرید سرویس (نه تمدید/شارژ کیف پول). در صورت انتخاب، سرویس از پنل و ربات حذف می‌شود.
           </p>
         </div>
@@ -790,16 +796,32 @@ function openRejectModal(orderId) {
   var selectEl = document.getElementById('statusNewSelect');
   var wrap = document.getElementById('removeProductWrap');
   var check = document.getElementById('removeProductCheck');
+  var label = document.getElementById('removeProductLabel');
+  var hint = document.getElementById('removeProductHint');
   var rejectWrap = document.getElementById('rejectInvoiceWrap');
   var rejectCheck = document.getElementById('rejectInvoiceCheck');
+  var refundNote = document.getElementById('refundInvoiceNote');
 
   function syncRejectPrompts() {
     var leavingPaidToReject = currentStatus === 'paid' && selectEl.value === 'reject';
+    var toRefund = selectEl.value === 'refunded';
     rejectWrap.style.display = leavingPaidToReject ? 'block' : 'none';
     if (!leavingPaidToReject) rejectCheck.checked = false;
-    var showRemove = hasProduct && leavingPaidToReject;
+    if (refundNote) refundNote.style.display = toRefund ? 'block' : 'none';
+
+    var showRemove = hasProduct && (leavingPaidToReject || toRefund);
     wrap.style.display = showRemove ? 'block' : 'none';
-    if (!showRemove) check.checked = false;
+    if (toRefund && hasProduct) {
+      check.checked = true;
+      label.textContent = 'سرویس در پنل ساب‌لینک و ربات غیرفعال شود؟';
+      hint.textContent = 'کاربر از ساب‌لینک قطع می‌شود. رکورد سفارش باقی می‌ماند و وضعیت سرویس «غیرفعال توسط ادمین» می‌شود.';
+    } else if (leavingPaidToReject && hasProduct) {
+      check.checked = false;
+      label.textContent = 'سرویس ساخته‌شده برای این پرداخت هم حذف شود؟';
+      hint.textContent = 'فقط برای خرید سرویس (نه تمدید/شارژ کیف پول). در صورت انتخاب، سرویس از پنل و ربات حذف می‌شود.';
+    } else {
+      check.checked = false;
+    }
   }
 
   window.openStatusModal = function (orderId, status, product) {

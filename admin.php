@@ -3963,7 +3963,7 @@ $caption";
         ));
         return;
     }
-    $sql = "SELECT * FROM Payment_report WHERE id_user = '{$Payment_report['id_user']}' AND payment_Status != 'paid' AND payment_Status != 'Unpaid' AND payment_Status != 'expire' AND payment_Status != 'reject' AND  (id_invoice  LIKE CONCAT('%','getconfigafterpay', '%') OR id_invoice  LIKE CONCAT('%','getextenduser', '%') OR id_invoice  LIKE CONCAT('%','getextravolumeuser', '%') OR id_invoice  LIKE CONCAT('%','getextratimeuser', '%'))";
+    $sql = "SELECT * FROM Payment_report WHERE id_user = '{$Payment_report['id_user']}' AND payment_Status != 'paid' AND payment_Status != 'Unpaid' AND payment_Status != 'expire' AND payment_Status != 'reject' AND payment_Status != 'refunded' AND  (id_invoice  LIKE CONCAT('%','getconfigafterpay', '%') OR id_invoice  LIKE CONCAT('%','getextenduser', '%') OR id_invoice  LIKE CONCAT('%','getextravolumeuser', '%') OR id_invoice  LIKE CONCAT('%','getextratimeuser', '%'))";
     $stmt = $pdo->prepare($sql);
     $stmt->execute();
     $countpay = $stmt->rowCount();
@@ -4776,7 +4776,7 @@ $caption";
     } else {
         $sumvolume = mysqli_fetch_assoc(mysqli_query($connect, "SELECT SUM(Volume) FROM invoice WHERE (status = 'active' OR status = 'end_of_time'  OR status = 'end_of_volume' OR status = 'sendedwarn' OR Status = 'send_on_hold') AND id_user = '$id_user' AND name_product != 'سرویس تست'"));
     }
-    $affiliatesBoughtCount = (int) (mysqli_fetch_assoc(mysqli_query($connect, "SELECT COUNT(DISTINCT u.id) AS cnt FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$id_user' AND i.name_product != 'سرویس تست' AND i.Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')"))['cnt'] ?? 0);
+    $affiliatesBoughtCount = (int) (mysqli_fetch_assoc(mysqli_query($connect, "SELECT COUNT(DISTINCT u.id) AS cnt FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$id_user' AND i.name_product != 'سرویس تست' AND i.Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin','refunded','disabled')"))['cnt'] ?? 0);
     $user = select("user", "*", "id", $id_user, "select");
     $roll_Status = [
         '1' => $textbotlang['Admin']['ManageUser']['Acceptedphone'],
@@ -6407,10 +6407,10 @@ $iduser  در ربات  رفع مسدود گردید
         return;
     }
     $affiliatesTotal = (int) $affiliatesUsers;
-    $affiliatesBoughtCount = (int) (mysqli_fetch_assoc(mysqli_query($connect, "SELECT COUNT(DISTINCT u.id) AS cnt FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$iduser' AND i.name_product != 'سرویس تست' AND i.Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')"))['cnt'] ?? 0);
+    $affiliatesBoughtCount = (int) (mysqli_fetch_assoc(mysqli_query($connect, "SELECT COUNT(DISTINCT u.id) AS cnt FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$iduser' AND i.name_product != 'سرویس تست' AND i.Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin','refunded','disabled')"))['cnt'] ?? 0);
     $affiliatesUsers = select("user", "*", "affiliates", $iduser, "fetchAll");
     $boughtIds = [];
-    $boughtResult = mysqli_query($connect, "SELECT DISTINCT u.id FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$iduser' AND i.name_product != 'سرویس تست' AND i.Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')");
+    $boughtResult = mysqli_query($connect, "SELECT DISTINCT u.id FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$iduser' AND i.name_product != 'سرویس تست' AND i.Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin','refunded','disabled')");
     if ($boughtResult) {
         while ($boughtRow = mysqli_fetch_assoc($boughtResult)) {
             $boughtIds[$boughtRow['id']] = true;

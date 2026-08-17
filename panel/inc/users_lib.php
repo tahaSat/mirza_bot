@@ -195,6 +195,10 @@ function panel_invoice_status_map(): array
         'unpiad' => ['tag-plain', 'پرداخت نشده'],
         'removebyadmin' => ['tag-no', 'حذف توسط ادمین'],
         'disabledn' => ['tag-no', 'غیرفعال در پنل'],
+        'disabled' => ['tag-no', 'غیرفعال'],
+        'disablebyadmin' => ['tag-no', 'غیرفعال توسط ادمین'],
+        'refunded' => ['tag-no', 'مرجوعی'],
+        'reject' => ['tag-no', 'رد شده'],
         'Unsuccessful' => ['tag-plain', 'خطا دریافت اطلاعات'],
     ];
 }

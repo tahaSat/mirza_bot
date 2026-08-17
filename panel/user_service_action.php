@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/users_lib.php';
+require_once __DIR__ . '/inc/payments_lib.php';
 require_auth();
 $pdo = panel_ensure_pdo();
 
@@ -17,6 +18,11 @@ $back = 'users.php';
 
 if ($userId) {
     $back = 'user_services.php?id=' . $userId;
+    $rawBack = (string) ($_POST['back'] ?? '');
+    $base = explode('?', $rawBack)[0];
+    if (in_array($base, ['user_services.php', 'user.php'], true)) {
+        $back = $base . '?id=' . $userId;
+    }
 }
 
 if (!$userId) {
@@ -50,6 +56,18 @@ switch ($action) {
         $result = panel_remove_user_service($pdo, $idInvoice, $userId, $refund);
         flash($result['ok'] ? 'success' : 'error', $result['msg']);
         error_log("Admin {$_SESSION['admin_user']} removed service $idInvoice for user $userId refund=" . ($refund ? '1' : '0'));
+        break;
+
+    case 'refund_service':
+        $idInvoice = trim((string) ($_POST['id_invoice'] ?? ''));
+        $invoice = db_fetch($pdo, 'SELECT id_invoice FROM invoice WHERE id_invoice = ? AND id_user = ?', [$idInvoice, (string) $userId]);
+        if (!$invoice) {
+            flash('error', 'سرویس یافت نشد یا متعلق به این کاربر نیست.');
+            break;
+        }
+        $result = panel_invoice_apply_refund($pdo, $idInvoice, !empty($_POST['disable_product']));
+        flash($result['ok'] ? 'success' : 'error', $result['msg']);
+        error_log("Admin {$_SESSION['admin_user']} refunded service $idInvoice for user $userId disable=" . (!empty($_POST['disable_product']) ? '1' : '0'));
         break;
 
     default:

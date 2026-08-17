@@ -379,6 +379,12 @@ include __DIR__ . '/inc/layout_head.php';
                                         <span class="cf"><?= htmlspecialchars($svc['Service_location'] ?? '—') ?></span>
                                     </div>
                                 </div>
+                                <button type="button" class="btn btn-ghost btn-sm btn-icon btn-refund-service"
+                                    title="مرجوعی"
+                                    data-invoice="<?= htmlspecialchars($svc['id_invoice'] ?? '') ?>"
+                                    data-username="<?= htmlspecialchars($svc['username'] ?? '') ?>">
+                                    <?= icon('block', 13) ?>
+                                </button>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -390,6 +396,7 @@ include __DIR__ . '/inc/layout_head.php';
                                     <th>محصول</th>
                                     <th>پنل</th>
                                     <th>وضعیت</th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -403,6 +410,14 @@ include __DIR__ . '/inc/layout_head.php';
                                         <td class="cs"><?= htmlspecialchars(trunc($svc['name_product'] ?? '—', 22)) ?></td>
                                         <td class="cf"><?= htmlspecialchars($svc['Service_location'] ?? '—') ?></td>
                                         <td><span class="tag <?= $tagClass ?>"><?= $label ?></span></td>
+                                        <td>
+                                            <button type="button" class="btn btn-ghost btn-sm btn-icon btn-refund-service"
+                                                title="مرجوعی"
+                                                data-invoice="<?= htmlspecialchars($svc['id_invoice'] ?? '') ?>"
+                                                data-username="<?= htmlspecialchars($svc['username'] ?? '') ?>">
+                                                <?= icon('block', 13) ?>
+                                            </button>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -433,6 +448,12 @@ include __DIR__ . '/inc/layout_head.php';
                                         <span class="cf"><?= safe_date($inv['time_sell'] ?? null, 'Y/m/d') ?></span>
                                     </div>
                                 </div>
+                                <button type="button" class="btn btn-ghost btn-sm btn-icon btn-refund-service"
+                                    title="مرجوعی"
+                                    data-invoice="<?= htmlspecialchars($inv['id_invoice'] ?? '') ?>"
+                                    data-username="<?= htmlspecialchars($inv['username'] ?? '') ?>">
+                                    <?= icon('block', 13) ?>
+                                </button>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -445,6 +466,7 @@ include __DIR__ . '/inc/layout_head.php';
                                     <th>حجم</th>
                                     <th>تاریخ</th>
                                     <th>وضعیت</th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -464,6 +486,14 @@ include __DIR__ . '/inc/layout_head.php';
                                             <?= safe_date($inv['time_sell'] ?? null, 'Y/m/d') ?>
                                         </td>
                                         <td><span class="tag <?= $tagClass ?>"><?= $label ?></span></td>
+                                        <td>
+                                            <button type="button" class="btn btn-ghost btn-sm btn-icon btn-refund-service"
+                                                title="مرجوعی"
+                                                data-invoice="<?= htmlspecialchars($inv['id_invoice'] ?? '') ?>"
+                                                data-username="<?= htmlspecialchars($inv['username'] ?? '') ?>">
+                                                <?= icon('block', 13) ?>
+                                            </button>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -498,6 +528,7 @@ include __DIR__ . '/inc/layout_head.php';
                         'Unpaid' => ['tag-no', 'ناموفق'],
                         'expire' => ['tag-plain', 'منقضی'],
                         'reject' => ['tag-no', 'رد'],
+                        'refunded' => ['tag-no', 'مرجوعی'],
                         'waiting' => ['tag-warn', 'در انتظار'],
                         'pending' => ['tag-warn', 'در انتظار'],
                         'cost' => ['tag-plain', 'هزینه شده'],
@@ -867,6 +898,55 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
 </div>
 
+<div class="modal-veil" id="refundServiceModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h3>مرجوعی سرویس</h3>
+            <button type="button" class="modal-x" onclick="closeModal('refundServiceModal')"><?= icon('close', 14) ?></button>
+        </div>
+        <form method="POST" action="user_service_action.php" id="refundServiceForm">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="refund_service">
+                <input type="hidden" name="user_id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="user.php?id=<?= $id ?>">
+                <input type="hidden" name="id_invoice" id="refundInvoiceId" value="">
+                <p id="refundServiceText" style="font-size:.88rem;color:var(--mute);line-height:1.7;margin-bottom:14px"></p>
+                <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
+                    <input type="checkbox" name="disable_product" id="refundDisableProduct" value="1" checked style="width:16px;height:16px;margin-top:3px">
+                    <span>سرویس در پنل ساب‌لینک و ربات غیرفعال شود؟</span>
+                </label>
+                <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
+                    پرداخت مرتبط مرجوعی می‌شود. رکورد سفارش باقی می‌ماند و در صورت تأیید، وضعیت سرویس «غیرفعال توسط ادمین» می‌گردد.
+                </p>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-no"><?= icon('block', 13) ?> ثبت مرجوعی</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('refundServiceModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script src="<?= htmlspecialchars(panel_asset('js/profile.js')) ?>"></script>
+<script>
+document.querySelectorAll('.btn-refund-service').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        var invoiceId = btn.dataset.invoice || '';
+        var username = btn.dataset.username || '';
+        var msgEl = document.getElementById('refundServiceText');
+        var idInput = document.getElementById('refundInvoiceId');
+        var disableCheck = document.getElementById('refundDisableProduct');
+        if (idInput) idInput.value = invoiceId;
+        if (disableCheck) disableCheck.checked = true;
+        if (msgEl) {
+            msgEl.textContent = 'پرداخت سرویس «' + username + '» مرجوعی می‌شود (بازگشت وجه به مشتری).';
+        }
+        if (typeof openModal === 'function') {
+            openModal('refundServiceModal');
+        }
+    });
+});
+</script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

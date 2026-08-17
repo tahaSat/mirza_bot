@@ -60,8 +60,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } elseif ($action === 'update_invoice') {
     $redirectQs['tab'] = 'orders';
     $idInvoice = trim((string) ($_POST['record_id'] ?? ''));
-    $r = panel_update_invoice_record($pdo, $idInvoice, [
-      'Status' => $_POST['invoice_status'] ?? '',
+    $newStatus = (string) ($_POST['invoice_status'] ?? '');
+    $invoiceFields = [
       'name_product' => $_POST['name_product'] ?? '',
       'price_product' => $_POST['price_product'] ?? '',
       'Volume' => $_POST['Volume'] ?? '',
@@ -69,16 +69,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       'username' => $_POST['username'] ?? '',
       'note' => $_POST['note'] ?? '',
       'Service_location' => $_POST['Service_location'] ?? '',
-    ]);
+    ];
+    if ($newStatus !== 'refunded') {
+      $invoiceFields['Status'] = $newStatus;
+    }
+    $r = panel_update_invoice_record($pdo, $idInvoice, $invoiceFields);
+    if ($r['ok'] && $newStatus === 'refunded') {
+      $refund = panel_invoice_apply_refund($pdo, $idInvoice, !empty($_POST['disable_product']));
+      if (!empty($refund['msg'])) {
+        $r['msg'] = $refund['msg'];
+      }
+    }
     flash($r['ok'] ? 'success' : 'error', $r['msg']);
   } elseif ($action === 'update_service_other') {
     $redirectQs['tab'] = 'orders';
-    $r = panel_update_service_other_record($pdo, (int) ($_POST['record_id'] ?? 0), [
+    $recordId = (int) ($_POST['record_id'] ?? 0);
+    $r = panel_update_service_other_record($pdo, $recordId, [
       'status' => $_POST['invoice_status'] ?? '',
       'value' => $_POST['name_product'] ?? '',
       'price' => $_POST['price_product'] ?? '',
       'username' => $_POST['username'] ?? '',
     ]);
+    if ($r['ok'] && (string) ($_POST['invoice_status'] ?? '') === 'refunded') {
+      $refund = panel_service_other_apply_refund($pdo, $recordId);
+      if (!empty($refund['msg'])) {
+        $r['msg'] = $refund['msg'];
+      }
+    }
     flash($r['ok'] ? 'success' : 'error', $r['msg']);
   }
 
@@ -157,6 +174,10 @@ $orderStatusMap = [
   'reject' => ['tag-no', 'رد شده'],
   'removebyadmin' => ['tag-no', 'حذف توسط ادمین'],
   'removedbyadmin' => ['tag-no', 'حذف توسط ادمین'],
+  'refunded' => ['tag-no', 'مرجوعی'],
+  'disabled' => ['tag-no', 'غیرفعال'],
+  'disablebyadmin' => ['tag-no', 'غیرفعال توسط ادمین'],
+  'disabledn' => ['tag-no', 'غیرفعال در پنل'],
 ];
 
 $paymentStatusMap = [
@@ -165,6 +186,7 @@ $paymentStatusMap = [
   'waiting' => ['tag-warn', 'در انتظار تأیید'],
   'reject' => ['tag-no', 'رد شده'],
   'expire' => ['tag-plain', 'منقضی'],
+  'refunded' => ['tag-no', 'مرجوعی'],
 ];
 
 if ($tab === 'payments') {
@@ -616,12 +638,17 @@ include __DIR__ . '/inc/layout_head.php';
             برای اینکه از آمار سفارشات تلگرام هم خارج شود.
           </p>
         </div>
+        <div id="refundInvoiceNote" style="display:none;margin-bottom:12px">
+          <p style="font-size:.8rem;color:var(--text);line-height:1.7;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px 12px">
+            این پرداخت «مرجوعی» می‌شود (بازگشت وجه به مشتری). سرویس در ربات حذف نمی‌شود.
+          </p>
+        </div>
         <div id="removeProductWrap" style="display:none">
           <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
             <input type="checkbox" name="remove_product" id="removeProductCheck" value="1" style="width:16px;height:16px;margin-top:3px">
-            <span>سرویس ساخته‌شده برای این پرداخت هم حذف شود؟</span>
+            <span id="removeProductLabel">سرویس ساخته‌شده برای این پرداخت هم حذف شود؟</span>
           </label>
-          <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
+          <p id="removeProductHint" style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
             فقط برای خرید سرویس. در صورت انتخاب، سرویس از پنل و ربات حذف می‌شود.
           </p>
         </div>
@@ -640,16 +667,32 @@ include __DIR__ . '/inc/layout_head.php';
   var selectEl = document.getElementById('statusNewSelect');
   var wrap = document.getElementById('removeProductWrap');
   var check = document.getElementById('removeProductCheck');
+  var label = document.getElementById('removeProductLabel');
+  var hint = document.getElementById('removeProductHint');
   var rejectWrap = document.getElementById('rejectInvoiceWrap');
   var rejectCheck = document.getElementById('rejectInvoiceCheck');
+  var refundNote = document.getElementById('refundInvoiceNote');
 
   function syncRejectPrompts() {
     var leavingPaidToReject = currentStatus === 'paid' && selectEl.value === 'reject';
+    var toRefund = selectEl.value === 'refunded';
     rejectWrap.style.display = leavingPaidToReject ? 'block' : 'none';
     if (!leavingPaidToReject) rejectCheck.checked = false;
-    var showRemove = hasProduct && leavingPaidToReject;
+    if (refundNote) refundNote.style.display = toRefund ? 'block' : 'none';
+
+    var showRemove = hasProduct && (leavingPaidToReject || toRefund);
     wrap.style.display = showRemove ? 'block' : 'none';
-    if (!showRemove) check.checked = false;
+    if (toRefund && hasProduct) {
+      check.checked = true;
+      label.textContent = 'سرویس در پنل ساب‌لینک و ربات غیرفعال شود؟';
+      hint.textContent = 'کاربر از ساب‌لینک قطع می‌شود. رکورد سفارش باقی می‌ماند و وضعیت سرویس «غیرفعال توسط ادمین» می‌شود.';
+    } else if (leavingPaidToReject && hasProduct) {
+      check.checked = false;
+      label.textContent = 'سرویس ساخته‌شده برای این پرداخت هم حذف شود؟';
+      hint.textContent = 'فقط برای خرید سرویس. در صورت انتخاب، سرویس از پنل و ربات حذف می‌شود.';
+    } else {
+      check.checked = false;
+    }
   }
 
   window.openStatusModal = function (orderId, status, product) {
@@ -735,6 +778,15 @@ include __DIR__ . '/inc/layout_head.php';
             <input type="text" name="note" id="editNote" class="select" style="width:100%">
           </div>
         </div>
+        <div id="disableProductWrap" style="display:none;margin-top:4px">
+          <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
+            <input type="checkbox" name="disable_product" id="disableProductCheck" value="1" style="width:16px;height:16px;margin-top:3px">
+            <span>سرویس در پنل ساب‌لینک و ربات غیرفعال شود؟</span>
+          </label>
+          <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
+            رکورد سفارش نگه داشته می‌شود. پرداخت مرتبط مرجوعی می‌شود و وضعیت سرویس «غیرفعال توسط ادمین» می‌گردد.
+          </p>
+        </div>
       </div>
       <div class="modal-foot">
         <button type="submit" class="btn btn-primary">ذخیره</button>
@@ -759,8 +811,27 @@ window.openInvoiceEditModal = function (btn) {
   document.getElementById('editLocation').value = data.service_location || '';
   document.getElementById('editNote').value = data.note || '';
   document.getElementById('invoiceOnlyFields').style.display = isInvoice ? 'block' : 'none';
+  syncInvoiceRefundPrompt(isInvoice, data.status || '');
   openModal('invoiceEditModal');
 };
+
+function syncInvoiceRefundPrompt(isInvoice, previousStatus) {
+  var wrap = document.getElementById('disableProductWrap');
+  var check = document.getElementById('disableProductCheck');
+  var statusEl = document.getElementById('editStatus');
+  var show = !!isInvoice && statusEl.value === 'refunded';
+  wrap.style.display = show ? 'block' : 'none';
+  check.checked = show && previousStatus !== 'disablebyadmin' && previousStatus !== 'refunded';
+}
+
+(function () {
+  var statusEl = document.getElementById('editStatus');
+  if (!statusEl) return;
+  statusEl.addEventListener('change', function () {
+    var isInvoice = document.getElementById('invoiceEditAction').value === 'update_invoice';
+    syncInvoiceRefundPrompt(isInvoice, '');
+  });
+})();
 </script>
 <?php endif; ?>
 

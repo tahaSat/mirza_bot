@@ -51,6 +51,24 @@
         });
     });
 
+    document.querySelectorAll('.btn-refund-service').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var invoiceId = btn.dataset.invoice || '';
+            var username = btn.dataset.username || '';
+            var msgEl = document.getElementById('refundServiceText');
+            var idInput = document.getElementById('refundInvoiceId');
+            var disableCheck = document.getElementById('refundDisableProduct');
+            if (idInput) idInput.value = invoiceId;
+            if (disableCheck) disableCheck.checked = true;
+            if (msgEl) {
+                msgEl.textContent = 'پرداخت سرویس «' + username + '» مرجوعی می‌شود (بازگشت وجه به مشتری).';
+            }
+            if (typeof openModal === 'function') {
+                openModal('refundServiceModal');
+            }
+        });
+    });
+
     var removeForm = document.getElementById('removeServiceForm');
     if (removeForm) {
         removeForm.addEventListener('submit', function (e) {

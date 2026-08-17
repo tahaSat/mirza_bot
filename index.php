@@ -3971,7 +3971,8 @@ $textinvite
                 }
                 $statuscustom = panel_custom_enabled($marzban_list_get, (string) $user['agent']);
                 $textproduct = textbot_get('text_service_select_first', $textbotlang['users']['sell']['Service-select-first']);
-                reply_or_edit($from_id, $message_id, $textproduct, KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom), 'HTML');
+                $prodBack = $statusnote ? "buyback" : "backuser";
+                reply_or_edit($from_id, $message_id, $textproduct, KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom, $prodBack), 'HTML');
             }
         } else {
             $nullproduct = count_products();
@@ -3991,6 +3992,7 @@ $textinvite
             $monthSelectText = textbot_get('text_month_select', $textbotlang['Admin']['month']['title']);
             reply_or_edit($from_id, $message_id, $monthSelectText, $monthkeyboard, 'HTML');
         }
+        step('home', $from_id);
         return;
     }
     if ($user['step'] == "statusnamecustom") {
@@ -3998,7 +4000,9 @@ $textinvite
         step("home", $from_id);
     }
     reply_or_edit($from_id, $message_id, $datatextbot['textselectlocation'], keyboard_panels_buy($user), 'HTML');
+    step('home', $from_id);
 } elseif (preg_match('/^location_(.*)/', $datain, $dataget) || $datain == "backproduct") {
+    step('home', $from_id);
     $userdate = json_decode($user['Processing_value'], true);
     if ($datain != "backproduct") {
         $location = select("marzban_panel", "*", "code_panel", $dataget[1], "select")['name_panel'];
@@ -4104,23 +4108,25 @@ $textinvite
         $datakeyboard = "prodcutservice_";
     }
     $statuscustom = false;
+    $prodBack = purchase_products_back_callback($userdate, (string) $user['agent']);
     // n2: products only; custom service is offered on the category keyboard from panel settings
-    Editmessagetext($from_id, $message_id, $categoryMessage, KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom));
+    Editmessagetext($from_id, $message_id, $categoryMessage, KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom, $prodBack));
+    step('home', $from_id);
 } elseif (preg_match('/^productmonth_(\w+)/', $datain, $dataget)) {
     $monthenumber = $dataget[1];
     $userdate = json_decode($user['Processing_value'], true);
-    $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel']);
+    $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
+    $stmt = $pdo->prepare("SELECT * FROM marzban_panel  WHERE status = 'active' AND (agent = '{$user['agent']}' OR agent = 'all')");
+    $stmt->execute();
+    $count_panel = $stmt->rowCount();
+    if ($count_panel == 1) {
+        $back = "buybacktow";
+    } else {
+        $back = "location_{$marzban_list_get['code_panel']}";
+    }
     if ($setting['statuscategorygenral'] == "oncategorys") {
         savedata("save", "monthproduct", $monthenumber);
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
-        $stmt = $pdo->prepare("SELECT * FROM marzban_panel  WHERE status = 'active' AND (agent = '{$user['agent']}' OR agent = 'all')");
-        $stmt->execute();
-        $count_panel = $stmt->rowCount();
-        if ($count_panel == 1) {
-            $back = "buybacktow";
-        } else {
-            $back = "location_{$marzban_list_get['code_panel']}";
-        }
         Editmessagetext($from_id, $message_id, textbot_get('text_category_select', '📌 دسته بندی خود را انتخاب نمایید!'), KeyboardCategory($marzban_list_get['name_panel'], $user['agent'], $back));
     } else {
         $query = "SELECT * FROM product WHERE (Location = '{$userdate['name_panel']}' OR Location = '/all') AND " . agent_product_access_sql($user['agent'], $from_id) . " AND Service_time = '$monthenumber'";
@@ -4132,11 +4138,15 @@ $textinvite
         }
         // Custom sell only after a category is chosen
         $statuscustom = false;
-        Editmessagetext($from_id, $message_id, textbot_get('text_service_select_first', $textbotlang['users']['sell']['Service-select-first']), KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom));
+        Editmessagetext($from_id, $message_id, textbot_get('text_service_select_first', $textbotlang['users']['sell']['Service-select-first']), KeyboardProduct($marzban_list_get['name_panel'], $query, $user['pricediscount'], $datakeyboard, $statuscustom, $back));
     }
+    step('home', $from_id);
 } elseif ($datain == "customsellvolume") {
     $userdate = json_decode($user['Processing_value'], true);
-    $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
+    if (!is_array($userdate)) {
+        $userdate = [];
+    }
+    $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'] ?? '', "select");
     if (!$marzban_list_get || !panel_custom_enabled($marzban_list_get, (string) $user['agent'])) {
         sendmessage($from_id, "❌ سرویس دلخواه برای این پنل فعال نیست.", $backuser, 'HTML');
         return;
@@ -4148,11 +4158,15 @@ $textinvite
     $mainvolume = panel_agent_field($marzban_list_get, 'mainvolume', $user['agent'], '1');
     $maxvolume = panel_agent_field($marzban_list_get, 'maxvolume', $user['agent'], '1000');
     $textcustom = textbot_custom_volume_ask($custompricevalue, $mainvolume, $maxvolume);
-    sendmessage($from_id, $textcustom, $backuser, 'html');
+    $customBack = purchase_products_back_callback($userdate, (string) $user['agent']);
+    sendmessage($from_id, $textcustom, purchase_inline_back_keyboard($customBack), 'html');
     deletemessage($from_id, $message_id);
     step('gettimecustomvol', $from_id);
 } elseif ($user['step'] == "gettimecustomvol") {
     $userdate = json_decode($user['Processing_value'], true);
+    if (!is_array($userdate)) {
+        $userdate = [];
+    }
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
     if (!$marzban_list_get) {
         sendmessage($from_id, "❌ پنل یافت نشد.", $backuser, 'HTML');
@@ -4160,13 +4174,15 @@ $textinvite
     }
     $mainvolume = panel_agent_field($marzban_list_get, 'mainvolume', $user['agent'], '1');
     $maxvolume = panel_agent_field($marzban_list_get, 'maxvolume', $user['agent'], '1000');
+    $customBack = purchase_products_back_callback($userdate, (string) $user['agent']);
+    $customBackKb = purchase_inline_back_keyboard($customBack);
     if ($text > intval($maxvolume) || $text < intval($mainvolume)) {
         $texttime = textbot_custom_volume_invalid($mainvolume, $maxvolume);
-        sendmessage($from_id, $texttime, $backuser, 'HTML');
+        sendmessage($from_id, $texttime, $customBackKb, 'HTML');
         return;
     }
     if (!ctype_digit($text)) {
-        sendmessage($from_id, $textbotlang['Admin']['Product']['Invalidvolume'], $backuser, 'HTML');
+        sendmessage($from_id, $textbotlang['Admin']['Product']['Invalidvolume'], $customBackKb, 'HTML');
         return;
     }
     update("user", "Processing_value_one", $text, "id", $from_id);
@@ -4174,7 +4190,7 @@ $textinvite
         'text_custom_month_ask',
         "⌛️ مدت زمان سرویس را انتخاب کنید\n📌 هر ماه معادل ۳۰ روز است\n⚠️ فقط گزینه‌های زیر قابل انتخاب هستند"
     );
-    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) $text, $user), 'html');
+    sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonth_', $customBack, (int) $text, $user), 'html');
     step('selectcustommonth', $from_id);
 } elseif (preg_match('/^custommonth_(\d+)$/', $datain, $dataget) && ($user['step'] == "selectcustommonth" || $user['step'] == "getvolumecustomuser" || $user['step'] == "getvolumecustomusername")) {
     $months = (int) $dataget[1];
@@ -4191,7 +4207,8 @@ $textinvite
     deletemessage($from_id, $message_id);
     if ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم") {
         step('endstepusers', $from_id);
-        sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), $backuser, 'html');
+        $invoiceBack = purchase_invoice_back_callback(is_array($userdate) ? $userdate : [], (string) $user['agent']);
+        sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), purchase_inline_back_keyboard($invoiceBack), 'html');
         return;
     }
     $loc = $customvalue;
@@ -4237,9 +4254,8 @@ $textinvite
     if (intval($info_product['Volume_constraint']) == 0) {
         $textin = str_replace('گیگ', "", $textin);
     }
-    sendmessage($from_id, $textin, $payment, 'HTML');
+    sendmessage($from_id, $textin, KeyboardPayment(purchase_invoice_back_callback(is_array($userdate) ? $userdate : [], (string) $user['agent'])), 'HTML');
     step('payment', $from_id);
-} elseif (preg_match('/^prodcutservices_(.*)/', $datain, $dataget) || $user['step'] == "getvolumecustomusername") {
     if (!empty($callback_query_id)) {
         telegram('answerCallbackQuery', [
             'callback_query_id' => $callback_query_id,
@@ -4253,7 +4269,8 @@ $textinvite
     if ($user['step'] == "getvolumecustomusername" && $prodcut === '') {
         // Legacy free-text days path — redirect to month buttons
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'] ?? '', "select");
-        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) $user['Processing_value_one'], $user), 'html');
+        $customBack = purchase_products_back_callback($userdate, (string) $user['agent']);
+        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', $customBack, (int) $user['Processing_value_one'], $user), 'html');
         step('selectcustommonth', $from_id);
         return;
     }
@@ -4265,7 +4282,8 @@ $textinvite
     update("user", "Processing_value_one", $prodcut, "id", $from_id);
     step('endstepuser', $from_id);
     deletemessage($from_id, $message_id);
-    sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), $backuser, 'html');
+    $invoiceBack = purchase_invoice_back_callback($userdate, (string) $user['agent']);
+    sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), purchase_inline_back_keyboard($invoiceBack), 'html');
 } elseif (preg_match('/^prodcutservice_(.*)/', $datain, $dataget) || $user['step'] == "endstepuser" || $user['step'] == "endstepusers" || $user['step'] == "getvolumecustomuser") {
     if (!empty($callback_query_id)) {
         telegram('answerCallbackQuery', [
@@ -4279,7 +4297,8 @@ $textinvite
     $clickedProduct = $dataget[1] ?? '';
     if ($user['step'] == "getvolumecustomuser" && $clickedProduct === '') {
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'] ?? '', "select");
-        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) $user['Processing_value_one'], $user), 'html');
+        $customBack = purchase_products_back_callback($userdate, (string) $user['agent']);
+        sendmessage($from_id, "⌛️ مدت زمان سرویس را از دکمه‌ها انتخاب کنید", KeyboardCustomMonths($marzban_list_get, 'custommonth_', $customBack, (int) $user['Processing_value_one'], $user), 'html');
         step('selectcustommonth', $from_id);
         return;
     }
@@ -4303,7 +4322,8 @@ $textinvite
     }
     if ($clickedProduct === '' && ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم")) {
         if (!preg_match('~(?!_)^[a-z][a-z\d_]{2,32}(?<!_)$~i', (string) $text)) {
-            sendmessage($from_id, $textbotlang['users']['invalidusername'], $backuser, 'HTML');
+            $invoiceBack = purchase_invoice_back_callback($userdate, (string) $user['agent']);
+            sendmessage($from_id, $textbotlang['users']['invalidusername'], purchase_inline_back_keyboard($invoiceBack), 'HTML');
             return;
         }
         $loc = $user['Processing_value_one'];
@@ -4375,11 +4395,12 @@ $textinvite
         $textin = str_replace('گیگ', "", $textin);
     }
     $edited = null;
+    $invoiceKeyboard = KeyboardPayment(purchase_invoice_back_callback($userdate, (string) $user['agent']));
     if ($clickedProduct !== '' || ($user['step'] != "getvolumecustomuser" && !in_array($marzban_list_get['MethodUsername'], ["نام کاربری دلخواه", "نام کاربری دلخواه + عدد رندوم"], true))) {
-        $edited = Editmessagetext($from_id, $message_id, $textin, $payment);
+        $edited = Editmessagetext($from_id, $message_id, $textin, $invoiceKeyboard);
     }
     if (!is_array($edited) || empty($edited['ok'])) {
-        sendmessage($from_id, $textin, $payment, 'HTML');
+        sendmessage($from_id, $textin, $invoiceKeyboard, 'HTML');
     }
     step('payment', $from_id);
 } elseif ($user['step'] == "payment" && $datain == "confirmandgetservice" || $datain == "confirmandgetserviceDiscount") {
@@ -4801,7 +4822,12 @@ $textonebuy
     update("user", "Processing_value_four", "none", "id", $from_id);
     step('home', $from_id);
 } elseif ($datain == "aptdc") {
-    sendmessage($from_id, $textbotlang['users']['Discount']['getcodesell'], $backuser, 'HTML');
+    $userdate = json_decode($user['Processing_value'], true);
+    if (!is_array($userdate)) {
+        $userdate = [];
+    }
+    $invoiceBack = purchase_invoice_back_callback($userdate, (string) $user['agent']);
+    sendmessage($from_id, $textbotlang['users']['Discount']['getcodesell'], purchase_inline_back_keyboard($invoiceBack), 'HTML');
     step('getcodesellDiscount', $from_id);
     deletemessage($from_id, $message_id);
 } elseif ($user['step'] == "getcodesellDiscount") {
@@ -4902,12 +4928,11 @@ $textonebuy
 💵 موجودی کیف پول شما : {$user['Balance']}
                   
         💰 سفارش شما آماده پرداخت است.  ";
-    $paymentDiscount = json_encode([
-        'inline_keyboard' => [
-            [['text' => "💰 پرداخت و دریافت سرویس", 'callback_data' => "confirmandgetserviceDiscount"]],
-            [['text' => $textbotlang['users']['backbtn'], 'callback_data' => "backuser"]]
-        ]
-    ]);
+    $paymentDiscount = KeyboardPayment(
+        purchase_invoice_back_callback(is_array($userdate) ? $userdate : [], (string) $user['agent']),
+        false,
+        'confirmandgetserviceDiscount'
+    );
     $parametrsendvalue = $text . "_" . $info_product['price_product'];
     update("user", "Processing_value_four", $parametrsendvalue, "id", $from_id);
     sendmessage($from_id, $textin, $paymentDiscount, 'HTML');

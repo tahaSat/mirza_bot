@@ -2709,6 +2709,55 @@ function category_from_processing($userdate)
     $category = select("category", "*", "id", $userdate['category_id'], "select");
     return $category ?: null;
 }
+
+/** Active panels visible to this agent (same filter as the buy location list). */
+function purchase_agent_panel_count(string $agent): int
+{
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM marzban_panel WHERE status = 'active' AND (agent = :agent OR agent = 'all')");
+    $stmt->execute([':agent' => $agent]);
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * Inline callback for Back on the product list during buy.
+ * After a category is chosen, Back must reopen the category list instead of closing the message.
+ */
+function purchase_products_back_callback(array $userdate, string $agent = 'f'): string
+{
+    global $setting, $statusnote;
+
+    $categoriesOn = ($setting['statuscategorygenral'] ?? '') === 'oncategorys';
+    $monthsOn = ($setting['statuscategory'] ?? '') !== 'offcategory';
+    $singlePanel = purchase_agent_panel_count($agent) <= 1;
+
+    if ($categoriesOn && !empty($userdate['monthproduct'])) {
+        return 'productmonth_' . $userdate['monthproduct'];
+    }
+    if ($categoriesOn || $monthsOn) {
+        return $singlePanel ? 'buybacktow' : 'backproduct';
+    }
+    if ($singlePanel) {
+        return !empty($statusnote) ? 'buyback' : 'backuser';
+    }
+    return isset($userdate['nameconfig']) ? 'buybacktow' : 'buyback';
+}
+
+/** Inline callback for Back on the pre-invoice / username step — return to the product list. */
+function purchase_invoice_back_callback(array $userdate, string $agent = 'f'): string
+{
+    if (!empty($userdate['category_id'])) {
+        return 'categorynames_' . $userdate['category_id'];
+    }
+    if (!empty($userdate['monthproduct'])) {
+        return 'productmonth_' . $userdate['monthproduct'];
+    }
+    if (!empty($userdate['name_panel'])) {
+        return 'backproduct';
+    }
+    return purchase_products_back_callback($userdate, $agent);
+}
+
 function outtypepanel($typepanel, $message)
 {
     global $from_id, $optionMarzban, $optionX_ui_single, $optionhiddfy, $optionalireza, $optionalireza_single, $optionmarzneshin, $option_mikrotik, $optionwg, $options_ui, $optioneylanpanel, $optionibsng;

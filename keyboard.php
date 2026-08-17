@@ -690,13 +690,30 @@ if ($table_exists) {
     $json_list_Discount_list_admin_sell = json_encode($list_Discountsell);
 }
 }
-$payment = json_encode([
-    'inline_keyboard' => [
-        [['text' => "💰 پرداخت و دریافت سرویس", 'callback_data' => "confirmandgetservice"]],
-        [['text' => "🎁 ثبت کد تخفیف", 'callback_data' => "aptdc"]],
-        [['text' => $textbotlang['users']['backbtn'], 'callback_data' => "backuser"]]
-    ]
-]);
+function KeyboardPayment(string $backCallback = 'backuser', bool $withDiscount = true, string $confirmCallback = 'confirmandgetservice'): string
+{
+    global $textbotlang;
+    $rows = [
+        [['text' => "💰 پرداخت و دریافت سرویس", 'callback_data' => $confirmCallback]],
+    ];
+    if ($withDiscount) {
+        $rows[] = [['text' => "🎁 ثبت کد تخفیف", 'callback_data' => "aptdc"]];
+    }
+    $rows[] = [['text' => $textbotlang['users']['backbtn'], 'callback_data' => $backCallback]];
+    return json_encode(['inline_keyboard' => $rows]);
+}
+
+function purchase_inline_back_keyboard(string $callback): string
+{
+    global $textbotlang;
+    return json_encode([
+        'inline_keyboard' => [
+            [['text' => $textbotlang['users']['stateus']['backinfo'] ?? '🏠 بازگشت', 'callback_data' => $callback]],
+        ],
+    ]);
+}
+
+$payment = KeyboardPayment();
 $paymentom = json_encode([
     'inline_keyboard' => [
         [['text' => "💰 پرداخت و دریافت سرویس", 'callback_data' => "confirmandgetservice"]],

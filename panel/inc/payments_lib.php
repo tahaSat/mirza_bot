@@ -377,13 +377,13 @@ function panel_payment_confirm(PDO $pdo, string $orderId): array
     if (!$payment) {
         return ['ok' => false, 'msg' => 'تراکنش یافت نشد.'];
     }
-    if (in_array($payment['payment_Status'], ['paid', 'reject', 'refunded'], true)) {
+    if (in_array($payment['payment_Status'], ['paid', 'reject'], true)) {
         return ['ok' => false, 'msg' => 'این پرداخت قبلاً بررسی شده است.'];
     }
 
     $pendingService = db_count(
         $pdo,
-        "SELECT COUNT(*) FROM Payment_report WHERE id_user = ? AND payment_Status NOT IN ('paid','Unpaid','expire','reject','refunded')
+        "SELECT COUNT(*) FROM Payment_report WHERE id_user = ? AND payment_Status NOT IN ('paid','Unpaid','expire','reject')
          AND (id_invoice LIKE '%getconfigafterpay%' OR id_invoice LIKE '%getextenduser%'
               OR id_invoice LIKE '%getextravolumeuser%' OR id_invoice LIKE '%getextratimeuser%')",
         [$payment['id_user']]
@@ -435,7 +435,7 @@ function panel_payment_reject(PDO $pdo, string $orderId, string $reason = ''): a
     if (!$payment) {
         return ['ok' => false, 'msg' => 'تراکنش یافت نشد.'];
     }
-    if (in_array($payment['payment_Status'], ['paid', 'reject', 'refunded'], true)) {
+    if (in_array($payment['payment_Status'], ['paid', 'reject'], true)) {
         return ['ok' => false, 'msg' => 'این پرداخت قبلاً بررسی شده است.'];
     }
     $reason = trim($reason) ?: 'رد شده توسط ادمین پنل';
@@ -509,29 +509,40 @@ function panel_payment_time_sort_sql(string $column = 'time'): string
 }
 
 /**
+ * Parse a payment date filter as Jalali Tehran time (with Gregorian datetime-local fallback).
+ *
  * @return array{ts:int,sql:string,input:string}|null
  */
 function panel_payment_parse_filter_datetime(string $raw, bool $endOfRange = false): ?array
 {
-    $raw = trim(str_replace(' ', 'T', $raw));
+    $raw = trim($raw);
     if ($raw === '') {
         return null;
     }
-    $tz = new DateTimeZone('Asia/Tehran');
-    $dt = DateTime::createFromFormat('Y-m-d\TH:i', $raw, $tz)
-        ?: DateTime::createFromFormat('Y-m-d\TH:i:s', $raw, $tz)
-        ?: DateTime::createFromFormat('Y-m-d', substr($raw, 0, 10), $tz);
-    if (!$dt) {
-        return null;
+
+    $ts = function_exists('jalali_tehran_parse') ? jalali_tehran_parse($raw, $endOfRange) : null;
+    if ($ts === null) {
+        $normalized = trim(str_replace(' ', 'T', $raw));
+        $tz = new DateTimeZone('Asia/Tehran');
+        $dt = DateTime::createFromFormat('Y-m-d\TH:i', $normalized, $tz)
+            ?: DateTime::createFromFormat('Y-m-d\TH:i:s', $normalized, $tz)
+            ?: DateTime::createFromFormat('Y-m-d', substr($normalized, 0, 10), $tz);
+        if (!$dt) {
+            return null;
+        }
+        if (!str_contains($normalized, 'T')) {
+            $dt->setTime($endOfRange ? 23 : 0, $endOfRange ? 59 : 0, $endOfRange ? 59 : 0);
+        }
+        $ts = $dt->getTimestamp();
     }
-    $hasTime = str_contains($raw, 'T');
-    if (!$hasTime) {
-        $dt->setTime($endOfRange ? 23 : 0, $endOfRange ? 59 : 0, $endOfRange ? 59 : 0);
-    }
+
+    $sqlDt = (new DateTime('@' . $ts))->setTimezone(new DateTimeZone('Asia/Tehran'));
     return [
-        'ts' => $dt->getTimestamp(),
-        'sql' => $dt->format('Y/m/d H:i:s'),
-        'input' => $dt->format('Y-m-d\TH:i'),
+        'ts' => $ts,
+        'sql' => $sqlDt->format('Y/m/d H:i:s'),
+        'input' => function_exists('jalali_tehran_format')
+            ? jalali_tehran_format($ts, 'Y/m/d H:i', 'en')
+            : $sqlDt->format('Y-m-d\TH:i'),
     ];
 }
 
@@ -660,19 +671,7 @@ function panel_payment_delete_cost(PDO $pdo, string $orderId): array
 /** Allowed payment_Status values for admin updates. */
 function panel_payment_status_values(): array
 {
-    return ['paid', 'Unpaid', 'waiting', 'reject', 'expire', 'refunded'];
-}
-
-function panel_payment_status_labels(): array
-{
-    return [
-        'paid' => 'پرداخت شده',
-        'Unpaid' => 'پرداخت نشده',
-        'waiting' => 'در انتظار تأیید',
-        'reject' => 'رد شده',
-        'expire' => 'منقضی',
-        'refunded' => 'مرجوعی',
-    ];
+    return ['paid', 'Unpaid', 'waiting', 'reject', 'expire'];
 }
 
 /**
@@ -690,24 +689,6 @@ function panel_payment_linked_invoice(PDO $pdo, array $payment): ?array
     return $invoice ?: null;
 }
 
-/**
- * Payments that created this invoice (new service purchase).
- *
- * @return array<int,array>
- */
-function panel_invoice_linked_payments(PDO $pdo, array $invoice): array
-{
-    $username = trim((string) ($invoice['username'] ?? ''));
-    if ($username === '') {
-        return [];
-    }
-    return db_fetchAll(
-        $pdo,
-        "SELECT * FROM Payment_report WHERE id_invoice = ?",
-        ['getconfigafterpay|' . $username]
-    ) ?: [];
-}
-
 function panel_payment_is_wallet(array $payment): bool
 {
     $prefix = explode('|', (string) ($payment['id_invoice'] ?? ''), 2)[0] ?? '';
@@ -715,192 +696,7 @@ function panel_payment_is_wallet(array $payment): bool
 }
 
 /**
- * Disable the VPN user on Pasarguard/Marzban so the sub link stops working,
- * but keep the invoice row in the robot.
- *
- * @return array{ok:bool,msg:string}
- */
-function panel_disable_panel_user_keep_invoice(PDO $pdo, array $invoice): array
-{
-    require_once __DIR__ . '/users_lib.php';
-    panel_service_bootstrap();
-    global $ManagePanel;
-
-    $username = trim((string) ($invoice['username'] ?? ''));
-    $location = trim((string) ($invoice['Service_location'] ?? ''));
-    if ($username === '' || $location === '') {
-        return ['ok' => false, 'msg' => 'نام کاربری یا پنل سرویس مشخص نیست.'];
-    }
-
-    try {
-        $result = $ManagePanel->Modifyuser($username, $location, ['status' => 'disabled']);
-        if (is_array($result) && array_key_exists('status', $result) && $result['status'] === false) {
-            $msg = trim((string) ($result['msg'] ?? ''));
-            return ['ok' => false, 'msg' => $msg !== '' ? $msg : 'غیرفعال‌سازی در پنل ساب‌لینک ناموفق بود.'];
-        }
-    } catch (Throwable $e) {
-        error_log('panel_disable_panel_user_keep_invoice: ' . $e->getMessage());
-        return ['ok' => false, 'msg' => 'غیرفعال‌سازی در پنل ساب‌لینک ناموفق بود.'];
-    }
-
-    return ['ok' => true, 'msg' => 'سرویس در پنل ساب‌لینک غیرفعال شد.'];
-}
-
-function panel_mark_invoice_disabled_by_admin(PDO $pdo, string $idInvoice): void
-{
-    db_query(
-        $pdo,
-        "UPDATE invoice SET Status = 'disablebyadmin' WHERE id_invoice = ?",
-        [$idInvoice]
-    );
-}
-
-/**
- * Disable the Pasarguard user and mark the robot invoice as disabled by admin.
- * Local status is always updated even if the panel call fails.
- *
- * @return array{ok:bool,msg:string}
- */
-function panel_disable_invoice_service(PDO $pdo, array $invoice): array
-{
-    $idInvoice = (string) ($invoice['id_invoice'] ?? '');
-    $disabled = panel_disable_panel_user_keep_invoice($pdo, $invoice);
-    if ($idInvoice !== '') {
-        panel_mark_invoice_disabled_by_admin($pdo, $idInvoice);
-    }
-
-    $notes = ['وضعیت سرویس در ربات به غیرفعال توسط ادمین تغییر کرد.'];
-    $notes[] = $disabled['ok'] ? $disabled['msg'] : ('غیرفعال‌سازی پنل ساب‌لینک: ' . $disabled['msg']);
-    return ['ok' => $disabled['ok'], 'msg' => implode(' ', $notes)];
-}
-
-/**
- * Mark the invoice / service_other linked to a payment as refunded (مرجوعی).
- * New-service invoices are not stored as refunded; they become disablebyadmin
- * only when the admin confirms disabling the product.
- */
-function panel_payment_refund_linked_order(PDO $pdo, array $payment): string
-{
-    $parts = explode('|', (string) ($payment['id_invoice'] ?? ''), 2);
-    $type = $parts[0] ?? '';
-    $payload = $parts[1] ?? '';
-
-    if ($type === 'getconfigafterpay' && $payload !== '') {
-        $before = db_fetch($pdo, 'SELECT id_invoice, Status FROM invoice WHERE username = ? LIMIT 1', [$payload]);
-        if (!$before) {
-            return 'فاکتور مرتبط یافت نشد.';
-        }
-        return 'پرداخت خرید سرویس مرجوعی شد.';
-    }
-
-    $map = [
-        'getextenduser' => 'extend_user',
-        'getextravolumeuser' => 'extra_user',
-        'getextratimeuser' => 'extra_time_user',
-    ];
-    if (isset($map[$type]) && $payload !== '') {
-        $username = explode('%', $payload, 2)[0];
-        $row = db_fetch(
-            $pdo,
-            "SELECT id FROM service_other
-             WHERE id_user = ? AND username = ? AND type = ?
-             ORDER BY id DESC LIMIT 1",
-            [$payment['id_user'], $username, $map[$type]]
-        );
-        if ($row) {
-            db_query($pdo, "UPDATE service_other SET status = 'refunded' WHERE id = ?", [$row['id']]);
-            return 'وضعیت سفارش مرتبط به مرجوعی تغییر کرد.';
-        }
-        return 'سفارش مرتبطی یافت نشد.';
-    }
-
-    return 'سفارش/فاکتور مرتبطی برای مرجوعی وجود ندارد.';
-}
-
-/**
- * After a purchase is set to مرجوعی: sync related payments and optionally
- * disable the user on the VPN panel (keep the local invoice row).
- *
- * @return array{ok:bool,msg:string}
- */
-function panel_invoice_apply_refund(PDO $pdo, string $idInvoice, bool $disableProduct = false): array
-{
-    $invoice = db_fetch($pdo, 'SELECT * FROM invoice WHERE id_invoice = ?', [$idInvoice]);
-    if (!$invoice) {
-        return ['ok' => false, 'msg' => 'فاکتور یافت نشد.'];
-    }
-
-    $notes = ['پرداخت مرتبط مرجوعی شد.'];
-    $payments = panel_invoice_linked_payments($pdo, $invoice);
-    $updatedPayments = 0;
-    foreach ($payments as $payment) {
-        if (($payment['payment_Status'] ?? '') === 'refunded') {
-            continue;
-        }
-        db_query(
-            $pdo,
-            "UPDATE Payment_report SET payment_Status = 'refunded' WHERE id_order = ?",
-            [$payment['id_order']]
-        );
-        $updatedPayments++;
-    }
-    if ($updatedPayments === 0) {
-        $notes = ['پرداخت مرتبط از قبل مرجوعی بود یا یافت نشد.'];
-    }
-
-    if ($disableProduct) {
-        $disabled = panel_disable_invoice_service($pdo, $invoice);
-        $notes[] = $disabled['msg'];
-    }
-
-    return ['ok' => true, 'msg' => implode(' ', $notes)];
-}
-
-/**
- * Mark a service_other row and its related payment as refunded.
- *
- * @return array{ok:bool,msg:string}
- */
-function panel_service_other_apply_refund(PDO $pdo, int $id): array
-{
-    $row = db_fetch($pdo, 'SELECT * FROM service_other WHERE id = ?', [$id]);
-    if (!$row) {
-        return ['ok' => false, 'msg' => 'سفارش یافت نشد.'];
-    }
-
-    db_query($pdo, "UPDATE service_other SET status = 'refunded' WHERE id = ?", [$id]);
-
-    $typeMap = [
-        'extend_user' => 'getextenduser',
-        'extends_not_user' => 'getextenduser',
-        'extend_user_by_admin' => 'getextenduser',
-        'extra_user' => 'getextravolumeuser',
-        'extra_time_user' => 'getextratimeuser',
-    ];
-    $prefix = $typeMap[(string) ($row['type'] ?? '')] ?? '';
-    $username = trim((string) ($row['username'] ?? ''));
-    if ($prefix !== '' && $username !== '') {
-        $payment = db_fetch(
-            $pdo,
-            "SELECT id_order FROM Payment_report
-             WHERE id_user = ? AND payment_Status = 'paid' AND id_invoice LIKE ?
-             ORDER BY id DESC LIMIT 1",
-            [$row['id_user'], $prefix . '|' . $username . '%']
-        );
-        if ($payment) {
-            db_query(
-                $pdo,
-                "UPDATE Payment_report SET payment_Status = 'refunded' WHERE id_order = ?",
-                [$payment['id_order']]
-            );
-        }
-    }
-
-    return ['ok' => true, 'msg' => 'سفارش و پرداخت مرتبط مرجوعی شد.'];
-}
-
-/**
- * Manually change a payment status (e.g. paid → reject / refunded).
+ * Manually change a payment status (e.g. paid → reject).
  * When leaving paid for a purchase payment, optionally remove the created service
  * and/or mark the linked invoice/order as rejected (so Telegram سفارشات stats exclude it).
  *
@@ -950,19 +746,7 @@ function panel_payment_set_status(
         }
     }
 
-    if ($newStatus === 'refunded') {
-        require_once __DIR__ . '/users_lib.php';
-        $notes[] = panel_payment_refund_linked_order($pdo, $payment);
-        if ($removeProduct) {
-            $invoice = panel_payment_linked_invoice($pdo, $payment);
-            if ($invoice) {
-                $disabled = panel_disable_invoice_service($pdo, $invoice);
-                $notes[] = $disabled['msg'];
-            } else {
-                $notes[] = 'سرویس مرتبطی برای غیرفعال‌سازی یافت نشد.';
-            }
-        }
-    } elseif ($leavingPaid && $removeProduct) {
+    if ($leavingPaid && $removeProduct) {
         $invoice = panel_payment_linked_invoice($pdo, $payment);
         if ($invoice) {
             require_once __DIR__ . '/users_lib.php';
@@ -978,7 +762,13 @@ function panel_payment_set_status(
         $notes[] = panel_payment_reject_linked_order($pdo, $payment);
     }
 
-    $statusLabels = panel_payment_status_labels();
+    $statusLabels = [
+        'paid' => 'پرداخت شده',
+        'Unpaid' => 'پرداخت نشده',
+        'waiting' => 'در انتظار تأیید',
+        'reject' => 'رد شده',
+        'expire' => 'منقضی',
+    ];
     $msg = 'وضعیت پرداخت به «' . ($statusLabels[$newStatus] ?? $newStatus) . '» تغییر کرد.';
     if ($notes) {
         $msg .= ' ' . implode(' ', $notes);

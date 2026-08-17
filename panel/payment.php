@@ -308,7 +308,6 @@ $statusMap = [
     'Unpaid' => ['tag-no', 'پرداخت نشده'],
     'expire' => ['tag-plain', 'منقضی'],
     'reject' => ['tag-no', 'رد شده'],
-    'refunded' => ['tag-no', 'مرجوعی'],
     'waiting' => ['tag-warn', 'در انتظار'],
     'cost' => ['tag-plain', 'هزینه شده'],
 ];
@@ -375,6 +374,13 @@ $pageLede = 'گزارش پرداخت‌ها، فاکتور دستی، هزینه
 $activeNav = 'payment';
 include __DIR__ . '/inc/layout_head.php';
 ?>
+<?php if ($tab !== 'pending'): ?>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.min.css">
+<style>
+  .datepicker-plot-area { z-index: 3000 !important; }
+  #paymentFilterModal .modal { overflow: visible; }
+</style>
+<?php endif; ?>
 
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px" class="fade-up">
   <div style="display:flex;gap:4px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:4px;flex-wrap:wrap">
@@ -767,17 +773,12 @@ function openRejectModal(orderId) {
             برای اینکه از آمار سفارشات تلگرام هم خارج شود.
           </p>
         </div>
-        <div id="refundInvoiceNote" style="display:none;margin-bottom:12px">
-          <p style="font-size:.8rem;color:var(--text);line-height:1.7;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px 12px">
-            این پرداخت «مرجوعی» می‌شود (بازگشت وجه به مشتری). سرویس در ربات حذف نمی‌شود.
-          </p>
-        </div>
         <div id="removeProductWrap" style="display:none">
           <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
             <input type="checkbox" name="remove_product" id="removeProductCheck" value="1" style="width:16px;height:16px;margin-top:3px">
-            <span id="removeProductLabel">سرویس ساخته‌شده برای این پرداخت هم حذف شود؟</span>
+            <span>سرویس ساخته‌شده برای این پرداخت هم حذف شود؟</span>
           </label>
-          <p id="removeProductHint" style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
+          <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
             فقط برای خرید سرویس (نه تمدید/شارژ کیف پول). در صورت انتخاب، سرویس از پنل و ربات حذف می‌شود.
           </p>
         </div>
@@ -796,32 +797,16 @@ function openRejectModal(orderId) {
   var selectEl = document.getElementById('statusNewSelect');
   var wrap = document.getElementById('removeProductWrap');
   var check = document.getElementById('removeProductCheck');
-  var label = document.getElementById('removeProductLabel');
-  var hint = document.getElementById('removeProductHint');
   var rejectWrap = document.getElementById('rejectInvoiceWrap');
   var rejectCheck = document.getElementById('rejectInvoiceCheck');
-  var refundNote = document.getElementById('refundInvoiceNote');
 
   function syncRejectPrompts() {
     var leavingPaidToReject = currentStatus === 'paid' && selectEl.value === 'reject';
-    var toRefund = selectEl.value === 'refunded';
     rejectWrap.style.display = leavingPaidToReject ? 'block' : 'none';
     if (!leavingPaidToReject) rejectCheck.checked = false;
-    if (refundNote) refundNote.style.display = toRefund ? 'block' : 'none';
-
-    var showRemove = hasProduct && (leavingPaidToReject || toRefund);
+    var showRemove = hasProduct && leavingPaidToReject;
     wrap.style.display = showRemove ? 'block' : 'none';
-    if (toRefund && hasProduct) {
-      check.checked = true;
-      label.textContent = 'سرویس در پنل ساب‌لینک و ربات غیرفعال شود؟';
-      hint.textContent = 'کاربر از ساب‌لینک قطع می‌شود. رکورد سفارش باقی می‌ماند و وضعیت سرویس «غیرفعال توسط ادمین» می‌شود.';
-    } else if (leavingPaidToReject && hasProduct) {
-      check.checked = false;
-      label.textContent = 'سرویس ساخته‌شده برای این پرداخت هم حذف شود؟';
-      hint.textContent = 'فقط برای خرید سرویس (نه تمدید/شارژ کیف پول). در صورت انتخاب، سرویس از پنل و ربات حذف می‌شود.';
-    } else {
-      check.checked = false;
-    }
+    if (!showRemove) check.checked = false;
   }
 
   window.openStatusModal = function (orderId, status, product) {
@@ -884,11 +869,21 @@ function openRejectModal(orderId) {
           </div>
           <div class="field">
             <label class="lbl">از تاریخ و ساعت</label>
-            <input type="datetime-local" name="from" class="input" value="<?= htmlspecialchars($fromInput) ?>">
+            <div style="position:relative">
+              <input class="input jalali-datetime-picker" style="padding-left:30px" type="text" name="from"
+                placeholder="انتخاب تاریخ و ساعت" value="<?= htmlspecialchars($fromInput) ?>"
+                aria-label="تاریخ و ساعت شروع شمسی به وقت تهران" autocomplete="off" readonly>
+              <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);pointer-events:none">🗓</span>
+            </div>
           </div>
           <div class="field">
             <label class="lbl">تا تاریخ و ساعت</label>
-            <input type="datetime-local" name="to" class="input" value="<?= htmlspecialchars($toInput) ?>">
+            <div style="position:relative">
+              <input class="input jalali-datetime-picker" style="padding-left:30px" type="text" name="to"
+                placeholder="انتخاب تاریخ و ساعت" value="<?= htmlspecialchars($toInput) ?>"
+                aria-label="تاریخ و ساعت پایان شمسی به وقت تهران" autocomplete="off" readonly>
+              <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);pointer-events:none">🗓</span>
+            </div>
           </div>
         </div>
       </div>
@@ -900,6 +895,39 @@ function openRejectModal(orderId) {
     </form>
   </div>
 </div>
+<?php endif; ?>
+
+<?php if ($tab !== 'pending'): ?>
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.min.js"></script>
+<script>
+  $(function () {
+    $('.jalali-datetime-picker').each(function () {
+      var $el = $(this);
+      $el.persianDatepicker({
+        calendarType: 'persian',
+        format: 'YYYY/MM/DD HH:mm',
+        initialValue: $el.val() !== '',
+        initialValueType: 'persian',
+        autoClose: false,
+        responsive: true,
+        observer: false,
+        navigator: { scroll: { enabled: false } },
+        toolbox: {
+          calendarSwitch: { enabled: false },
+          todayButton: { enabled: true },
+          submitButton: { enabled: true }
+        },
+        timePicker: {
+          enabled: true,
+          second: { enabled: false },
+          meridian: { enabled: false }
+        }
+      });
+    });
+  });
+</script>
 <?php endif; ?>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

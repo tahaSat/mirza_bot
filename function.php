@@ -370,6 +370,336 @@ function unix_column_epoch_sql(string $column): string
     END";
 }
 
+function ensure_jdf_loaded(): void
+{
+    if (!function_exists('jdate')) {
+        require_once __DIR__ . '/jdf.php';
+    }
+}
+
+function tehran_timezone(): DateTimeZone
+{
+    return new DateTimeZone('Asia/Tehran');
+}
+
+function tehran_datetime_string(int $ts, string $fmt = 'Y/m/d H:i:s'): string
+{
+    return (new DateTimeImmutable('@' . $ts))->setTimezone(tehran_timezone())->format($fmt);
+}
+
+function jalali_tehran_format(int $ts, string $fmt = 'Y/m/d H:i:s', string $trNum = 'en'): string
+{
+    ensure_jdf_loaded();
+    return jdate($fmt, $ts, '', 'Asia/Tehran', $trNum);
+}
+
+/**
+ * Convert a Jalali date entered in Tehran local time to a Unix timestamp.
+ */
+function jalali_tehran_timestamp(string $date, string $time = '', bool $endOfDay = false): ?int
+{
+    ensure_jdf_loaded();
+    $date = trim((string) tr_num($date, 'en'));
+    $time = trim((string) tr_num($time, 'en'));
+
+    if (!preg_match('/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/', $date, $dateParts)) {
+        return null;
+    }
+
+    if ($time === '') {
+        $time = $endOfDay ? '23:59:59' : '00:00:00';
+    } elseif (preg_match('/^\d{1,2}:\d{2}$/', $time)) {
+        $time .= ':00';
+    }
+
+    if (!preg_match('/^(\d{1,2}):(\d{2}):(\d{2})$/', $time, $timeParts)) {
+        return null;
+    }
+
+    [$jy, $jm, $jd] = [(int) $dateParts[1], (int) $dateParts[2], (int) $dateParts[3]];
+    [$hour, $minute, $second] = [(int) $timeParts[1], (int) $timeParts[2], (int) $timeParts[3]];
+    if ($jy < 1200 || $jy > 1600 || $jm < 1 || $jm > 12 || $jd < 1 || $jd > 31 || $hour > 23 || $minute > 59 || $second > 59) {
+        return null;
+    }
+
+    [$gy, $gm, $gd] = jalali_to_gregorian($jy, $jm, $jd);
+    if (!checkdate($gm, $gd, $gy) || gregorian_to_jalali($gy, $gm, $gd) !== [$jy, $jm, $jd]) {
+        return null;
+    }
+
+    $dateTime = DateTimeImmutable::createFromFormat(
+        '!Y-n-j H:i:s',
+        "$gy-$gm-$gd " . sprintf('%02d:%02d:%02d', $hour, $minute, $second),
+        tehran_timezone()
+    );
+
+    return $dateTime instanceof DateTimeImmutable ? $dateTime->getTimestamp() : null;
+}
+
+function jalali_tehran_parse(string $value, bool $endOfDay = false): ?int
+{
+    ensure_jdf_loaded();
+    $value = trim((string) tr_num($value, 'en'));
+    if (!preg_match('/^(\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?$/', $value, $parts)) {
+        return null;
+    }
+
+    return jalali_tehran_timestamp($parts[1], $parts[2] ?? '', $endOfDay);
+}
+
+function isValidJalaliDate($date): bool
+{
+    return jalali_tehran_parse((string) $date) !== null;
+}
+
+function jalali_days_in_month(int $jy, int $jm): int
+{
+    if ($jm < 1 || $jm > 12) {
+        return 0;
+    }
+    if ($jm <= 6) {
+        return 31;
+    }
+    if ($jm <= 11) {
+        return 30;
+    }
+    return ((((($jy + 12) % 33) % 4) === 1) ? 1 : 0) + 29;
+}
+
+/**
+ * @return array{jy:int,jm:int,jd:int,ts:int}
+ */
+function jalali_tehran_now_parts(): array
+{
+    ensure_jdf_loaded();
+    $ts = time();
+    return [
+        'jy' => (int) jdate('Y', $ts, '', 'Asia/Tehran', 'en'),
+        'jm' => (int) jdate('n', $ts, '', 'Asia/Tehran', 'en'),
+        'jd' => (int) jdate('j', $ts, '', 'Asia/Tehran', 'en'),
+        'ts' => $ts,
+    ];
+}
+
+/**
+ * @return array{0:int,1:int}
+ */
+function jalali_add_months(int $jy, int $jm, int $delta): array
+{
+    $monthIndex = ($jy * 12 + ($jm - 1)) + $delta;
+    $year = intdiv($monthIndex, 12);
+    $month = $monthIndex - ($year * 12) + 1;
+    if ($month < 1) {
+        $month += 12;
+        $year--;
+    }
+    return [$year, $month];
+}
+
+function gregorian_ymd_to_jalali_key(string $ymd): ?string
+{
+    ensure_jdf_loaded();
+    if (!preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $ymd, $m)) {
+        return null;
+    }
+    [$jy, $jm, $jd] = gregorian_to_jalali((int) $m[1], (int) $m[2], (int) $m[3]);
+    return sprintf('%04d-%02d-%02d', $jy, $jm, $jd);
+}
+
+/**
+ * Inclusive Unix range for a Jalali month in Tehran.
+ *
+ * @return array{start:int,end:int,jy:int,jm:int,days:int,start_dt:string,end_dt:string,label:string,param:string}|null
+ */
+function jalali_month_range(int $jy, int $jm): ?array
+{
+    $days = jalali_days_in_month($jy, $jm);
+    $start = jalali_tehran_timestamp(sprintf('%04d/%02d/01', $jy, $jm), '00:00:00');
+    $end = jalali_tehran_timestamp(sprintf('%04d/%02d/%02d', $jy, $jm, $days), '', true);
+    if ($start === null || $end === null || $days < 1) {
+        return null;
+    }
+    return [
+        'start' => $start,
+        'end' => $end,
+        'jy' => $jy,
+        'jm' => $jm,
+        'days' => $days,
+        'start_dt' => tehran_datetime_string($start),
+        'end_dt' => tehran_datetime_string($end),
+        'label' => jalali_tehran_format($start, 'F Y', 'fa'),
+        'param' => sprintf('%04d-%02d', $jy, $jm),
+    ];
+}
+
+/**
+ * Named stats windows in Tehran / Jalali calendar.
+ *
+ * @return array{start:int,end:int,start_label:string,end_label:string,start_dt:string,end_dt:string,label:string}
+ */
+function stats_tehran_named_range(string $name): array
+{
+    $now = time();
+    $parts = jalali_tehran_now_parts();
+    if ($name === 'last_hour') {
+        $start = $now - 3600;
+        $end = $now;
+    } elseif ($name === 'yesterday') {
+        $startDay = (new DateTimeImmutable('yesterday', tehran_timezone()));
+        $endDay = $startDay->setTime(23, 59, 59);
+        $start = $startDay->setTime(0, 0, 0)->getTimestamp();
+        $end = $endDay->getTimestamp();
+    } elseif ($name === 'this_month') {
+        $range = jalali_month_range($parts['jy'], $parts['jm']);
+        $start = $range['start'];
+        $end = $range['end'];
+    } elseif ($name === 'last_month') {
+        [$jy, $jm] = jalali_add_months($parts['jy'], $parts['jm'], -1);
+        $range = jalali_month_range($jy, $jm);
+        $start = $range['start'];
+        $end = $range['end'];
+    } else {
+        $startDay = new DateTimeImmutable('today', tehran_timezone());
+        $start = $startDay->getTimestamp();
+        $end = $now;
+    }
+
+    return [
+        'start' => $start,
+        'end' => $end,
+        'start_label' => jalali_tehran_format($start, 'Y/m/d H:i:s'),
+        'end_label' => jalali_tehran_format($end, 'Y/m/d H:i:s'),
+        'start_dt' => tehran_datetime_string($start),
+        'end_dt' => tehran_datetime_string($end),
+        'label' => jalali_tehran_format($start, 'Y/m/d H:i:s') . ' تا ' . jalali_tehran_format($end, 'Y/m/d H:i:s'),
+    ];
+}
+
+function sql_unix_or_datetime_between(string $column): string
+{
+    return "(
+        ($column REGEXP '^[0-9]{9,}$' AND CAST($column AS UNSIGNED) BETWEEN ? AND ?)
+        OR (
+            $column NOT REGEXP '^[0-9]{9,}$'
+            AND COALESCE(
+                STR_TO_DATE($column, '%Y-%m-%d %H:%i:%s'),
+                STR_TO_DATE($column, '%Y/%m/%d %H:%i:%s')
+            ) BETWEEN ? AND ?
+        )
+    )";
+}
+
+function sql_tehran_day_from_unix(string $unixExpr): string
+{
+    return "DATE_FORMAT(COALESCE(
+        CONVERT_TZ(FROM_UNIXTIME(($unixExpr)), @@session.time_zone, '+03:30'),
+        FROM_UNIXTIME(($unixExpr))
+    ), '%Y-%m-%d')";
+}
+
+/**
+ * @return array{orders:int,orders_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,users:int,avg_join:string,total_count:int,total_sum:float}
+ */
+function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
+{
+    $startDt = tehran_datetime_string($startTs, 'Y-m-d H:i:s');
+    $endDt = tehran_datetime_string($endTs, 'Y-m-d H:i:s');
+    $mixedTime = sql_unix_or_datetime_between('time');
+    $mixedParams = [$startTs, $endTs, $startDt, $endDt];
+    $paidSql = invoice_paid_status_sql('Status');
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price_product),0) AS sum FROM invoice WHERE (time_sell BETWEEN :start AND :end) AND $paidSql AND name_product != 'سرویس تست'");
+    $stmt->execute([':start' => $startTs, ':end' => $endTs]);
+    $orders = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS count FROM invoice WHERE (time_sell BETWEEN :start AND :end) AND name_product = 'سرویس تست'");
+    $stmt->execute([':start' => $startTs, ':end' => $endTs]);
+    $tests = (int) ($stmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0);
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS sum FROM service_other WHERE $mixedTime AND type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'");
+    $stmt->execute($mixedParams);
+    $extends = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'extra_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')");
+    $stmt->execute($mixedParams);
+    $extraVolume = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'extra_time_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')");
+    $stmt->execute($mixedParams);
+    $extraTime = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')");
+    $stmt->execute($mixedParams);
+    $changeLocation = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS count FROM user WHERE register != 'none' AND (register BETWEEN :start AND :end)");
+    $stmt->execute([':start' => $startTs, ':end' => $endTs]);
+    $users = (int) ($stmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0);
+
+    $orderSum = (float) ($orders['sum'] ?? 0);
+    $extendSum = (float) ($extends['sum'] ?? 0);
+    $extraVolumeSum = (float) ($extraVolume['sum'] ?? 0);
+    $extraTimeSum = (float) ($extraTime['sum'] ?? 0);
+    $changeLocationSum = (float) ($changeLocation['sum'] ?? 0);
+
+    return [
+        'orders' => (int) ($orders['count'] ?? 0),
+        'orders_sum' => $orderSum,
+        'tests' => $tests,
+        'extends' => (int) ($extends['count'] ?? 0),
+        'extends_sum' => $extendSum,
+        'extra_volume' => (int) ($extraVolume['count'] ?? 0),
+        'extra_volume_sum' => $extraVolumeSum,
+        'extra_time' => (int) ($extraTime['count'] ?? 0),
+        'extra_time_sum' => $extraTimeSum,
+        'change_location' => (int) ($changeLocation['count'] ?? 0),
+        'change_location_sum' => $changeLocationSum,
+        'users' => $users,
+        'avg_join' => avg_join_to_first_purchase_label($pdo, $startTs, $endTs),
+        'total_count' => (int) ($orders['count'] ?? 0) + (int) ($extends['count'] ?? 0) + (int) ($extraVolume['count'] ?? 0) + (int) ($extraTime['count'] ?? 0) + (int) ($changeLocation['count'] ?? 0),
+        'total_sum' => $orderSum + $extendSum + $extraVolumeSum + $extraTimeSum + $changeLocationSum,
+    ];
+}
+
+function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = null): string
+{
+    $rangeLine = $rangeLabel !== null && $rangeLabel !== ''
+        ? "\n⏳ بازه تایم : $rangeLabel\n"
+        : "\n";
+    $sumOrder = number_format($s['orders_sum'], 0);
+    $sumExtend = number_format($s['extends_sum'], 0);
+    $sumExtraVolume = number_format($s['extra_volume_sum'], 0);
+    $sumExtraTime = number_format($s['extra_time_sum'], 0);
+    $sumChange = number_format($s['change_location_sum'], 0);
+    $sumTotal = number_format($s['total_sum'], 0);
+
+    return "
+🕐 <b>$title</b>
+$rangeLine
+🛍 تعداد سفارشات : {$s['orders']} عدد
+💸 جمع مبلغ سفارشات  : $sumOrder تومان
+
+🧲 تعداد تمدید  : {$s['extends']} عدد
+💰 جمع مبلغ تمدید: $sumExtend تومان
+
+📦 حجم‌های اضافه  :{$s['extra_volume']} عدد
+💰 مبلغ حجم‌های اضافه : $sumExtraVolume تومان
+
+⏱️ زمان‌های اضافه  : {$s['extra_time']} عدد
+💰 مبلغ زمان‌های اضافه  : $sumExtraTime تومان
+
+📍 تغییر لوکیشن  : {$s['change_location']} عدد
+💰 مبلغ تغییر لوکیشن : $sumChange تومان
+
+📊 تعداد کل : {$s['total_count']} عدد
+💵 جمع مبلغ کل : $sumTotal تومان
+
+🔑 اکانت‌های تست  : {$s['tests']} عدد
+👤 تعداد کاربران  : {$s['users']} نفر
+⏱ میانگین زمان عضویت تا اولین خرید : {$s['avg_join']}
+";
+}
+
 function format_duration_fa(?float $seconds): string
 {
     if ($seconds === null || $seconds < 0) {
@@ -1341,6 +1671,9 @@ function channel(array $id_channel)
 }
 function isValidDate($date)
 {
+    if (isValidJalaliDate($date)) {
+        return true;
+    }
     return (strtotime($date) != false);
 }
 function trnado($order_id, $price)

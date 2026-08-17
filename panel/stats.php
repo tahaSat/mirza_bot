@@ -2,8 +2,10 @@
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/users_lib.php';
 require_once __DIR__ . '/inc/payments_lib.php';
+require_once dirname(__DIR__) . '/jdf.php';
 require_auth();
 $pdo = panel_ensure_pdo();
+date_default_timezone_set('Asia/Tehran');
 
 $metricDefs = [
     'sales' => 'فروش روزانه',
@@ -39,28 +41,55 @@ if (count($selected) > 2) {
     $selected = array_slice($selected, 0, 2);
 }
 
+$nowJalali = jalali_tehran_now_parts();
 $monthParam = preg_replace('/[^0-9\-]/', '', (string) ($_GET['month'] ?? ''));
-if (!preg_match('/^\d{4}-\d{2}$/', $monthParam)) {
-    $monthParam = date('Y-m');
+$monthRange = null;
+if (preg_match('/^(\d{4})-(\d{2})$/', $monthParam, $monthParts)) {
+    $monthYear = (int) $monthParts[1];
+    $monthNum = (int) $monthParts[2];
+    if ($monthYear >= 1700 && $monthNum >= 1 && $monthNum <= 12) {
+        $legacyStart = DateTimeImmutable::createFromFormat(
+            '!Y-n-j H:i:s',
+            sprintf('%04d-%d-01 00:00:00', $monthYear, $monthNum),
+            tehran_timezone()
+        );
+        if ($legacyStart instanceof DateTimeImmutable) {
+            $monthYear = (int) jalali_tehran_format($legacyStart->getTimestamp(), 'Y');
+            $monthNum = (int) jalali_tehran_format($legacyStart->getTimestamp(), 'n');
+        }
+    }
+    $monthRange = jalali_month_range($monthYear, $monthNum);
 }
-
-$monthStart = strtotime($monthParam . '-01 00:00:00');
-if ($monthStart === false) {
-    $monthParam = date('Y-m');
-    $monthStart = strtotime($monthParam . '-01 00:00:00');
+if ($monthRange === null) {
+    $monthRange = jalali_month_range($nowJalali['jy'], $nowJalali['jm']);
 }
-$daysInMonth = (int) date('t', $monthStart);
-$monthEnd = strtotime($monthParam . '-' . $daysInMonth . ' 23:59:59');
-$monthStartDt = date('Y/m/d', $monthStart) . ' 00:00:00';
-$monthEndDt = date('Y/m/d', $monthEnd) . ' 23:59:59';
+$monthParam = $monthRange['param'];
+$monthStart = $monthRange['start'];
+$monthEnd = $monthRange['end'];
+$daysInMonth = $monthRange['days'];
+$monthLabel = $monthRange['label'];
 
 $dayKeys = [];
 $dayLabels = [];
+$dayKeySet = [];
 for ($d = 1; $d <= $daysInMonth; $d++) {
     $key = sprintf('%s-%02d', $monthParam, $d);
     $dayKeys[] = $key;
     $dayLabels[] = (string) $d;
+    $dayKeySet[$key] = true;
 }
+
+$toJalaliDay = static function (?string $gregorianDay) use ($dayKeySet): ?string {
+    $key = gregorian_ymd_to_jalali_key((string) $gregorianDay);
+    return ($key !== null && isset($dayKeySet[$key])) ? $key : null;
+};
+
+$invoiceDaySql = sql_tehran_day_from_unix('CAST(time_sell AS UNSIGNED)');
+$registerDaySql = sql_tehran_day_from_unix('CAST(register AS UNSIGNED)');
+$unixTimeDaySql = sql_tehran_day_from_unix('CAST(time AS UNSIGNED)');
+$datetimeDaySql = "DATE_FORMAT(COALESCE(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'), STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')), '%Y-%m-%d')";
+$mixedTimeSql = sql_unix_or_datetime_between('time');
+$mixedTimeParams = [$monthStart, $monthEnd, tehran_datetime_string($monthStart, 'Y-m-d H:i:s'), tehran_datetime_string($monthEnd, 'Y-m-d H:i:s')];
 
 $userFilters = panel_user_segment_from_request();
 $userFiltersActive = panel_user_segment_active($userFilters);
@@ -70,9 +99,6 @@ $userOffset = ($userPage - 1) * $userPerPage;
 
 $paidInvoiceSql = panel_invoice_paid_sql('Status');
 $extendPaidSql = panel_extend_paid_sql();
-$extendEpochSql = panel_datetime_epoch_sql('time');
-$extendDaySql = "FROM_UNIXTIME(($extendEpochSql), '%Y-%m-%d')";
-$extendRangeSql = "($extendEpochSql) BETWEEN ? AND ?";
 
 $summary = [
     'orders' => 0,
@@ -122,14 +148,14 @@ try {
     $summary['extends'] = db_count(
         $pdo,
         "SELECT COUNT(*) FROM service_other
-         WHERE $extendPaidSql AND $extendRangeSql",
-        [$monthStart, $monthEnd]
+         WHERE $extendPaidSql AND $mixedTimeSql",
+        $mixedTimeParams
     );
     $summary['extend_revenue'] = (int) db_query(
         $pdo,
         "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM service_other
-         WHERE $extendPaidSql AND $extendRangeSql",
-        [$monthStart, $monthEnd]
+         WHERE $extendPaidSql AND $mixedTimeSql",
+        $mixedTimeParams
     )->fetchColumn();
     $summary['users'] = db_count(
         $pdo,
@@ -142,32 +168,23 @@ try {
         $pdo,
         "SELECT COUNT(*) FROM Payment_report
          WHERE payment_Status = 'paid'
-           AND (
-             (time REGEXP '^[0-9]+$' AND CAST(time AS UNSIGNED) BETWEEN ? AND ?)
-             OR (time NOT REGEXP '^[0-9]+$' AND STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s') BETWEEN ? AND ?)
-           )",
-        [$monthStart, $monthEnd, $monthStartDt, $monthEndDt]
+           AND $mixedTimeSql",
+        $mixedTimeParams
     );
     $summary['payment_sum'] = (int) db_query(
         $pdo,
         "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report
          WHERE payment_Status = 'paid'
-           AND (
-             (time REGEXP '^[0-9]+$' AND CAST(time AS UNSIGNED) BETWEEN ? AND ?)
-             OR (time NOT REGEXP '^[0-9]+$' AND STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s') BETWEEN ? AND ?)
-           )",
-        [$monthStart, $monthEnd, $monthStartDt, $monthEndDt]
+           AND $mixedTimeSql",
+        $mixedTimeParams
     )->fetchColumn();
     $summary['admin_credit_revenue'] = (int) db_query(
         $pdo,
         "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report
          WHERE payment_Status = 'paid'
            AND Payment_Method = 'add balance by admin'
-           AND (
-             (time REGEXP '^[0-9]+$' AND CAST(time AS UNSIGNED) BETWEEN ? AND ?)
-             OR (time NOT REGEXP '^[0-9]+$' AND STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s') BETWEEN ? AND ?)
-           )",
-        [$monthStart, $monthEnd, $monthStartDt, $monthEndDt]
+           AND $mixedTimeSql",
+        $mixedTimeParams
     )->fetchColumn();
     $joinBuy = avg_join_to_first_purchase($pdo, $monthStart, $monthEnd);
     $summary['avg_join_buy'] = $joinBuy['buyers'] > 0
@@ -211,7 +228,7 @@ if (in_array('sales', $selected, true)) {
         try {
             $rows = db_fetchAll(
                 $pdo,
-                "SELECT FROM_UNIXTIME(CAST(time_sell AS UNSIGNED), '%Y-%m-%d') AS day,
+                "SELECT $invoiceDaySql AS day,
                         COUNT(*) AS cnt,
                         COALESCE(SUM(CAST(price_product AS DECIMAL(20,0))),0) AS revenue
                  FROM invoice
@@ -223,8 +240,8 @@ if (in_array('sales', $selected, true)) {
                 [$monthStart, $monthEnd]
             );
             foreach ($rows as $row) {
-                $day = $row['day'] ?? '';
-                if (isset($buyByDay[$day])) {
+                $day = $toJalaliDay($row['day'] ?? '');
+                if ($day !== null) {
                     $buyByDay[$day] = [
                         'count' => (int) $row['cnt'],
                         'revenue' => (int) $row['revenue'],
@@ -239,18 +256,36 @@ if (in_array('sales', $selected, true)) {
         try {
             $rows = db_fetchAll(
                 $pdo,
-                "SELECT $extendDaySql AS day,
-                        COUNT(*) AS cnt,
-                        COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS revenue
-                 FROM service_other
-                 WHERE $extendPaidSql AND $extendRangeSql
+                "SELECT day, SUM(cnt) AS cnt, SUM(revenue) AS revenue FROM (
+                    SELECT $unixTimeDaySql AS day,
+                           COUNT(*) AS cnt,
+                           COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS revenue
+                    FROM service_other
+                    WHERE $extendPaidSql
+                      AND time REGEXP '^[0-9]{9,}$'
+                      AND CAST(time AS UNSIGNED) BETWEEN ? AND ?
+                    GROUP BY day
+                    UNION ALL
+                    SELECT $datetimeDaySql AS day,
+                           COUNT(*) AS cnt,
+                           COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS revenue
+                    FROM service_other
+                    WHERE $extendPaidSql
+                      AND time NOT REGEXP '^[0-9]{9,}$'
+                      AND COALESCE(
+                            STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
+                            STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
+                          ) BETWEEN ? AND ?
+                    GROUP BY day
+                 ) t
+                 WHERE day IS NOT NULL
                  GROUP BY day
                  ORDER BY day",
-                [$monthStart, $monthEnd]
+                $mixedTimeParams
             );
             foreach ($rows as $row) {
-                $day = $row['day'] ?? '';
-                if (isset($extendByDay[$day])) {
+                $day = $toJalaliDay($row['day'] ?? '');
+                if ($day !== null) {
                     $extendByDay[$day] = [
                         'count' => (int) $row['cnt'],
                         'revenue' => (int) $row['revenue'],
@@ -267,31 +302,34 @@ if (in_array('sales', $selected, true)) {
             $adminRows = db_fetchAll(
                 $pdo,
                 "SELECT day, SUM(total) AS total FROM (
-                    SELECT DATE_FORMAT(FROM_UNIXTIME(CAST(time AS UNSIGNED)), '%Y-%m-%d') AS day,
+                    SELECT $unixTimeDaySql AS day,
                            COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total
                     FROM Payment_report
                     WHERE payment_Status = 'paid'
                       AND Payment_Method = 'add balance by admin'
-                      AND time REGEXP '^[0-9]+$'
+                      AND time REGEXP '^[0-9]{9,}$'
                       AND CAST(time AS UNSIGNED) BETWEEN ? AND ?
                     GROUP BY day
                     UNION ALL
-                    SELECT DATE_FORMAT(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'), '%Y-%m-%d') AS day,
+                    SELECT $datetimeDaySql AS day,
                            COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total
                     FROM Payment_report
                     WHERE payment_Status = 'paid'
                       AND Payment_Method = 'add balance by admin'
-                      AND time NOT REGEXP '^[0-9]+$'
-                      AND STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s') BETWEEN ? AND ?
+                      AND time NOT REGEXP '^[0-9]{9,}$'
+                      AND COALESCE(
+                            STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
+                            STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
+                          ) BETWEEN ? AND ?
                     GROUP BY day
                  ) t
                  WHERE day IS NOT NULL
                  GROUP BY day",
-                [$monthStart, $monthEnd, $monthStartDt, $monthEndDt]
+                $mixedTimeParams
             );
             foreach ($adminRows as $row) {
-                $day = $row['day'] ?? '';
-                if (isset($adminByDay[$day])) {
+                $day = $toJalaliDay($row['day'] ?? '');
+                if ($day !== null) {
                     $adminByDay[$day] = (int) $row['total'];
                 }
             }
@@ -316,7 +354,7 @@ if (in_array('sales', $selected, true)) {
             }
             $tableRows[] = [
                 'group' => $metricDefs['sales'],
-                'label' => $key,
+                'label' => str_replace('-', '/', $key),
                 'count' => $dayCount,
                 'extra' => $extra,
             ];
@@ -366,7 +404,7 @@ if (in_array('users', $selected, true)) {
     try {
         $rows = db_fetchAll(
             $pdo,
-            "SELECT FROM_UNIXTIME(CAST(register AS UNSIGNED), '%Y-%m-%d') AS day, COUNT(*) AS cnt
+            "SELECT $registerDaySql AS day, COUNT(*) AS cnt
              FROM user
              WHERE register REGEXP '^[0-9]+$'
                AND CAST(register AS UNSIGNED) BETWEEN ? AND ?
@@ -375,8 +413,8 @@ if (in_array('users', $selected, true)) {
             [$monthStart, $monthEnd]
         );
         foreach ($rows as $row) {
-            $day = $row['day'] ?? '';
-            if (isset($byDay[$day])) {
+            $day = $toJalaliDay($row['day'] ?? '');
+            if ($day !== null) {
                 $byDay[$day] = (int) $row['cnt'];
             }
         }
@@ -389,7 +427,7 @@ if (in_array('users', $selected, true)) {
         if ($byDay[$key] > 0) {
             $tableRows[] = [
                 'group' => $metricDefs['users'],
-                'label' => $key,
+                'label' => str_replace('-', '/', $key),
                 'count' => $byDay[$key],
                 'extra' => 'کاربر',
             ];
@@ -413,7 +451,7 @@ if (in_array('status', $selected, true)) {
     try {
         $rows = db_fetchAll(
             $pdo,
-            "SELECT FROM_UNIXTIME(CAST(time_sell AS UNSIGNED), '%Y-%m-%d') AS day,
+            "SELECT $invoiceDaySql AS day,
                     COALESCE(Status, '') AS st,
                     COUNT(*) AS cnt
              FROM invoice
@@ -432,8 +470,8 @@ if (in_array('status', $selected, true)) {
                 $byStatus[$st] = array_fill_keys($dayKeys, 0);
                 $statusKeys[] = $st;
             }
-            $day = $row['day'] ?? '';
-            if (isset($byStatus[$st][$day])) {
+            $day = $toJalaliDay($row['day'] ?? '');
+            if ($day !== null) {
                 $byStatus[$st][$day] = (int) $row['cnt'];
             }
         }
@@ -481,30 +519,33 @@ if (in_array('payments', $selected, true)) {
         $rows = db_fetchAll(
             $pdo,
             "SELECT day, method, SUM(cnt) AS cnt, SUM(total) AS total FROM (
-                SELECT DATE_FORMAT(FROM_UNIXTIME(CAST(time AS UNSIGNED)), '%Y-%m-%d') AS day,
+                SELECT $unixTimeDaySql AS day,
                        Payment_Method AS method,
                        COUNT(*) AS cnt,
                        COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total
                 FROM Payment_report
                 WHERE payment_Status = 'paid'
-                  AND time REGEXP '^[0-9]+$'
+                  AND time REGEXP '^[0-9]{9,}$'
                   AND CAST(time AS UNSIGNED) BETWEEN ? AND ?
                 GROUP BY day, method
                 UNION ALL
-                SELECT DATE_FORMAT(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'), '%Y-%m-%d') AS day,
+                SELECT $datetimeDaySql AS day,
                        Payment_Method AS method,
                        COUNT(*) AS cnt,
                        COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total
                 FROM Payment_report
                 WHERE payment_Status = 'paid'
-                  AND time NOT REGEXP '^[0-9]+$'
-                  AND STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s') BETWEEN ? AND ?
+                  AND time NOT REGEXP '^[0-9]{9,}$'
+                  AND COALESCE(
+                        STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
+                        STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
+                      ) BETWEEN ? AND ?
                 GROUP BY day, method
              ) t
              WHERE day IS NOT NULL
              GROUP BY day, method
              ORDER BY day",
-            [$monthStart, $monthEnd, $monthStartDt, $monthEndDt]
+            $mixedTimeParams
         );
         foreach ($rows as $row) {
             $method = (string) ($row['method'] ?? '');
@@ -519,8 +560,8 @@ if (in_array('payments', $selected, true)) {
                 ];
                 $methods[] = $method;
             }
-            $day = $row['day'] ?? '';
-            if (isset($byMethod[$method]['days'][$day])) {
+            $day = $toJalaliDay($row['day'] ?? '');
+            if ($day !== null) {
                 $byMethod[$method]['days'][$day] = (int) $row['cnt'];
             }
             $byMethod[$method]['sum'] += (int) $row['total'];
@@ -591,9 +632,12 @@ $chartPayload['stacked'] = $hasStacked;
 
 $monthOptions = [];
 for ($i = 0; $i < 18; $i++) {
-    $ts = strtotime(date('Y-m-01') . " -$i months");
-    $val = date('Y-m', $ts);
-    $monthOptions[$val] = date('Y/m', $ts);
+    [$optYear, $optMonth] = jalali_add_months($nowJalali['jy'], $nowJalali['jm'], -$i);
+    $optRange = jalali_month_range($optYear, $optMonth);
+    if ($optRange === null) {
+        continue;
+    }
+    $monthOptions[$optRange['param']] = $optRange['label'];
 }
 
 $viewsQuery = implode(',', $selected);
@@ -632,7 +676,7 @@ $statsUrl = static function (array $overrides = []) use ($selected, $monthParam,
 };
 
 $pageTitle = 'آمار';
-$pageLede = 'فروش پرداخت‌شده (خرید و تمدید)، کاربران و روش پرداخت. فیلترها را می‌توان با هم ترکیب کرد.';
+$pageLede = 'فروش پرداخت‌شده (خرید و تمدید)، کاربران و روش پرداخت بر اساس ماه شمسی و ساعت تهران.';
 $activeNav = 'stats';
 include __DIR__ . '/inc/layout_head.php';
 
@@ -768,7 +812,7 @@ if ($userFilters['min_extends'] !== null) {
   <div class="card-head">
     <div>
       <div class="card-title"><?= htmlspecialchars($chartTitle) ?></div>
-      <div class="card-subtitle">ماه <?= htmlspecialchars(date('Y/m', $monthStart)) ?> — به تفکیک روز</div>
+      <div class="card-subtitle">ماه <?= htmlspecialchars($monthLabel) ?> — به تفکیک روز شمسی (تهران)</div>
     </div>
   </div>
   <?php if (empty($chartPayload['datasets'])): ?>
@@ -923,7 +967,9 @@ if ($userFilters['min_extends'] !== null) {
               </div>
               <div class="data-field">
                 <span class="data-field-label">ثبت‌نام</span>
-                <span class="data-field-val"><?= safe_date($u['register'] ?? null) ?></span>
+                <span class="data-field-val"><?= is_numeric($u['register'] ?? null)
+                    ? jalali_tehran_format((int) $u['register'], 'Y/m/d', 'fa')
+                    : safe_date($u['register'] ?? null) ?></span>
               </div>
             </div>
           </div>

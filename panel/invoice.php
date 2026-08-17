@@ -93,52 +93,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
  */
 function invoice_jalali_tehran_timestamp(string $date, string $time, bool $endOfDay = false): ?int
 {
-  $date = trim((string) tr_num($date, 'en'));
-  $time = trim((string) tr_num($time, 'en'));
-
-  if (!preg_match('/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/', $date, $dateParts)) {
-    return null;
-  }
-
-  if ($time === '') {
-    $time = $endOfDay ? '23:59:59' : '00:00:00';
-  } elseif (preg_match('/^\d{1,2}:\d{2}$/', $time)) {
-    $time .= ':00';
-  }
-
-  if (!preg_match('/^(\d{1,2}):(\d{2}):(\d{2})$/', $time, $timeParts)) {
-    return null;
-  }
-
-  [$jy, $jm, $jd] = [(int) $dateParts[1], (int) $dateParts[2], (int) $dateParts[3]];
-  [$hour, $minute, $second] = [(int) $timeParts[1], (int) $timeParts[2], (int) $timeParts[3]];
-  if ($jm < 1 || $jm > 12 || $jd < 1 || $jd > 31 || $hour > 23 || $minute > 59 || $second > 59) {
-    return null;
-  }
-
-  [$gy, $gm, $gd] = jalali_to_gregorian($jy, $jm, $jd);
-  if (!checkdate($gm, $gd, $gy) || gregorian_to_jalali($gy, $gm, $gd) !== [$jy, $jm, $jd]) {
-    return null;
-  }
-
-  $tehran = new DateTimeZone('Asia/Tehran');
-  $dateTime = DateTimeImmutable::createFromFormat(
-    '!Y-n-j H:i:s',
-    "$gy-$gm-$gd " . sprintf('%02d:%02d:%02d', $hour, $minute, $second),
-    $tehran
-  );
-
-  return $dateTime instanceof DateTimeImmutable ? $dateTime->getTimestamp() : null;
+  return jalali_tehran_timestamp($date, $time, $endOfDay);
 }
 
 function invoice_parse_jalali_filter(string $value, bool $endOfDay = false): ?int
 {
-  $value = trim((string) tr_num($value, 'en'));
-  if (!preg_match('/^(\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?$/', $value, $parts)) {
-    return null;
-  }
-
-  return invoice_jalali_tehran_timestamp($parts[1], $parts[2] ?? '', $endOfDay);
+  return jalali_tehran_parse($value, $endOfDay);
 }
 
 $fromTimestamp = null;

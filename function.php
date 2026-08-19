@@ -597,8 +597,18 @@ function sql_tehran_day_from_unix(string $unixExpr): string
     ), '%Y-%m-%d')";
 }
 
+function bot_payment_wallet_recharge_sql(): string
+{
+    return "payment_Status = 'paid'
+        AND COALESCE(Payment_Method,'') NOT IN ('add balance by admin','low balance by admin','cost')
+        AND COALESCE(id_invoice,'') != 'cost'
+        AND TRIM(SUBSTRING_INDEX(COALESCE(id_invoice,''), '|', 1)) NOT IN (
+            'getconfigafterpay','getextenduser','getextravolumeuser','getextratimeuser'
+        )";
+}
+
 /**
- * @return array{orders:int,orders_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,users:int,avg_join:string,total_count:int,total_sum:float}
+ * @return array{orders:int,orders_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,users:int,avg_join:string,total_count:int,total_sum:float}
  */
 function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
 {
@@ -607,6 +617,7 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
     $mixedTime = sql_unix_or_datetime_between('time');
     $mixedParams = [$startTs, $endTs, $startDt, $endDt];
     $paidSql = invoice_paid_status_sql('Status');
+    $walletSql = bot_payment_wallet_recharge_sql();
 
     $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price_product),0) AS sum FROM invoice WHERE (time_sell BETWEEN :start AND :end) AND $paidSql AND name_product != 'سرویس تست'");
     $stmt->execute([':start' => $startTs, ':end' => $endTs]);
@@ -632,6 +643,10 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
     $stmt->execute($mixedParams);
     $changeLocation = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
 
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS sum FROM Payment_report WHERE $mixedTime AND $walletSql");
+    $stmt->execute($mixedParams);
+    $wallet = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
+
     $stmt = $pdo->prepare("SELECT COUNT(*) AS count FROM user WHERE register != 'none' AND (register BETWEEN :start AND :end)");
     $stmt->execute([':start' => $startTs, ':end' => $endTs]);
     $users = (int) ($stmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0);
@@ -641,6 +656,8 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
     $extraVolumeSum = (float) ($extraVolume['sum'] ?? 0);
     $extraTimeSum = (float) ($extraTime['sum'] ?? 0);
     $changeLocationSum = (float) ($changeLocation['sum'] ?? 0);
+    $walletSum = (float) ($wallet['sum'] ?? 0);
+    $walletCount = (int) ($wallet['count'] ?? 0);
 
     return [
         'orders' => (int) ($orders['count'] ?? 0),
@@ -654,10 +671,12 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
         'extra_time_sum' => $extraTimeSum,
         'change_location' => (int) ($changeLocation['count'] ?? 0),
         'change_location_sum' => $changeLocationSum,
+        'wallet' => $walletCount,
+        'wallet_sum' => $walletSum,
         'users' => $users,
         'avg_join' => avg_join_to_first_purchase_label($pdo, $startTs, $endTs),
-        'total_count' => (int) ($orders['count'] ?? 0) + (int) ($extends['count'] ?? 0) + (int) ($extraVolume['count'] ?? 0) + (int) ($extraTime['count'] ?? 0) + (int) ($changeLocation['count'] ?? 0),
-        'total_sum' => $orderSum + $extendSum + $extraVolumeSum + $extraTimeSum + $changeLocationSum,
+        'total_count' => (int) ($orders['count'] ?? 0) + (int) ($extends['count'] ?? 0) + (int) ($extraVolume['count'] ?? 0) + (int) ($extraTime['count'] ?? 0) + (int) ($changeLocation['count'] ?? 0) + $walletCount,
+        'total_sum' => $orderSum + $extendSum + $extraVolumeSum + $extraTimeSum + $changeLocationSum + $walletSum,
     ];
 }
 
@@ -671,6 +690,8 @@ function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = 
     $sumExtraVolume = number_format($s['extra_volume_sum'], 0);
     $sumExtraTime = number_format($s['extra_time_sum'], 0);
     $sumChange = number_format($s['change_location_sum'], 0);
+    $walletCount = (int) ($s['wallet'] ?? 0);
+    $sumWallet = number_format((float) ($s['wallet_sum'] ?? 0), 0);
     $sumTotal = number_format($s['total_sum'], 0);
 
     return "
@@ -690,6 +711,9 @@ $rangeLine
 
 📍 تغییر لوکیشن  : {$s['change_location']} عدد
 💰 مبلغ تغییر لوکیشن : $sumChange تومان
+
+💳 شارژ کیف پول : $walletCount عدد
+💰 مبلغ شارژ کیف پول : $sumWallet تومان
 
 📊 تعداد کل : {$s['total_count']} عدد
 💵 جمع مبلغ کل : $sumTotal تومان

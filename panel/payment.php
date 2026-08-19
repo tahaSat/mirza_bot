@@ -28,7 +28,7 @@ function payment_redirect_url(string $tab, array $extra = []): string
         'method' => $extra['method'] ?? '',
         'page' => $extra['page'] ?? '',
     ], static fn($v) => $v !== null && $v !== '');
-    return $qs ? ('payment.php?' . http_build_query($qs)) : 'payment.php';
+    return $qs ? ('payment.php?' . http_build_query($qs, '', '&', PHP_QUERY_RFC3986)) : 'payment.php';
 }
 
 function payment_shared_filter_clauses(
@@ -532,7 +532,7 @@ include __DIR__ . '/inc/layout_head.php';
             if (($p['Payment_Method'] ?? '') === 'manual invoice') {
                 [$cls, $lbl] = ['tag-mint', 'فاکتور دستی'];
             }
-            $method = panel_payment_method_label($p['Payment_Method'] ?? '');
+            $methodLabel = panel_payment_method_label($p['Payment_Method'] ?? '');
             $oid = $p['id_order'] ?? '';
             $hasProduct = strncmp((string) ($p['id_invoice'] ?? ''), 'getconfigafterpay|', 18) === 0;
             $uid = trim((string) ($p['id_user'] ?? ''));
@@ -556,7 +556,7 @@ include __DIR__ . '/inc/layout_head.php';
               </td>
               <td class="cell-strong cell-num"><?= number_format((int) ($p['price'] ?? 0)) ?> <span
                   style="color:var(--text-dim);font-weight:400;font-size:.72rem">ت</span></td>
-              <td style="font-size:.8rem"><?= htmlspecialchars($method) ?></td>
+              <td style="font-size:.8rem"><?= htmlspecialchars($methodLabel) ?></td>
               <td style="font-size:.78rem;max-width:180px" title="<?= htmlspecialchars($note) ?>">
                 <?= $note !== '' ? htmlspecialchars(trunc($note, 40)) : '<span style="color:var(--text-dim)">—</span>' ?>
               </td>
@@ -609,10 +609,11 @@ include __DIR__ . '/inc/layout_head.php';
     <span><?= number_format($total) ?> رکورد · صفحه <?= $page ?> از <?= $totalPages ?></span>
     <div class="pager">
       <?php
-      if ($tab === 'pending') {
-          $base = 'payment.php?tab=pending';
-      } else {
-          $base = payment_redirect_url($tab, [
+      $qs = static function (int $p) use ($tab, $search, $status, $priceMin, $priceMax, $fromInput, $toInput, $method): string {
+          if ($tab === 'pending') {
+              return htmlspecialchars('payment.php?tab=pending&page=' . $p, ENT_QUOTES);
+          }
+          return htmlspecialchars(payment_redirect_url($tab, [
               'q' => $search,
               'status' => $status,
               'price_min' => $priceMin,
@@ -620,15 +621,15 @@ include __DIR__ . '/inc/layout_head.php';
               'from' => $fromInput,
               'to' => $toInput,
               'method' => $method,
-          ]);
-      }
-      $qs = fn($p) => $base . (str_contains($base, '?') ? '&' : '?') . 'page=' . $p;
+              'page' => $p,
+          ]), ENT_QUOTES);
+      };
       ?>
-      <a class="<?= $page <= 1 ? 'disabled' : '' ?>" href="<?= $qs(max(1, $page - 1)) ?>">‹</a>
+      <a class="<?= $page <= 1 ? 'dis' : '' ?>" href="<?= $qs(max(1, $page - 1)) ?>">‹</a>
       <?php for ($p2 = max(1, $page - 2); $p2 <= min($totalPages, $page + 2); $p2++): ?>
-        <a class="<?= $p2 === $page ? 'active' : '' ?>" href="<?= $qs($p2) ?>"><?= $p2 ?></a>
+        <a class="<?= $p2 === $page ? 'cur' : '' ?>" href="<?= $qs($p2) ?>"><?= $p2 ?></a>
       <?php endfor; ?>
-      <a class="<?= $page >= $totalPages ? 'disabled' : '' ?>" href="<?= $qs(min($totalPages, $page + 1)) ?>">›</a>
+      <a class="<?= $page >= $totalPages ? 'dis' : '' ?>" href="<?= $qs(min($totalPages, $page + 1)) ?>">›</a>
     </div>
   </div>
   <?php endif; ?>

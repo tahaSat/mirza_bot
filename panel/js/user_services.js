@@ -2,6 +2,7 @@
     var panelSelect = document.getElementById('servicePanel');
     var productSelect = document.getElementById('serviceProduct');
     var products = window.__serviceProducts || [];
+    var usageCfg = window.__serviceUsage || {};
 
     function fillProducts(panel) {
         if (!productSelect) return;
@@ -34,6 +35,49 @@
             fillProducts(panelSelect.value);
         });
     }
+
+    function setUsageCell(el, text) {
+        if (!el) return;
+        el.textContent = text || '—';
+    }
+
+    function loadRowUsage(row) {
+        var invoiceId = row.getAttribute('data-invoice') || '';
+        var volEl = row.querySelector('.js-usage-volume');
+        var timeEl = row.querySelector('.js-usage-time');
+        if (!invoiceId || !usageCfg.userId || !usageCfg.csrf) {
+            setUsageCell(volEl, '—');
+            setUsageCell(timeEl, '—');
+            return;
+        }
+        var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+        var timer = setTimeout(function () {
+            if (ctrl) ctrl.abort();
+        }, 8000);
+        var url = 'user_service_usage.php?user_id=' + encodeURIComponent(usageCfg.userId)
+            + '&id_invoice=' + encodeURIComponent(invoiceId)
+            + '&_csrf=' + encodeURIComponent(usageCfg.csrf);
+        var opts = { credentials: 'same-origin' };
+        if (ctrl) opts.signal = ctrl.signal;
+        fetch(url, opts).then(function (res) {
+            return res.json().then(function (data) {
+                return { okHttp: res.ok, data: data };
+            }).catch(function () {
+                return { okHttp: false, data: null };
+            });
+        }).then(function (result) {
+            var data = result && result.data ? result.data : {};
+            setUsageCell(volEl, data.usage_volume || '—');
+            setUsageCell(timeEl, data.usage_time || '—');
+        }).catch(function () {
+            setUsageCell(volEl, '—');
+            setUsageCell(timeEl, '—');
+        }).then(function () {
+            clearTimeout(timer);
+        });
+    }
+
+    document.querySelectorAll('tr[data-invoice]').forEach(loadRowUsage);
 
     document.querySelectorAll('.btn-remove-service').forEach(function (btn) {
         btn.addEventListener('click', function () {

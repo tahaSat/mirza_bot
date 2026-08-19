@@ -305,6 +305,86 @@ function panel_format_remaining_time($expireTs): string
 }
 
 /**
+ * Format live panel data into table display strings.
+ *
+ * @param array<string,mixed>|null $live
+ * @return array{usage_volume:string,usage_time:string}
+ */
+function panel_format_live_usage(?array $live): array
+{
+    $out = ['usage_volume' => '—', 'usage_time' => '—'];
+    if (!is_array($live) || ($live['status'] ?? '') === 'Unsuccessful') {
+        return $out;
+    }
+
+    $usedBytes = isset($live['used_traffic']) && is_numeric($live['used_traffic'])
+        ? (float) $live['used_traffic']
+        : 0.0;
+    $limitBytes = isset($live['data_limit']) && is_numeric($live['data_limit'])
+        ? (float) $live['data_limit']
+        : 0.0;
+    $usedGb = panel_format_traffic_gb($usedBytes);
+    if ($limitBytes > 0) {
+        $out['usage_volume'] = $usedGb . ' / ' . panel_format_traffic_gb($limitBytes) . ' گیگ';
+    } else {
+        $out['usage_volume'] = $usedGb . ' گیگ / نامحدود';
+    }
+    $out['usage_time'] = panel_format_remaining_time($live['expire'] ?? null);
+    return $out;
+}
+
+function panel_usage_bootstrap(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $root = dirname(__DIR__, 2);
+    if (!class_exists('ManagePanel', false)) {
+        require_once $root . '/panels.php';
+    }
+    global $ManagePanel;
+    if (!isset($ManagePanel) || !is_object($ManagePanel)) {
+        $ManagePanel = new ManagePanel();
+    }
+    $done = true;
+}
+
+/**
+ * Fetch used traffic + remaining time from the VPN panel (no sub/config download).
+ *
+ * @return array{usage_volume:string,usage_time:string}
+ */
+function panel_fetch_service_usage_live(string $panel, string $username): array
+{
+    $empty = ['usage_volume' => '—', 'usage_time' => '—'];
+    if ($panel === '' || $username === '') {
+        return $empty;
+    }
+
+    try {
+        panel_usage_bootstrap();
+    } catch (Throwable $e) {
+        error_log('panel_fetch_service_usage_live bootstrap: ' . $e->getMessage());
+        return $empty;
+    }
+
+    global $ManagePanel, $request_exec_timeout;
+    $prevTimeout = $request_exec_timeout ?? null;
+    $request_exec_timeout = 2500;
+
+    try {
+        $live = $ManagePanel->DataUser($panel, $username, true);
+        return panel_format_live_usage(is_array($live) ? $live : null);
+    } catch (Throwable $e) {
+        error_log('panel_fetch_service_usage_live DataUser: ' . $e->getMessage());
+        return $empty;
+    } finally {
+        $request_exec_timeout = $prevTimeout;
+    }
+}
+
+/**
  * Attach live panel usage (used/total GB + remaining time) to invoice rows.
  *
  * @param list<array<string,mixed>> $services
@@ -312,77 +392,15 @@ function panel_format_remaining_time($expireTs): string
  */
 function panel_enrich_services_usage(array $services): array
 {
-    if ($services === []) {
-        return $services;
-    }
-
-    @set_time_limit(120);
-
-    try {
-        panel_service_bootstrap();
-    } catch (Throwable $e) {
-        error_log('panel_enrich_services_usage bootstrap: ' . $e->getMessage());
-        foreach ($services as &$svc) {
-            $svc['usage_volume'] = '—';
-            $svc['usage_time'] = '—';
-        }
-        unset($svc);
-        return $services;
-    }
-
-    global $ManagePanel;
-    try {
-        if (!isset($ManagePanel) || !is_object($ManagePanel)) {
-            if (!class_exists('ManagePanel', false)) {
-                throw new RuntimeException('ManagePanel class missing after bootstrap');
-            }
-            $ManagePanel = new ManagePanel();
-        }
-    } catch (Throwable $e) {
-        error_log('panel_enrich_services_usage ManagePanel: ' . $e->getMessage());
-        foreach ($services as &$svc) {
-            $svc['usage_volume'] = '—';
-            $svc['usage_time'] = '—';
-        }
-        unset($svc);
-        return $services;
-    }
-
     foreach ($services as &$svc) {
-        $panel = (string) ($svc['Service_location'] ?? '');
-        $username = (string) ($svc['username'] ?? '');
-        $svc['usage_volume'] = '—';
-        $svc['usage_time'] = '—';
-        if ($panel === '' || $username === '') {
-            continue;
-        }
-        try {
-            $live = $ManagePanel->DataUser($panel, $username);
-        } catch (Throwable $e) {
-            error_log('panel_enrich_services_usage DataUser: ' . $e->getMessage());
-            continue;
-        }
-        if (!is_array($live) || ($live['status'] ?? '') === 'Unsuccessful') {
-            continue;
-        }
-
-        $usedBytes = isset($live['used_traffic']) && is_numeric($live['used_traffic'])
-            ? (float) $live['used_traffic']
-            : 0.0;
-        $limitBytes = isset($live['data_limit']) && is_numeric($live['data_limit'])
-            ? (float) $live['data_limit']
-            : 0.0;
-        $usedGb = panel_format_traffic_gb($usedBytes);
-        if ($limitBytes > 0) {
-            $svc['usage_volume'] = $usedGb . ' / ' . panel_format_traffic_gb($limitBytes) . ' گیگ';
-        } else {
-            $svc['usage_volume'] = $usedGb . ' گیگ / نامحدود';
-        }
-
-        $svc['usage_time'] = panel_format_remaining_time($live['expire'] ?? null);
+        $formatted = panel_fetch_service_usage_live(
+            (string) ($svc['Service_location'] ?? ''),
+            (string) ($svc['username'] ?? '')
+        );
+        $svc['usage_volume'] = $formatted['usage_volume'];
+        $svc['usage_time'] = $formatted['usage_time'];
     }
     unset($svc);
-
     return $services;
 }
 

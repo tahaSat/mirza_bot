@@ -22,7 +22,7 @@ $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 10;
 $offset = ($page - 1) * $perPage;
 $total = panel_count_user_services($pdo, $id);
-$services = panel_enrich_services_usage(panel_fetch_user_services($pdo, $id, $perPage, $offset));
+$services = panel_fetch_user_services($pdo, $id, $perPage, $offset);
 $totalPages = max(1, (int) ceil($total / $perPage));
 
 $panels = [];
@@ -96,7 +96,7 @@ include __DIR__ . '/inc/layout_head.php';
                     foreach ($services as $svc):
                         [$tagClass, $label] = panel_invoice_status_label(panel_invoice_get_status($svc));
                         ?>
-                        <tr>
+                        <tr data-invoice="<?= htmlspecialchars($svc['id_invoice'] ?? '') ?>">
                             <td class="cf"><?= $i++ ?></td>
                             <td>
                                 <span class="cm" style="color:var(--ac)"><?= htmlspecialchars($svc['username'] ?? '—') ?></span>
@@ -106,8 +106,8 @@ include __DIR__ . '/inc/layout_head.php';
                             </td>
                             <td class="cs"><?= htmlspecialchars(trunc($svc['name_product'] ?? '—', 24)) ?></td>
                             <td class="cf"><?= htmlspecialchars($svc['Service_location'] ?? '—') ?></td>
-                            <td class="cn cf"><?= htmlspecialchars($svc['usage_volume'] ?? '—') ?></td>
-                            <td class="cn cf"><?= htmlspecialchars($svc['usage_time'] ?? '—') ?></td>
+                            <td class="cn cf js-usage-volume"><span class="usage-pending" aria-label="در حال بارگذاری"></span></td>
+                            <td class="cn cf js-usage-time"><span class="usage-pending" aria-hidden="true"></span></td>
                             <td class="cf"><?= safe_date($svc['time_sell'] ?? null, 'Y/m/d') ?></td>
                             <td><span class="tag <?= $tagClass ?>"><?= $label ?></span></td>
                             <td>
@@ -255,7 +255,14 @@ include __DIR__ . '/inc/layout_head.php';
 
 <script>
 window.__serviceProducts = <?= json_encode($products, JSON_UNESCAPED_UNICODE) ?>;
+window.__serviceUsage = {
+    userId: <?= (int) $id ?>,
+    csrf: <?= json_encode(csrf_token(), JSON_UNESCAPED_UNICODE) ?>
+};
 </script>
+<style>
+.usage-pending{display:inline-block;width:12px;height:12px;border:2px solid var(--line,#334155);border-top-color:var(--ac,#38bdf8);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
+</style>
 <script src="<?= htmlspecialchars(panel_asset('js/user_services.js')) ?>"></script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

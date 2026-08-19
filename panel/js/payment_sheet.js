@@ -139,6 +139,37 @@
     });
   }
 
+  function toEnDigits(str) {
+    return String(str == null ? '' : str)
+      .replace(/[۰-۹]/g, function (d) { return String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)); })
+      .replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); });
+  }
+
+  function parsePrice(str) {
+    return toEnDigits(str).replace(/[^\d]/g, '');
+  }
+
+  function formatPrice(str) {
+    var digits = parsePrice(str);
+    if (!digits) return '';
+    return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  function formatPriceInput(input) {
+    if (!input) return;
+    var start = input.selectionStart;
+    var before = parsePrice(input.value.slice(0, start)).length;
+    var formatted = formatPrice(input.value);
+    input.value = formatted;
+    var pos = 0;
+    var seen = 0;
+    while (pos < formatted.length && seen < before) {
+      if (/\d/.test(formatted.charAt(pos))) seen++;
+      pos++;
+    }
+    try { input.setSelectionRange(pos, pos); } catch (e) {}
+  }
+
   function collectRow(row) {
     var methodVal = row.querySelector('.pay-method-value');
     var statusVal = row.querySelector('.pay-status-value');
@@ -146,7 +177,7 @@
     return {
       order_id: row.dataset.orderId || '',
       id_user: (row.querySelector('.pay-user-input') || {}).value || '',
-      amount: (row.querySelector('.pay-price-input') || {}).value || '',
+      amount: parsePrice((row.querySelector('.pay-price-input') || {}).value || ''),
       payment_method: isCost ? 'cost' : (methodVal ? methodVal.value : (row.dataset.method || '')),
       note: (row.querySelector('.pay-note-input') || {}).value || '',
       time: (row.querySelector('.pay-time-input') || {}).value || '',
@@ -202,7 +233,7 @@
 
     var priceInput = row.querySelector('.pay-price-input');
     var priceView = row.querySelector('.pay-price-view');
-    if (priceInput) priceInput.value = data.price || '';
+    if (priceInput) priceInput.value = formatPrice(String(data.price || ''));
     if (priceView) {
       priceView.innerHTML = escapeHtml(data.price_fmt || '0')
         + ' <span style="color:var(--text-dim);font-weight:400;font-size:.72rem">ت</span>';
@@ -426,10 +457,10 @@
     tr.innerHTML =
       '<td class="pay-idx" style="color:var(--text-dim)">—</td>'
       + '<td><span class="pay-view pay-user-view"><span style="color:var(--text-dim)">بدون کاربر</span></span>'
-      + '<input class="input pay-edit pay-cell-input pay-user-input" type="text" value="" placeholder="آیدی کاربر"></td>'
+      + '<input class="input pay-edit pay-cell-input pay-user-input" type="text" value="" placeholder="آیدی یا یوزرنیم" autocomplete="off"></td>'
       + '<td class="cell-mono pay-oid">' + escapeHtml(oid) + '</td>'
       + '<td><span class="pay-view cell-strong cell-num pay-price-view">0 <span style="color:var(--text-dim);font-weight:400;font-size:.72rem">ت</span></span>'
-      + '<input class="input pay-edit pay-cell-input pay-price-input" type="number" min="1" step="1" value=""></td>'
+      + '<input class="input pay-edit pay-cell-input pay-price-input" type="text" inputmode="numeric" dir="ltr" autocomplete="off" placeholder="0" value=""></td>'
       + '<td class="pay-method-view">' + methodCell + '</td>'
       + '<td><span class="pay-view pay-note-view"><span style="color:var(--text-dim)">—</span></span>'
       + '<input class="input pay-edit pay-cell-input pay-note-input" type="text" value="" placeholder="یادداشت"></td>'
@@ -471,6 +502,7 @@
       var value = btn.getAttribute('data-value') || '';
       if (row && kind === 'status') applyStatusChoice(row, value);
       else if (row && kind === 'method') applyMethodChoice(row, value);
+      else if (row && kind === 'user') applyUserChoice(row, value);
     });
     document.body.appendChild(menu);
     return menu;
@@ -553,6 +585,114 @@
     saveMethod(row);
   }
 
+  function applyUserChoice(row, id) {
+    var input = row.querySelector('.pay-user-input');
+    if (input) {
+      input.value = id || '';
+      input.focus();
+    }
+    closePickers();
+  }
+
+  function userResultsHtml(users) {
+    if (!users.length) {
+      return '<div class="pay-sheet-menu-empty">کاربری یافت نشد</div>';
+    }
+    return users.map(function (u, i) {
+      var username = u.username || '';
+      var name = u.name || '';
+      var title = username ? '@' + username : (name || ('کاربر #' + u.id));
+      var meta = [];
+      if (username && name) meta.push(name);
+      meta.push(u.id);
+      return '<button type="button" class="pay-sheet-menu-item pay-user-item' + (i === 0 ? ' active' : '') + '" data-value="'
+        + escapeHtml(u.id) + '"><span class="pay-user-item-title">' + escapeHtml(title)
+        + '</span><span class="pay-user-item-meta">' + escapeHtml(meta.join(' · ')) + '</span></button>';
+    }).join('');
+  }
+
+  var userSearchTimer = null;
+  var userSearchSeq = 0;
+
+  function showUserResults(row, input, users) {
+    var menu = ensureMenu();
+    menu.innerHTML = userResultsHtml(users);
+    menu._payRow = row;
+    menu._payKind = 'user';
+    positionMenu(menu, input);
+  }
+
+  function scheduleUserSearch(input) {
+    var row = input.closest('.pay-sheet-row');
+    if (!row) return;
+    var q = String(input.value || '').trim().replace(/^@+/, '');
+    clearTimeout(userSearchTimer);
+    if (q.length < 1) {
+      var menu = document.getElementById('paySheetMenu');
+      if (menu && menu._payKind === 'user') closePickers();
+      return;
+    }
+    userSearchTimer = setTimeout(function () {
+      var seq = ++userSearchSeq;
+      postForm('search_users', { q: q }).then(function (data) {
+        if (seq !== userSearchSeq) return;
+        if (document.activeElement !== input) return;
+        showUserResults(row, input, data.users || []);
+      }).catch(function () {});
+    }, 200);
+  }
+
+  function moveUserHighlight(delta) {
+    var menu = document.getElementById('paySheetMenu');
+    if (!menu || menu.hidden || menu._payKind !== 'user') return;
+    var items = menu.querySelectorAll('.pay-sheet-menu-item');
+    if (!items.length) return;
+    var idx = Array.prototype.findIndex.call(items, function (el) {
+      return el.classList.contains('active');
+    });
+    if (idx < 0) idx = 0;
+    else idx = (idx + delta + items.length) % items.length;
+    items.forEach(function (el) { el.classList.remove('active'); });
+    items[idx].classList.add('active');
+    if (items[idx].scrollIntoView) items[idx].scrollIntoView({ block: 'nearest' });
+  }
+
+  function selectHighlightedUser() {
+    var menu = document.getElementById('paySheetMenu');
+    if (!menu || menu.hidden || menu._payKind !== 'user' || !menu._payRow) return false;
+    var item = menu.querySelector('.pay-sheet-menu-item.active') || menu.querySelector('.pay-sheet-menu-item');
+    if (!item) return false;
+    applyUserChoice(menu._payRow, item.getAttribute('data-value') || '');
+    return true;
+  }
+
+  body.addEventListener('input', function (e) {
+    if (e.target.classList.contains('pay-price-input')) {
+      formatPriceInput(e.target);
+      return;
+    }
+    if (!e.target.classList.contains('pay-user-input')) return;
+    scheduleUserSearch(e.target);
+  });
+
+  body.addEventListener('focusin', function (e) {
+    if (!e.target.classList.contains('pay-user-input')) return;
+    if (String(e.target.value || '').trim()) scheduleUserSearch(e.target);
+  });
+
+  body.addEventListener('keydown', function (e) {
+    if (!e.target.classList.contains('pay-user-input')) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      moveUserHighlight(1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveUserHighlight(-1);
+    } else if (e.key === 'Enter') {
+      if (selectHighlightedUser()) e.preventDefault();
+    }
+  });
+
   body.addEventListener('click', function (e) {
     var row = e.target.closest('.pay-sheet-row');
     var trigger = e.target.closest('.pay-dd-trigger');
@@ -592,7 +732,7 @@
   });
 
   document.addEventListener('click', function (e) {
-    if (e.target.closest('#paySheetMenu') || e.target.closest('.pay-dd-trigger')) return;
+    if (e.target.closest('#paySheetMenu') || e.target.closest('.pay-dd-trigger') || e.target.closest('.pay-user-input')) return;
     closePickers();
   });
 
@@ -601,7 +741,11 @@
   });
 
   window.addEventListener('resize', closePickers);
-  window.addEventListener('scroll', closePickers, true);
+  window.addEventListener('scroll', function (e) {
+    var t = e.target;
+    if (t && t.closest && t.closest('#paySheetMenu')) return;
+    closePickers();
+  }, true);
 
   if (addBtn) addBtn.addEventListener('click', addRow);
 

@@ -127,6 +127,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'page' => !empty($_POST['page']) ? (int) $_POST['page'] : '',
     ]);
 
+    if ($action === 'search_users') {
+        $q = ltrim(trim((string) ($_POST['q'] ?? '')), '@');
+        if ($q === '') {
+            payment_json_exit(['ok' => true, 'users' => []]);
+        }
+        $like = '%' . $q . '%';
+        $prefix = $q . '%';
+        try {
+            $rows = db_fetchAll(
+                $pdo,
+                "SELECT id, username, namecustom FROM user
+                 WHERE CAST(id AS CHAR) LIKE ?
+                    OR (username IS NOT NULL AND username != '' AND username != 'none' AND username LIKE ?)
+                    OR (namecustom IS NOT NULL AND namecustom != '' AND namecustom != 'none' AND namecustom LIKE ?)
+                 ORDER BY
+                   CASE
+                     WHEN username = ? THEN 0
+                     WHEN CAST(id AS CHAR) = ? THEN 1
+                     WHEN username LIKE ? THEN 2
+                     ELSE 3
+                   END,
+                   id DESC
+                 LIMIT 12",
+                [$like, $like, $like, $q, $q, $prefix]
+            );
+        } catch (Exception $e) {
+            payment_json_exit(['ok' => false, 'msg' => 'جستجوی کاربر ناموفق بود.'], 400);
+        }
+        $users = [];
+        foreach ($rows as $u) {
+            $uname = trim((string) ($u['username'] ?? ''));
+            if ($uname === 'none') {
+                $uname = '';
+            }
+            $name = trim((string) ($u['namecustom'] ?? ''));
+            if ($name === 'none') {
+                $name = '';
+            }
+            $users[] = [
+                'id' => (string) ($u['id'] ?? ''),
+                'username' => $uname,
+                'name' => $name,
+            ];
+        }
+        payment_json_exit(['ok' => true, 'users' => $users]);
+    }
+
     if ($action === 'save_row') {
         $sheetInput = [
             'amount' => $_POST['amount'] ?? $_POST['price'] ?? 0,
@@ -491,6 +538,10 @@ include __DIR__ . '/inc/layout_head.php';
   .pay-sheet-menu[hidden]{display:none!important}
   .pay-sheet-menu-item{display:flex;align-items:center;width:100%;padding:7px 8px;border:0;border-radius:8px;background:transparent;cursor:pointer;text-align:right;font:inherit;color:var(--text);font-size:.8rem}
   .pay-sheet-menu-item:hover,.pay-sheet-menu-item.active{background:var(--sf2)}
+  .pay-sheet-menu-empty{padding:10px 8px;font-size:.78rem;color:var(--text-dim);text-align:center}
+  .pay-user-item{flex-direction:column;align-items:flex-start;gap:2px}
+  .pay-user-item-title{font-size:.8rem;line-height:1.4}
+  .pay-price-input{text-align:left;font-variant-numeric:tabular-nums}
   .pay-sheet-row .pay-actions { white-space: nowrap; }
   .pay-sheet-row .pay-actions { display: flex; gap: 4px; align-items: center; }
   .pay-sheet-row .pay-btn-save,
@@ -733,14 +784,15 @@ include __DIR__ . '/inc/layout_head.php';
                   <?php endif; ?>
                 </span>
                 <input class="input pay-edit pay-cell-input pay-user-input" type="text"
-                  value="<?= htmlspecialchars($uid === '0' ? '' : $uid) ?>" placeholder="آیدی کاربر">
+                  value="<?= htmlspecialchars($uid === '0' ? '' : $uid) ?>" placeholder="آیدی یا یوزرنیم" autocomplete="off">
               </td>
               <td class="cell-mono pay-oid"><?= htmlspecialchars($oid) ?></td>
               <td>
                 <span class="pay-view cell-strong cell-num pay-price-view"><?= number_format($price) ?> <span
                     style="color:var(--text-dim);font-weight:400;font-size:.72rem">ت</span></span>
-                <input class="input pay-edit pay-cell-input pay-price-input" type="number" min="1" step="1"
-                  value="<?= $price ?>">
+                <input class="input pay-edit pay-cell-input pay-price-input" type="text" inputmode="numeric"
+                  dir="ltr" autocomplete="off" placeholder="0"
+                  value="<?= htmlspecialchars($price > 0 ? number_format($price) : '') ?>">
               </td>
               <td class="pay-method-view">
                 <?php if ($isCostRow): ?>

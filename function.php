@@ -359,6 +359,12 @@ function invoice_paid_status_sql(string $statusCol = 'Status'): string
     return "$statusCol NOT IN (" . implode(',', $quoted) . ") AND $statusCol IS NOT NULL AND $statusCol != ''";
 }
 
+function paid_real_income_sql(): string
+{
+    return "payment_Status = 'paid'
+        AND COALESCE(Payment_Method,'') NOT IN ('add balance by admin','low balance by admin')";
+}
+
 function unix_column_epoch_sql(string $column): string
 {
     return "CASE
@@ -840,8 +846,7 @@ function forecast_monthly_paid_income(PDO $pdo): float
     $sql = "SELECT FLOOR(($unixExpr - :window_start) / 86400) AS day_index,
                    COALESCE(SUM(CAST(price AS DECIMAL(20,0))), 0) AS total
             FROM Payment_report
-            WHERE payment_Status = 'paid'
-              AND Payment_Method NOT IN ('add balance by admin','low balance by admin')
+            WHERE " . paid_real_income_sql() . "
               AND (
                 (time REGEXP '^[0-9]{9,}$' AND CAST(time AS UNSIGNED) BETWEEN :start AND :end)
                 OR (time NOT REGEXP '^[0-9]{9,}$' AND COALESCE(
@@ -7899,7 +7904,7 @@ function broadcast_continue_after_btn_title($from_id)
     }
     if (($userdata['typeusermessage'] ?? '') === 'channelpost') {
         step("gettextChannelPost", $from_id);
-        sendmessage($from_id, "📌 محتوای پست کانال را ارسال کنید.\nمی‌توانید متن ساده یا عکس همراه با کپشن بفرستید.", $backadmin, 'HTML');
+        sendmessage($from_id, "📌 محتوای پست کانال را ارسال کنید.\nمی‌توانید متن ساده یا عکس همراه با کپشن بفرستید.\n✨ ایموجی پرمیوم هم در پست حفظ می‌شود.", $backadmin, 'HTML');
         return;
     }
     if (($userdata['typeservice'] ?? '') === 'xdaynotmessage') {
@@ -7960,7 +7965,7 @@ function build_broadcast_report_text($row)
         'published' => 'منتشر شد',
     ];
     $status = $status_map[$row['status'] ?? 'started'] ?? ($row['status'] ?? '');
-    $message = trim((string) ($row['message_text'] ?? ''));
+    $message = trim(html_entity_decode(strip_tags((string) ($row['message_text'] ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
     if (mb_strlen($message) > 2500) {
         $message = mb_substr($message, 0, 2500) . '…';
     }
@@ -8275,6 +8280,56 @@ function channel_post_resolve_error_message($error)
         'no_post' => '❌ ربات دسترسی ارسال پیام در کانال را ندارد.',
     ];
     return $messages[$error] ?? '❌ کانال معتبر نیست.';
+}
+
+/**
+ * Publish an admin-authored post to a channel.
+ * Prefers copyMessage so Telegram Premium custom emoji stay as custom emoji.
+ */
+function publish_channel_post($channel_id, array $userdata, $btn_keyboard = null)
+{
+    $source_message_id = intval($userdata['source_message_id'] ?? 0);
+    $source_chat_id = $userdata['source_chat_id'] ?? '';
+    if ($source_message_id > 0 && $source_chat_id !== '' && $source_chat_id !== null) {
+        $params = [
+            'chat_id' => $channel_id,
+            'from_chat_id' => $source_chat_id,
+            'message_id' => $source_message_id,
+        ];
+        if ($btn_keyboard !== null) {
+            $params['reply_markup'] = $btn_keyboard;
+        }
+        $copied = telegram('copyMessage', $params);
+        if (is_array($copied) && !empty($copied['ok'])) {
+            return $copied;
+        }
+    }
+
+    $is_photo = (($userdata['messagemediatype'] ?? 'text') == 'photo') && !empty($userdata['photoid']);
+    if ($is_photo) {
+        $params = [
+            'chat_id' => $channel_id,
+            'photo' => $userdata['photoid'],
+            'parse_mode' => 'HTML',
+        ];
+        if (($userdata['message'] ?? '') !== '') {
+            $params['caption'] = $userdata['message'];
+        }
+        if ($btn_keyboard !== null) {
+            $params['reply_markup'] = $btn_keyboard;
+        }
+        return telegram('sendphoto', $params);
+    }
+
+    $params = [
+        'chat_id' => $channel_id,
+        'text' => $userdata['message'] ?? '',
+        'parse_mode' => 'HTML',
+    ];
+    if ($btn_keyboard !== null) {
+        $params['reply_markup'] = $btn_keyboard;
+    }
+    return telegram('sendmessage', $params);
 }
 
 require_once __DIR__ . '/development_mode.php';

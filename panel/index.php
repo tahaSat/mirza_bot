@@ -7,36 +7,59 @@ $pdo = panel_ensure_pdo();
 $totalUsers = 0;
 $newToday = 0;
 $totalRevenue = 0;
-$adminCreditRevenue = 0;
+$revenueToday = 0;
 $activeNow = 0;
 $pendingPay = 0;
 $txToday = 0;
 
+$today = stats_tehran_named_range('today');
+$mixedTimeSql = sql_unix_or_datetime_between('time');
+$mixedTimeParams = [
+    $today['start'],
+    $today['end'],
+    tehran_datetime_string($today['start'], 'Y-m-d H:i:s'),
+    tehran_datetime_string($today['end'], 'Y-m-d H:i:s'),
+];
+$paidIncomeSql = paid_real_income_sql();
+
 try {
     $totalUsers = db_count($pdo, "SELECT COUNT(*) FROM user");
-    $newToday = db_count($pdo, "SELECT COUNT(*) FROM user WHERE register > ?", [strtotime('today')]);
+    $newToday = db_count(
+        $pdo,
+        "SELECT COUNT(*) FROM user
+         WHERE register REGEXP '^[0-9]+$'
+           AND CAST(register AS UNSIGNED) BETWEEN ? AND ?",
+        [$today['start'], $today['end']]
+    );
 } catch (Exception $e) {
 }
 
 try {
-    $invoiceRevenue = (int) db_query($pdo, "SELECT COALESCE(SUM(price_product),0) FROM invoice WHERE Status IN ('active','end_of_time','end_of_volume','sendedwarn','send_on_hold')")->fetchColumn();
-    $adminCreditRevenue = 0;
-    try {
-        $adminCreditRevenue = (int) db_query(
-            $pdo,
-            "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report
-             WHERE payment_Status = 'paid' AND Payment_Method = 'add balance by admin'"
-        )->fetchColumn();
-    } catch (Exception $e) {
-    }
-    $totalRevenue = $invoiceRevenue + $adminCreditRevenue;
-    $activeNow = db_count($pdo, "SELECT COUNT(*) FROM invoice WHERE Status='active'");
+    $totalRevenue = (int) db_query(
+        $pdo,
+        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report WHERE $paidIncomeSql"
+    )->fetchColumn();
+    $revenueToday = (int) db_query(
+        $pdo,
+        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report
+         WHERE $paidIncomeSql AND $mixedTimeSql",
+        $mixedTimeParams
+    )->fetchColumn();
+    $activeNow = db_count(
+        $pdo,
+        "SELECT COUNT(*) FROM invoice
+         WHERE Status = 'active' AND name_product != 'سرویس تست'"
+    );
 } catch (Exception $e) {
 }
 
 try {
     $pendingPay = db_count($pdo, "SELECT COUNT(*) FROM Payment_report WHERE payment_Status='waiting'");
-    $txToday = db_count($pdo, "SELECT COUNT(*) FROM Payment_report WHERE time > ?", [strtotime('today')]);
+    $txToday = db_count(
+        $pdo,
+        "SELECT COUNT(*) FROM Payment_report WHERE $paidIncomeSql AND $mixedTimeSql",
+        $mixedTimeParams
+    );
 } catch (Exception $e) {
 }
 
@@ -84,11 +107,16 @@ include __DIR__ . '/inc/layout_head.php';
                 ? number_format($totalRevenue / 1_000_000, 1) . '<small>M ت</small>'
                 : number_format($totalRevenue) . '<small>ت</small>' ?>
         </div>
-        <div class="stat-meta"><?= $adminCreditRevenue > 0 ? 'فروش و افزایش ادمین' : 'مجموع فروش' ?></div>
+        <div class="stat-meta">
+            <?= $revenueToday > 0
+                ? '<span class="up">+' . number_format($revenueToday) . ' امروز</span>'
+                : 'پرداخت‌های موفق' ?>
+        </div>
     </div>
     <div class="stat warn">
         <div class="stat-label">سرویس فعال</div>
         <div class="stat-num"><?= number_format($activeNow) ?></div>
+        <div class="stat-meta">بدون سرویس تست</div>
     </div>
     <div class="stat <?= $pendingPay > 0 ? 'no' : '' ?>">
         <div class="stat-label"><?= $pendingPay > 0 ? 'پرداخت در انتظار' : 'تراکنش امروز' ?></div>
@@ -96,7 +124,7 @@ include __DIR__ . '/inc/layout_head.php';
             <?= number_format($pendingPay > 0 ? $pendingPay : $txToday) ?>
         </div>
         <div class="stat-meta">
-            <?= $pendingPay > 0 ? '<a href="payment.php?tab=pending" style="color:var(--no)">بررسی ←</a>' : 'ثبت‌شده' ?>
+            <?= $pendingPay > 0 ? '<a href="payment.php?tab=pending" style="color:var(--no)">بررسی ←</a>' : 'پرداخت موفق' ?>
         </div>
     </div>
 </div>

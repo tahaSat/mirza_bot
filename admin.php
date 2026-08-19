@@ -233,7 +233,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $sql2 = "SELECT SUM(price_product) AS total_price FROM invoice WHERE (status = 'active' OR status = 'end_of_time' OR status = 'end_of_volume' OR status = 'sendedwarn' OR status = 'send_on_hold') AND name_product != 'سرویس تست'";
     $stmt2 = $pdo->query($sql2);
     $invoicesum = $stmt2->fetch(PDO::FETCH_ASSOC)['total_price'];
-    $sql33 = "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_price FROM Payment_report WHERE payment_Status = 'paid' AND Payment_Method NOT IN ('add balance by admin','low balance by admin')";
+    $sql33 = "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_price FROM Payment_report WHERE " . paid_real_income_sql();
     $sql33 = $pdo->query($sql33);
     $invoiceSumRow = $sql33->fetch(PDO::FETCH_ASSOC);
     $invoiceTotal = isset($invoiceSumRow['total_price']) ? (float) $invoiceSumRow['total_price'] : 0;
@@ -265,7 +265,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $count_users_test = (int) ($statsUsers['users_with_test'] ?? 0);
     $count_users_test_no_purchase = (int) ($statsUsers['users_with_test_no_purchase'] ?? 0);
     $count_users_test_and_purchase = (int) ($statsUsers['users_with_test_and_purchase'] ?? 0);
-    $sqlsum = "SELECT SUM(price) AS sumpay , Payment_Method,COUNT(price) AS countpay FROM Payment_report WHERE payment_Status = 'paid' AND Payment_Method NOT IN ('add balance by admin','low balance by admin') GROUP BY  Payment_Method;";
+    $sqlsum = "SELECT SUM(price) AS sumpay , Payment_Method,COUNT(price) AS countpay FROM Payment_report WHERE " . paid_real_income_sql() . " GROUP BY  Payment_Method;";
     $stmt = $pdo->prepare($sqlsum);
     $stmt->execute();
     $statispay = $stmt->fetchAll();
@@ -819,18 +819,21 @@ elseif ($datain == "systemsms") {
         step("home", $from_id);
         return;
     }
+    $html = text_from_telegram_update($update);
     if ($photo) {
         savedata("save", "messagemediatype", "photo");
         savedata("save", "photoid", $photoid);
-        savedata("save", "message", $caption !== '' ? $caption : '');
+        savedata("save", "message", $html);
     } elseif ($text) {
         savedata("save", "messagemediatype", "text");
         savedata("save", "photoid", "");
-        savedata("save", "message", $text);
+        savedata("save", "message", $html);
     } else {
         sendmessage($from_id, "📌 لطفا متن یا عکس (با کپشن اختیاری) ارسال کنید.", $backadmin, 'HTML');
         return;
     }
+    savedata("save", "source_message_id", $message_id);
+    savedata("save", "source_chat_id", $from_id);
     $userdata = json_decode(select("user", "*", "id", $from_id, "select")['Processing_value'], true);
     $btn_type_selected = $userdata['btntypemessage'] ?? 'none';
     $btn_title_show = ($btn_type_selected === 'none')
@@ -1210,30 +1213,7 @@ $textday
                 ]
             ]);
         }
-        if ($is_photo) {
-            $params = [
-                'chat_id' => $channel_id,
-                'photo' => $userdata['photoid'],
-                'parse_mode' => 'HTML',
-            ];
-            if (($userdata['message'] ?? '') !== '') {
-                $params['caption'] = $userdata['message'];
-            }
-            if ($btn_keyboard !== null) {
-                $params['reply_markup'] = $btn_keyboard;
-            }
-            $result = telegram('sendphoto', $params);
-        } else {
-            $params = [
-                'chat_id' => $channel_id,
-                'text' => $userdata['message'],
-                'parse_mode' => 'HTML',
-            ];
-            if ($btn_keyboard !== null) {
-                $params['reply_markup'] = $btn_keyboard;
-            }
-            $result = telegram('sendmessage', $params);
-        }
+        $result = publish_channel_post($channel_id, $userdata, $btn_keyboard);
         if (!isset($result['ok']) || !$result['ok']) {
             update("broadcast_log", "status", "cancelled", "id", intval($broadcast['id']));
             refresh_broadcast_report_message(intval($broadcast['id']));

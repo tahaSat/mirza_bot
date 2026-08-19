@@ -4261,11 +4261,13 @@ $textinvite
             'callback_query_id' => $callback_query_id,
         ]);
     }
-    $prodcut = $dataget[1] ?? '';
+    return;
+} elseif ($user['step'] == "getvolumecustomusername" || preg_match('/^prodcutservices_(.*)/', $datain, $dataget)) {
     $userdate = json_decode($user['Processing_value'], true);
     if (!is_array($userdate)) {
         $userdate = [];
     }
+    $prodcut = $dataget[1] ?? '';
     if ($user['step'] == "getvolumecustomusername" && $prodcut === '') {
         // Legacy free-text days path — redirect to month buttons
         $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'] ?? '', "select");
@@ -4281,7 +4283,9 @@ $textinvite
     }
     update("user", "Processing_value_one", $prodcut, "id", $from_id);
     step('endstepuser', $from_id);
-    deletemessage($from_id, $message_id);
+    if (!empty($message_id)) {
+        deletemessage($from_id, $message_id);
+    }
     $invoiceBack = purchase_invoice_back_callback($userdate, (string) $user['agent']);
     sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), purchase_inline_back_keyboard($invoiceBack), 'html');
 } elseif (preg_match('/^prodcutservice_(.*)/', $datain, $dataget) || $user['step'] == "endstepuser" || $user['step'] == "endstepusers" || $user['step'] == "getvolumecustomuser") {
@@ -4403,7 +4407,7 @@ $textinvite
         sendmessage($from_id, $textin, $invoiceKeyboard, 'HTML');
     }
     step('payment', $from_id);
-} elseif ($user['step'] == "payment" && $datain == "confirmandgetservice" || $datain == "confirmandgetserviceDiscount") {
+} elseif ($user['step'] == "payment" && ($datain == "confirmandgetservice" || $datain == "confirmandgetserviceDiscount")) {
     $userdate = json_decode($user['Processing_value'], true);
     if (!is_array($userdate)) {
         $userdate = [];
@@ -4454,7 +4458,7 @@ $textinvite
     }
     if (!isset($info_product['price_product']))
         return;
-    if (agent_uses_category_whitelist($user['agent'] ?? 'f')) {
+    if (agent_uses_category_whitelist($user['agent'] ?? 'f') && ($parts[0] ?? '') !== 'customvolume') {
         $n2Code = $info_product['code_product'] ?? '';
         $n2Cat = category_from_processing($userdate ?? (json_decode($user['Processing_value'], true) ?: []));
         $n2CatRemark = is_array($n2Cat) ? ($n2Cat['remark'] ?? '') : '';
@@ -5160,7 +5164,7 @@ $textonebuy
     }
     if (empty($info_product['price_product']) || empty($info_product['price_product']))
         return;
-    if (agent_uses_category_whitelist($user['agent'] ?? 'f')) {
+    if (agent_uses_category_whitelist($user['agent'] ?? 'f') && ($parts[0] ?? '') !== 'customvolume') {
         $n2Code = $info_product['code_product'] ?? '';
         $n2Cat = category_from_processing($userdate ?? (json_decode($user['Processing_value'], true) ?: []));
         $n2CatRemark = is_array($n2Cat) ? ($n2Cat['remark'] ?? '') : '';

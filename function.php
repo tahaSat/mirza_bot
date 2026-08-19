@@ -954,14 +954,13 @@ function bot_format_first_purchase_block(array $fp, int $ordersCount, float $ord
     $sum = number_format((float) ($fp['sum'] ?? 0), 0);
     $pct = $ordersCount > 0 ? round(((int) ($fp['count'] ?? 0) / $ordersCount) * 100, 2) : 0;
     $pctMoney = $ordersSum > 0 ? round(((float) ($fp['sum'] ?? 0) / $ordersSum) * 100, 2) : 0;
-    $rli = "\u{2067}";
-    $pdi = "\u{2069}";
+    $rlm = "\u{200F}";
     if ($html) {
-        return "{$rli}🆕 <b>خرید اول:</b> <code>$count</code> عدد (<code>$pct</code>٪ از فروش){$pdi}\n"
-            . "{$rli}💰 <b>مبلغ خرید اول:</b> <code>$sum</code> تومان (<code>$pctMoney</code>٪ از مبلغ فروش){$pdi}";
+        return "{$rlm}🆕 <b>خرید اول:</b> <code>$count</code> عدد — <code>$pct</code>٪ از فروش\n"
+            . "{$rlm}💰 <b>مبلغ خرید اول:</b> <code>$sum</code> تومان — <code>$pctMoney</code>٪ از مبلغ فروش";
     }
-    return "{$rli}🆕 خرید اول : $count عدد ($pct٪ از سفارشات){$pdi}\n"
-        . "{$rli}💰 مبلغ خرید اول : $sum تومان ($pctMoney٪ از مبلغ سفارشات){$pdi}";
+    return "{$rlm}🆕 خرید اول : $count عدد — $pct٪ از سفارشات\n"
+        . "{$rlm}💰 مبلغ خرید اول : $sum تومان — $pctMoney٪ از مبلغ سفارشات";
 }
 
 /**

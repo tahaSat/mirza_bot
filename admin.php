@@ -283,6 +283,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $percent_of_extend = $percent_of_extend > 100 ? 100 : $percent_of_extend;
     $extendsum = number_format($extendsum, 0);
     $avgJoinBuy = avg_join_to_first_purchase_label($pdo);
+    $soldVolumeText = bot_format_sold_volume_block(bot_sold_volume_stats($pdo), true);
     if (count($statispay) != 0) {
         foreach ($statispay as $tracepay) {
             $status_var = [
@@ -320,6 +321,8 @@ if (in_array($text, $textadmin) || $datain == "admin") {
 💵 <b>جمع کل درآمد (پرداخت‌های موفق):</b> <code>$invoicesumall</code> تومان  
 💵 <b>جمع کل فروش سرویس های فعال:</b> <code>$invoicesum</code> تومان  
 🔄 <b>جمع کل تمدید:</b> <code>$extendsum</code> تومان  
+$soldVolumeText
+
 📈 <b>نرخ تبدیل به مشتری:</b> <code>$ratecustomer</code>٪  
 🧪 <b>نرخ دریافت تست:</b> <code>$ratetest</code>٪  
 💳 <b>میانگین خرید هر مشتری:</b> <code>$avgbuy_customer</code> تومان  

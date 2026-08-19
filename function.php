@@ -613,8 +613,174 @@ function bot_payment_wallet_recharge_sql(): string
         )";
 }
 
+function bot_format_gb($gb): string
+{
+    $gb = (float) $gb;
+    if (abs($gb - round($gb)) < 0.005) {
+        return number_format($gb, 0);
+    }
+    return number_format($gb, 2);
+}
+
+function bot_sql_extra_volume_gb(string $column = 'value'): string
+{
+    return "CASE
+        WHEN $column LIKE '%\"volume_value\"%' THEN COALESCE(CAST(TRIM(BOTH '\"' FROM TRIM(TRAILING '}' FROM SUBSTRING_INDEX(SUBSTRING_INDEX(CONCAT($column, ','), '\"volume_value\":', -1), ',', 1))) AS DECIMAL(20,2)), 0)
+        ELSE 0
+    END";
+}
+
 /**
- * @return array{orders:int,orders_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,users:int,avg_join:string,total_count:int,total_sum:float}
+ * Sold volume (GB) from paid non-test invoices plus extra-volume purchases.
+ *
+ * @return array{invoice:float, extra:float, total:float, panels: list<array{name:string, invoice:float, extra:float, total:float}>}
+ */
+function bot_sold_volume_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = null): array
+{
+    $paidSql = invoice_paid_status_sql('Status');
+    $panelSql = "COALESCE(NULLIF(TRIM(Service_location), ''), 'نامشخص')";
+    $hasRange = $startTs !== null && $endTs !== null;
+
+    $invoiceTime = $hasRange ? 'AND time_sell BETWEEN :start AND :end' : '';
+    $invoiceParams = $hasRange ? [':start' => $startTs, ':end' => $endTs] : [];
+    $stmt = $pdo->prepare("SELECT $panelSql AS panel,
+            COALESCE(SUM(CAST(Volume AS DECIMAL(20,2))), 0) AS volume
+        FROM invoice
+        WHERE $paidSql
+          AND name_product != 'سرویس تست'
+          $invoiceTime
+        GROUP BY COALESCE(NULLIF(TRIM(Service_location), ''), 'نامشخص')");
+    $stmt->execute($invoiceParams);
+    $invoiceByPanel = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $invoiceByPanel[(string) $row['panel']] = (float) $row['volume'];
+    }
+
+    $extraByPanel = [];
+    try {
+        $extraGbSql = bot_sql_extra_volume_gb('so.value');
+        $extraTimeSql = '';
+        $extraParams = [];
+        if ($hasRange) {
+            $extraTimeSql = 'AND ' . sql_unix_or_datetime_between('so.time');
+            $extraParams = [
+                $startTs,
+                $endTs,
+                tehran_datetime_string($startTs, 'Y-m-d H:i:s'),
+                tehran_datetime_string($endTs, 'Y-m-d H:i:s'),
+            ];
+        }
+        $stmt = $pdo->prepare("SELECT COALESCE(NULLIF(TRIM(i.Service_location), ''), 'نامشخص') AS panel,
+                COALESCE(SUM($extraGbSql), 0) AS volume
+            FROM service_other so
+            LEFT JOIN (
+                SELECT username, MIN(Service_location) AS Service_location
+                FROM invoice
+                GROUP BY username
+            ) i ON i.username = so.username
+            WHERE so.type = 'extra_user'
+              AND COALESCE(so.status,'') NOT IN ('unpaid','Unpaid','reject')
+              $extraTimeSql
+            GROUP BY COALESCE(NULLIF(TRIM(i.Service_location), ''), 'نامشخص')");
+        $stmt->execute($extraParams);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $extraByPanel[(string) $row['panel']] = (float) $row['volume'];
+        }
+    } catch (Throwable $e) {
+        error_log('bot_sold_volume extra: ' . $e->getMessage());
+    }
+
+    $panelNames = [];
+    try {
+        $panelNames = $pdo->query("SELECT name_panel FROM marzban_panel ORDER BY name_panel")
+            ->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    } catch (Throwable $e) {
+        error_log('bot_sold_volume panels: ' . $e->getMessage());
+    }
+
+    $allNames = [];
+    foreach ($panelNames as $name) {
+        $name = (string) $name;
+        if ($name !== '') {
+            $allNames[$name] = true;
+        }
+    }
+    foreach (array_keys($invoiceByPanel + $extraByPanel) as $name) {
+        $allNames[(string) $name] = true;
+    }
+
+    $panels = [];
+    $invoiceTotal = 0.0;
+    $extraTotal = 0.0;
+    foreach (array_keys($allNames) as $name) {
+        $invoiceVol = (float) ($invoiceByPanel[$name] ?? 0);
+        $extraVol = (float) ($extraByPanel[$name] ?? 0);
+        $invoiceTotal += $invoiceVol;
+        $extraTotal += $extraVol;
+        $panels[] = [
+            'name' => $name,
+            'invoice' => $invoiceVol,
+            'extra' => $extraVol,
+            'total' => $invoiceVol + $extraVol,
+        ];
+    }
+    usort($panels, static function (array $a, array $b): int {
+        $cmp = $b['total'] <=> $a['total'];
+        return $cmp !== 0 ? $cmp : strcasecmp($a['name'], $b['name']);
+    });
+
+    return [
+        'invoice' => $invoiceTotal,
+        'extra' => $extraTotal,
+        'total' => $invoiceTotal + $extraTotal,
+        'panels' => $panels,
+    ];
+}
+
+function bot_format_sold_volume_block(array $vol, bool $html = false): string
+{
+    $fmt = static fn($n) => bot_format_gb($n);
+    $total = $fmt($vol['total'] ?? 0);
+    $invoice = $fmt($vol['invoice'] ?? 0);
+    $extra = $fmt($vol['extra'] ?? 0);
+    if ($html) {
+        $lines = "🔋 <b>حجم فروخته شده:</b> <code>$total</code> گیگابایت\n"
+            . "🛒 <b>از خرید سرویس:</b> <code>$invoice</code> گیگابایت\n"
+            . "📦 <b>از حجم اضافه:</b> <code>$extra</code> گیگابایت";
+    } else {
+        $lines = "🔋 حجم فروخته شده : $total گیگابایت\n"
+            . "🛒 از خرید سرویس : $invoice گیگابایت\n"
+            . "📦 از حجم اضافه : $extra گیگابایت";
+    }
+
+    $panels = $vol['panels'] ?? [];
+    if ($panels === []) {
+        return $lines;
+    }
+    $lines .= $html ? "\n\n📡 <b>حجم فروخته‌شده هر پنل:</b>" : "\n\n📡 حجم فروخته‌شده هر پنل :";
+    $shown = 0;
+    $totalPanels = count($panels);
+    foreach ($panels as $panel) {
+        $name = htmlspecialchars((string) ($panel['name'] ?? 'نامشخص'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $gb = $fmt($panel['total'] ?? 0);
+        $line = $html
+            ? "\n• {$name}: <code>$gb</code> گیگابایت"
+            : "\n• {$name} : $gb گیگابایت";
+        if ($shown > 0 && mb_strlen($lines . $line) > 1800) {
+            $remaining = $totalPanels - $shown;
+            $lines .= $html
+                ? "\n• … و <code>$remaining</code> پنل دیگر"
+                : "\n• … و $remaining پنل دیگر";
+            break;
+        }
+        $lines .= $line;
+        $shown++;
+    }
+    return $lines;
+}
+
+/**
+ * @return array{orders:int,orders_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,users:int,avg_join:string,total_count:int,total_sum:float,sold_volume:array}
  */
 function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
 {
@@ -683,6 +849,7 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
         'avg_join' => avg_join_to_first_purchase_label($pdo, $startTs, $endTs),
         'total_count' => (int) ($orders['count'] ?? 0) + (int) ($extends['count'] ?? 0) + (int) ($extraVolume['count'] ?? 0) + (int) ($extraTime['count'] ?? 0) + (int) ($changeLocation['count'] ?? 0) + $walletCount,
         'total_sum' => $orderSum + $extendSum + $extraVolumeSum + $extraTimeSum + $changeLocationSum + $walletSum,
+        'sold_volume' => bot_sold_volume_stats($pdo, $startTs, $endTs),
     ];
 }
 
@@ -699,6 +866,7 @@ function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = 
     $walletCount = (int) ($s['wallet'] ?? 0);
     $sumWallet = number_format((float) ($s['wallet_sum'] ?? 0), 0);
     $sumTotal = number_format($s['total_sum'], 0);
+    $soldVolumeBlock = bot_format_sold_volume_block($s['sold_volume'] ?? []);
 
     return "
 🕐 <b>$title</b>
@@ -723,6 +891,8 @@ $rangeLine
 
 📊 تعداد کل : {$s['total_count']} عدد
 💵 جمع مبلغ کل : $sumTotal تومان
+
+$soldVolumeBlock
 
 🔑 اکانت‌های تست  : {$s['tests']} عدد
 👤 تعداد کاربران  : {$s['users']} نفر

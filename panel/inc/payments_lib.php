@@ -462,19 +462,279 @@ function panel_payment_dismiss(PDO $pdo, string $orderId): array
 
 function panel_payment_ensure_note_column(PDO $pdo): void
 {
+    panel_payment_ensure_schema($pdo);
+}
+
+function panel_expense_default_slug(): string
+{
+    return 'other';
+}
+
+function panel_payment_ensure_schema(PDO $pdo): void
+{
     static $ready = false;
     if ($ready) {
         return;
     }
+    $ready = true;
     try {
         $stmt = $pdo->query("SHOW COLUMNS FROM Payment_report LIKE 'note'");
         if (!$stmt->fetch()) {
             $pdo->exec("ALTER TABLE Payment_report ADD note TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL");
         }
     } catch (Throwable $e) {
-        error_log('panel_payment_ensure_note_column: ' . $e->getMessage());
+        error_log('panel_payment_ensure_schema note: ' . $e->getMessage());
     }
-    $ready = true;
+
+    try {
+        $pdo->exec(
+            "CREATE TABLE IF NOT EXISTS expense_category (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                slug VARCHAR(64) NOT NULL,
+                label VARCHAR(128) NOT NULL,
+                sort_order INT NOT NULL DEFAULT 0,
+                PRIMARY KEY (id),
+                UNIQUE KEY uq_expense_category_slug (slug)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+        $count = (int) $pdo->query('SELECT COUNT(*) FROM expense_category')->fetchColumn();
+        if ($count === 0) {
+            $pdo->exec("INSERT INTO expense_category (slug, label, sort_order) VALUES ('other', 'سایر', 0)");
+        } elseif (!db_fetch($pdo, "SELECT id FROM expense_category WHERE slug = 'other'")) {
+            $pdo->exec("INSERT INTO expense_category (slug, label, sort_order) VALUES ('other', 'سایر', 0)");
+        }
+    } catch (Throwable $e) {
+        error_log('panel_payment_ensure_schema expense_category: ' . $e->getMessage());
+    }
+
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM Payment_report LIKE 'tx_type'");
+        if (!$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE Payment_report ADD tx_type VARCHAR(16) NOT NULL DEFAULT 'income'");
+        }
+        $stmt = $pdo->query("SHOW COLUMNS FROM Payment_report LIKE 'expense_category'");
+        if (!$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE Payment_report ADD expense_category VARCHAR(64) NULL");
+        }
+    } catch (Throwable $e) {
+        error_log('panel_payment_ensure_schema payment columns: ' . $e->getMessage());
+    }
+
+    try {
+        if (pay_get($pdo, 'expense_schema_v1', '') !== '1') {
+            db_query(
+                $pdo,
+                "UPDATE Payment_report
+                 SET tx_type = 'expense'
+                 WHERE (payment_Status = 'cost' OR Payment_Method = 'cost' OR id_invoice = 'cost')
+                   AND (tx_type IS NULL OR tx_type = '' OR tx_type = 'income')"
+            );
+            db_query(
+                $pdo,
+                "UPDATE Payment_report
+                 SET expense_category = 'other'
+                 WHERE (tx_type = 'expense' OR payment_Status = 'cost' OR Payment_Method = 'cost' OR id_invoice = 'cost')
+                   AND (expense_category IS NULL OR expense_category = '')"
+            );
+            db_query(
+                $pdo,
+                "UPDATE Payment_report
+                 SET payment_Status = 'cost', id_invoice = 'cost'
+                 WHERE tx_type = 'expense'
+                   AND (payment_Status <> 'cost' OR id_invoice <> 'cost' OR id_invoice IS NULL)"
+            );
+            pay_set($pdo, 'expense_schema_v1', '1');
+        }
+    } catch (Throwable $e) {
+        error_log('panel_payment_ensure_schema migrate: ' . $e->getMessage());
+    }
+}
+
+function panel_expense_category_map(PDO $pdo, bool $refresh = false): array
+{
+    static $map = null;
+    if ($map !== null && !$refresh) {
+        return $map;
+    }
+    panel_payment_ensure_schema($pdo);
+    $map = [];
+    try {
+        $rows = db_fetchAll($pdo, 'SELECT slug, label FROM expense_category ORDER BY sort_order ASC, id ASC');
+        foreach ($rows as $row) {
+            $slug = (string) ($row['slug'] ?? '');
+            if ($slug === '') {
+                continue;
+            }
+            $map[$slug] = (string) ($row['label'] ?? $slug);
+        }
+    } catch (Throwable $e) {
+        error_log('panel_expense_category_map: ' . $e->getMessage());
+    }
+    if (!isset($map[panel_expense_default_slug()])) {
+        $map[panel_expense_default_slug()] = 'سایر';
+    }
+    return $map;
+}
+
+function panel_expense_categories(PDO $pdo): array
+{
+    panel_payment_ensure_schema($pdo);
+    try {
+        return db_fetchAll($pdo, 'SELECT * FROM expense_category ORDER BY sort_order ASC, id ASC') ?: [];
+    } catch (Throwable $e) {
+        error_log('panel_expense_categories: ' . $e->getMessage());
+        return [];
+    }
+}
+
+function panel_expense_category_label(PDO $pdo, string $slug): string
+{
+    $map = panel_expense_category_map($pdo);
+    $slug = trim($slug);
+    if ($slug !== '' && isset($map[$slug])) {
+        return $map[$slug];
+    }
+    return $map[panel_expense_default_slug()] ?? 'سایر';
+}
+
+function panel_expense_resolve_slug(PDO $pdo, string $slug): string
+{
+    $map = panel_expense_category_map($pdo);
+    $slug = trim($slug);
+    if ($slug !== '' && isset($map[$slug])) {
+        return $slug;
+    }
+    return panel_expense_default_slug();
+}
+
+function panel_expense_usage_counts(PDO $pdo): array
+{
+    panel_payment_ensure_schema($pdo);
+    $counts = [];
+    try {
+        $rows = db_fetchAll(
+            $pdo,
+            "SELECT expense_category AS slug, COUNT(*) AS cnt
+             FROM Payment_report
+             WHERE (tx_type = 'expense' OR payment_Status = 'cost' OR Payment_Method = 'cost' OR id_invoice = 'cost')
+               AND expense_category IS NOT NULL AND expense_category != ''
+             GROUP BY expense_category"
+        );
+        foreach ($rows as $row) {
+            $counts[(string) ($row['slug'] ?? '')] = (int) ($row['cnt'] ?? 0);
+        }
+    } catch (Throwable $e) {
+        error_log('panel_expense_usage_counts: ' . $e->getMessage());
+    }
+    return $counts;
+}
+
+function panel_expense_make_slug(PDO $pdo, string $label, ?int $excludeId = null): string
+{
+    $base = strtolower(trim($label));
+    $base = preg_replace('/[^a-z0-9]+/', '-', $base) ?? '';
+    $base = trim($base, '-');
+    if ($base === '' || $base === 'cost') {
+        $base = 'cat-' . substr(bin2hex(random_bytes(4)), 0, 8);
+    }
+    $slug = $base;
+    $n = 2;
+    while (true) {
+        $row = db_fetch($pdo, 'SELECT id FROM expense_category WHERE slug = ?', [$slug]);
+        if (!$row || ($excludeId !== null && (int) $row['id'] === $excludeId)) {
+            return $slug;
+        }
+        $slug = $base . '-' . $n;
+        $n++;
+        if ($n > 50) {
+            return 'cat-' . bin2hex(random_bytes(4));
+        }
+    }
+}
+
+/**
+ * @return array{ok:bool,msg:string}
+ */
+function panel_expense_add(PDO $pdo, string $label, int $sortOrder = 0): array
+{
+    panel_payment_ensure_schema($pdo);
+    $label = trim($label);
+    if ($label === '') {
+        return ['ok' => false, 'msg' => 'نام دسته الزامی است.'];
+    }
+    if (mb_strlen($label) > 64) {
+        return ['ok' => false, 'msg' => 'نام دسته خیلی طولانی است.'];
+    }
+    if (db_fetch($pdo, 'SELECT id FROM expense_category WHERE label = ?', [$label])) {
+        return ['ok' => false, 'msg' => 'دسته‌ای با این نام قبلاً ثبت شده.'];
+    }
+    $slug = panel_expense_make_slug($pdo, $label);
+    db_query(
+        $pdo,
+        'INSERT INTO expense_category (slug, label, sort_order) VALUES (?,?,?)',
+        [$slug, $label, $sortOrder]
+    );
+    panel_expense_category_map($pdo, true);
+    return ['ok' => true, 'msg' => 'دسته «' . $label . '» اضافه شد.'];
+}
+
+/**
+ * @return array{ok:bool,msg:string}
+ */
+function panel_expense_rename(PDO $pdo, int $id, string $label, ?int $sortOrder = null): array
+{
+    panel_payment_ensure_schema($pdo);
+    $label = trim($label);
+    if ($id < 1 || $label === '') {
+        return ['ok' => false, 'msg' => 'نام دسته الزامی است.'];
+    }
+    if (mb_strlen($label) > 64) {
+        return ['ok' => false, 'msg' => 'نام دسته خیلی طولانی است.'];
+    }
+    $row = db_fetch($pdo, 'SELECT * FROM expense_category WHERE id = ?', [$id]);
+    if (!$row) {
+        return ['ok' => false, 'msg' => 'دسته یافت نشد.'];
+    }
+    $dup = db_fetch($pdo, 'SELECT id FROM expense_category WHERE label = ? AND id != ?', [$label, $id]);
+    if ($dup) {
+        return ['ok' => false, 'msg' => 'دسته‌ای با این نام قبلاً ثبت شده.'];
+    }
+    if ($sortOrder === null) {
+        db_query($pdo, 'UPDATE expense_category SET label = ? WHERE id = ?', [$label, $id]);
+    } else {
+        db_query($pdo, 'UPDATE expense_category SET label = ?, sort_order = ? WHERE id = ?', [$label, $sortOrder, $id]);
+    }
+    panel_expense_category_map($pdo, true);
+    return ['ok' => true, 'msg' => 'دسته ویرایش شد.'];
+}
+
+/**
+ * @return array{ok:bool,msg:string}
+ */
+function panel_expense_delete(PDO $pdo, int $id): array
+{
+    panel_payment_ensure_schema($pdo);
+    $row = db_fetch($pdo, 'SELECT * FROM expense_category WHERE id = ?', [$id]);
+    if (!$row) {
+        return ['ok' => false, 'msg' => 'دسته یافت نشد.'];
+    }
+    $slug = (string) ($row['slug'] ?? '');
+    if ($slug === panel_expense_default_slug()) {
+        return ['ok' => false, 'msg' => 'دسته پیش‌فرض «سایر» قابل حذف نیست.'];
+    }
+    $used = (int) db_query(
+        $pdo,
+        "SELECT COUNT(*) FROM Payment_report
+         WHERE expense_category = ?
+           AND (tx_type = 'expense' OR payment_Status = 'cost' OR Payment_Method = 'cost' OR id_invoice = 'cost')",
+        [$slug]
+    )->fetchColumn();
+    if ($used > 0) {
+        return ['ok' => false, 'msg' => 'این دسته روی ' . number_format($used) . ' هزینه استفاده شده و قابل حذف نیست.'];
+    }
+    db_query($pdo, 'DELETE FROM expense_category WHERE id = ?', [$id]);
+    panel_expense_category_map($pdo, true);
+    return ['ok' => true, 'msg' => 'دسته حذف شد.'];
 }
 
 function panel_payment_parse_time($raw): int
@@ -565,7 +825,6 @@ function panel_payment_method_map(): array
         'nowpayment' => 'NowPayment',
         'tetraminator' => 'Tetraminator',
         'manual invoice' => 'فاکتور دستی',
-        'cost' => 'هزینه',
         'refund to wallet' => 'مرجوعی به کیف پول',
     ];
 }
@@ -585,6 +844,18 @@ function panel_payment_serialize_sheet_row(array $p, array $knownUsers = []): ar
     $note = trim((string) ($p['note'] ?? ''));
     $oid = (string) ($p['id_order'] ?? '');
     $price = (int) ($p['price'] ?? 0);
+    $isCost = panel_payment_is_cost($p);
+    $category = trim((string) ($p['expense_category'] ?? ''));
+    $categoryLabel = '';
+    if ($isCost) {
+        global $pdo;
+        if ($pdo instanceof PDO) {
+            $category = panel_expense_resolve_slug($pdo, $category);
+            $categoryLabel = panel_expense_category_label($pdo, $category);
+        } else {
+            $categoryLabel = $category !== '' ? $category : 'سایر';
+        }
+    }
     return [
         'id_order' => $oid,
         'id_user' => $uid,
@@ -593,13 +864,15 @@ function panel_payment_serialize_sheet_row(array $p, array $knownUsers = []): ar
         'price_fmt' => number_format($price),
         'method' => $method,
         'method_label' => panel_payment_method_label($method),
+        'expense_category' => $category,
+        'category_label' => $categoryLabel,
         'note' => $note,
         'time' => panel_payment_time_to_jalali($p['time'] ?? ''),
         'status' => $status,
         'status_label' => $lbl,
         'status_class' => $cls,
         'has_product' => panel_payment_row_has_product($p),
-        'is_cost' => panel_payment_is_cost($p),
+        'is_cost' => $isCost,
     ];
 }
 
@@ -683,7 +956,8 @@ function panel_payment_append_time_range(array &$where, array &$params, ?array $
 
 function panel_payment_is_cost(array $payment): bool
 {
-    return ($payment['payment_Status'] ?? '') === 'cost'
+    return ($payment['tx_type'] ?? '') === 'expense'
+        || ($payment['payment_Status'] ?? '') === 'cost'
         || ($payment['Payment_Method'] ?? '') === 'cost'
         || ($payment['id_invoice'] ?? '') === 'cost';
 }
@@ -728,8 +1002,8 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
 
     db_query(
         $pdo,
-        'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note) VALUES (?,?,?,?,?,?,?,?)',
-        [$userId, $orderId, $time, (string) $amount, $status, $method, $idInvoice, $note !== '' ? $note : null]
+        'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note, tx_type, expense_category) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        [$userId, $orderId, $time, (string) $amount, $status, $method, $idInvoice, $note !== '' ? $note : null, 'income', null]
     );
 
     if ($creditWallet && $realUser) {
@@ -749,7 +1023,7 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
  */
 function panel_payment_add_cost(PDO $pdo, array $input): array
 {
-    panel_payment_ensure_note_column($pdo);
+    panel_payment_ensure_schema($pdo);
     $amount = (int) ($input['amount'] ?? 0);
     if ($amount < 1) {
         return ['ok' => false, 'msg' => 'مبلغ باید عدد مثبت باشد.'];
@@ -761,12 +1035,16 @@ function panel_payment_add_cost(PDO $pdo, array $input): array
     if ($orderId === '' || db_fetch($pdo, 'SELECT id FROM Payment_report WHERE id_order = ?', [$orderId])) {
         $orderId = panel_payment_new_order_id($pdo);
     }
+    $category = panel_expense_resolve_slug(
+        $pdo,
+        (string) ($input['expense_category'] ?? $input['category'] ?? '')
+    );
 
     $time = panel_payment_format_time(panel_payment_parse_sheet_time($input['time'] ?? ''));
     db_query(
         $pdo,
-        'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note) VALUES (?,?,?,?,?,?,?,?)',
-        [$userId, $orderId, $time, (string) $amount, 'cost', 'cost', 'cost', $note !== '' ? $note : null]
+        'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note, tx_type, expense_category) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        [$userId, $orderId, $time, (string) $amount, 'cost', 'cost', 'cost', $note !== '' ? $note : null, 'expense', $category]
     );
 
     return ['ok' => true, 'msg' => 'هزینه ثبت شد.', 'id_order' => $orderId];
@@ -955,8 +1233,13 @@ function panel_payment_update_row(PDO $pdo, string $orderId, array $input): arra
     $note = trim((string) ($input['note'] ?? ''));
     $method = trim((string) ($input['method'] ?? ''));
     $isCost = panel_payment_is_cost($payment);
+    $category = null;
     if ($isCost) {
         $method = 'cost';
+        $category = panel_expense_resolve_slug(
+            $pdo,
+            (string) ($input['expense_category'] ?? $input['category'] ?? $payment['expense_category'] ?? '')
+        );
     } elseif ($method === '' || $method === 'cost') {
         $method = (string) ($payment['Payment_Method'] ?? '');
     }
@@ -967,11 +1250,19 @@ function panel_payment_update_row(PDO $pdo, string $orderId, array $input): arra
     } else {
         $time = panel_payment_format_time(panel_payment_parse_sheet_time($timeRaw));
     }
-    db_query(
-        $pdo,
-        'UPDATE Payment_report SET id_user = ?, price = ?, Payment_Method = ?, note = ?, time = ? WHERE id_order = ?',
-        [$userId, (string) $amount, $method, $note !== '' ? $note : null, $time, $orderId]
-    );
+    if ($isCost) {
+        db_query(
+            $pdo,
+            'UPDATE Payment_report SET id_user = ?, price = ?, Payment_Method = ?, note = ?, time = ?, tx_type = ?, expense_category = ? WHERE id_order = ?',
+            [$userId, (string) $amount, $method, $note !== '' ? $note : null, $time, 'expense', $category, $orderId]
+        );
+    } else {
+        db_query(
+            $pdo,
+            'UPDATE Payment_report SET id_user = ?, price = ?, Payment_Method = ?, note = ?, time = ? WHERE id_order = ?',
+            [$userId, (string) $amount, $method, $note !== '' ? $note : null, $time, $orderId]
+        );
+    }
 
     $statusResult = ['ok' => true, 'msg' => ''];
     $newStatus = trim((string) ($input['status'] ?? ''));

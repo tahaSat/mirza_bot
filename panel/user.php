@@ -2,8 +2,10 @@
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
 require_once __DIR__ . '/inc/users_lib.php';
+require_once __DIR__ . '/inc/payments_lib.php';
 require_auth();
 $pdo = panel_ensure_pdo();
+panel_payment_ensure_schema($pdo);
 
 $id = (int) ($_GET['id'] ?? 0);
 if (!$id) {
@@ -476,23 +478,6 @@ include __DIR__ . '/inc/layout_head.php';
                 <?php if (empty($payments)): ?>
                     <div class="empty" style="padding:30px"><p>تراکنشی ثبت نشده</p></div>
                 <?php else:
-                    $methodLabels = [
-                        'cart to cart' => 'کارت→کارت',
-                        'add balance by admin' => 'افزایش ادمین',
-                        'low balance by admin' => 'کسر ادمین',
-                        'zarinpal' => 'زرین‌پال',
-                        'aqayepardakht' => 'آقای پرداخت',
-                        'plisio' => 'Plisio',
-                        'nowpayment' => 'NowPayment',
-                        'Star Telegram' => 'استار تلگرام',
-                        'Currency Rial 1' => 'ریالی ۱',
-                        'Currency Rial tow' => 'ریالی ۲',
-                        'Currency Rial 3' => 'ریالی ۳',
-                        'arze digital offline' => 'ارز دیجیتال',
-                        'tetraminator' => 'Tetraminator',
-                        'manual invoice' => 'فاکتور دستی',
-                        'cost' => 'هزینه',
-                    ];
                     $payStatusMap = [
                         'paid' => ['tag-ok', 'موفق'],
                         'Unpaid' => ['tag-no', 'ناموفق'],
@@ -507,7 +492,9 @@ include __DIR__ . '/inc/layout_head.php';
                         <?php foreach ($payments as $p):
                             $payStatus = $p['payment_Status'] ?? '';
                             [$tagClass, $label] = $payStatusMap[$payStatus] ?? ['tag-plain', $payStatus ?: '—'];
-                            $method = $methodLabels[$p['Payment_Method'] ?? ''] ?? ($p['Payment_Method'] ?? '—');
+                            $method = panel_payment_is_cost($p)
+                                ? panel_expense_category_label($pdo, (string) ($p['expense_category'] ?? ''))
+                                : panel_payment_method_label((string) ($p['Payment_Method'] ?? ''));
                             ?>
                             <div class="m-row">
                                 <div class="m-row-main">
@@ -537,7 +524,9 @@ include __DIR__ . '/inc/layout_head.php';
                                 <?php foreach ($payments as $p):
                                     $payStatus = $p['payment_Status'] ?? '';
                                     [$tagClass, $label] = $payStatusMap[$payStatus] ?? ['tag-plain', $payStatus ?: '—'];
-                                    $method = $methodLabels[$p['Payment_Method'] ?? ''] ?? ($p['Payment_Method'] ?? '—');
+                                    $method = panel_payment_is_cost($p)
+                                        ? panel_expense_category_label($pdo, (string) ($p['expense_category'] ?? ''))
+                                        : panel_payment_method_label((string) ($p['Payment_Method'] ?? ''));
                                     ?>
                                     <tr>
                                         <td class="cn cs" style="white-space:nowrap">

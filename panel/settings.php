@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
+require_once __DIR__ . '/inc/payments_lib.php';
 require_auth();
 $pdo = panel_ensure_pdo();
 
@@ -178,6 +179,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(($_POST['action'] ?? ''), ['expense_add', 'expense_edit', 'expense_delete'], true)) {
+    csrf_check_post();
+    $action = (string) ($_POST['action'] ?? '');
+    if ($action === 'expense_add') {
+        $r = panel_expense_add($pdo, (string) ($_POST['label'] ?? ''), (int) ($_POST['sort_order'] ?? 0));
+    } elseif ($action === 'expense_edit') {
+        $sortRaw = trim((string) ($_POST['sort_order'] ?? ''));
+        $r = panel_expense_rename(
+            $pdo,
+            (int) ($_POST['edit_id'] ?? 0),
+            (string) ($_POST['label'] ?? ''),
+            $sortRaw === '' ? null : (int) $sortRaw
+        );
+    } else {
+        $r = panel_expense_delete($pdo, (int) ($_POST['delete_id'] ?? 0));
+    }
+    flash(!empty($r['ok']) ? 'success' : 'error', $r['msg'] ?? '');
+    header('Location: settings.php?tab=finance');
+    exit;
+}
+
+if (isset($_GET['delete_expense'])) {
+    csrf_check_get();
+    $r = panel_expense_delete($pdo, (int) ($_GET['delete_expense'] ?? 0));
+    flash(!empty($r['ok']) ? 'success' : 'error', $r['msg'] ?? '');
+    header('Location: settings.php?tab=finance');
+    exit;
+}
+
 $tab = $_GET['tab'] ?? 'appearance';
 
 ensure_channel_post_setting_column();
@@ -291,9 +321,18 @@ $themes = [
 $tabs = [
     'appearance' => ['icon' => 'settings', 'label' => 'ظاهر'],
     'bot' => ['icon' => 'menu', 'label' => 'منوی ربات'],
+    'finance' => ['icon' => 'wallet', 'label' => 'مالی'],
     'security' => ['icon' => 'block', 'label' => 'امنیت'],
     'system' => ['icon' => 'dashboard', 'label' => 'سیستم'],
 ];
+
+$expenseCategories = [];
+$expenseUsage = [];
+if ($tab === 'finance') {
+    panel_payment_ensure_schema($pdo);
+    $expenseCategories = panel_expense_categories($pdo);
+    $expenseUsage = panel_expense_usage_counts($pdo);
+}
 
 $pageTitle = $tab === 'bot' ? 'منوی ربات' : 'تنظیمات';
 $activeNav = $tab === 'bot' ? 'bot_menu' : 'settings';
@@ -564,6 +603,147 @@ include __DIR__ . '/inc/layout_head.php';
             عنوان حداکثر ۳۲ کاراکتر است. کاربران فعلی پس از دریافت مجدد منو تغییرات را می‌بینند.
         </div>
     </div>
+
+<?php elseif ($tab === 'finance'): ?>
+
+    <div class="card fade-up">
+        <div class="card-head">
+            <div>
+                <div class="card-title">دسته‌های هزینه</div>
+                <div class="card-subtitle">برای ثبت هزینه در بخش مالی، به‌جای روش پرداخت از این دسته‌ها استفاده می‌شود</div>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="openModal('expenseAddModal')"><?= icon('plus', 14) ?> افزودن دسته</button>
+        </div>
+        <?php if (empty($expenseCategories)): ?>
+            <div class="empty" style="padding:48px 20px">
+                <p>هنوز دسته‌ای ثبت نشده</p>
+                <button type="button" class="btn btn-primary" style="margin-top:14px" onclick="openModal('expenseAddModal')"><?= icon('plus', 14) ?> افزودن دسته</button>
+            </div>
+        <?php else: ?>
+            <div class="tbl-wrap">
+                <table class="tbl-lg">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>نام دسته</th>
+                            <th>تعداد هزینه</th>
+                            <th>ترتیب</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php $i = 1; foreach ($expenseCategories as $cat):
+                            $slug = (string) ($cat['slug'] ?? '');
+                            $isDefault = $slug === panel_expense_default_slug();
+                            $used = (int) ($expenseUsage[$slug] ?? 0);
+                            $editPayload = [
+                                'id' => (int) ($cat['id'] ?? 0),
+                                'label' => (string) ($cat['label'] ?? ''),
+                                'sort_order' => (int) ($cat['sort_order'] ?? 0),
+                            ];
+                        ?>
+                        <tr>
+                            <td class="cf"><?= $i++ ?></td>
+                            <td>
+                                <?= htmlspecialchars((string) ($cat['label'] ?? '')) ?>
+                                <?php if ($isDefault): ?>
+                                    <span class="tag tag-plain" style="margin-right:6px">پیش‌فرض</span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="cn"><?= number_format($used) ?></td>
+                            <td class="cf"><?= (int) ($cat['sort_order'] ?? 0) ?></td>
+                            <td>
+                                <div style="display:flex;gap:5px;flex-wrap:wrap">
+                                    <button type="button" class="btn btn-ghost btn-sm btn-icon" title="ویرایش"
+                                        onclick="openExpenseEditModal(<?= htmlspecialchars(json_encode($editPayload, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)">
+                                        <?= icon('edit', 13) ?>
+                                    </button>
+                                    <?php if (!$isDefault): ?>
+                                    <?php if ($used > 0): ?>
+                                    <button type="button" class="btn btn-no btn-sm btn-icon" title="این دسته روی <?= number_format($used) ?> هزینه استفاده شده" disabled>
+                                        <?= icon('trash', 13) ?>
+                                    </button>
+                                    <?php else: ?>
+                                    <a href="settings.php?tab=finance&delete_expense=<?= (int) ($cat['id'] ?? 0) ?>&_csrf=<?= csrf_token() ?>"
+                                        class="btn btn-no btn-sm btn-icon" title="حذف"
+                                        data-confirm="حذف دسته «<?= htmlspecialchars((string) ($cat['label'] ?? '')) ?>»؟">
+                                        <?= icon('trash', 13) ?>
+                                    </a>
+                                    <?php endif; ?>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <div class="modal-veil" id="expenseAddModal">
+        <div class="modal" style="max-width:480px">
+            <div class="modal-head">
+                <h3>افزودن دسته هزینه</h3>
+                <button type="button" class="modal-x" onclick="closeModal('expenseAddModal')"><?= icon('close', 14) ?></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                    <input type="hidden" name="action" value="expense_add">
+                    <div class="field">
+                        <label>نام دسته *</label>
+                        <input type="text" name="label" class="input" placeholder="مثلاً اجاره سرور، تبلیغات، ..." required maxlength="64">
+                    </div>
+                    <div class="field">
+                        <label>ترتیب نمایش</label>
+                        <input type="number" name="sort_order" class="input" value="0" step="1">
+                    </div>
+                </div>
+                <div class="modal-foot">
+                    <button type="submit" class="btn btn-primary"><?= icon('plus', 13) ?> ذخیره</button>
+                    <button type="button" class="btn btn-ghost" onclick="closeModal('expenseAddModal')">انصراف</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-veil" id="expenseEditModal">
+        <div class="modal" style="max-width:480px">
+            <div class="modal-head">
+                <h3>ویرایش دسته هزینه</h3>
+                <button type="button" class="modal-x" onclick="closeModal('expenseEditModal')"><?= icon('close', 14) ?></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                    <input type="hidden" name="action" value="expense_edit">
+                    <input type="hidden" name="edit_id" id="expense_edit_id">
+                    <div class="field">
+                        <label>نام دسته *</label>
+                        <input type="text" name="label" id="expense_edit_label" class="input" required maxlength="64">
+                    </div>
+                    <div class="field">
+                        <label>ترتیب نمایش</label>
+                        <input type="number" name="sort_order" id="expense_edit_sort" class="input" step="1">
+                    </div>
+                </div>
+                <div class="modal-foot">
+                    <button type="submit" class="btn btn-primary"><?= icon('check', 13) ?> ذخیره تغییرات</button>
+                    <button type="button" class="btn btn-ghost" onclick="closeModal('expenseEditModal')">انصراف</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    window.openExpenseEditModal = function (c) {
+        document.getElementById('expense_edit_id').value = c.id || '';
+        document.getElementById('expense_edit_label').value = c.label || '';
+        document.getElementById('expense_edit_sort').value = c.sort_order != null ? c.sort_order : 0;
+        openModal('expenseEditModal');
+    };
+    </script>
 
 <?php elseif ($tab === 'security'): ?>
 

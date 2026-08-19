@@ -95,6 +95,15 @@
     return html;
   }
 
+  function categoryOptionsHtml(selected) {
+    var html = '';
+    Object.keys(cfg.categoryOptions || {}).forEach(function (key) {
+      html += '<button type="button" class="pay-sheet-menu-item' + (key === selected ? ' active' : '') + '" data-value="'
+        + escapeHtml(key) + '">' + escapeHtml(cfg.categoryOptions[key]) + '</button>';
+    });
+    return html;
+  }
+
   function statusOptionsHtml(selected) {
     var html = '';
     Object.keys(cfg.statusOptions || {}).forEach(function (key) {
@@ -179,6 +188,7 @@
       id_user: (row.querySelector('.pay-user-input') || {}).value || '',
       amount: parsePrice((row.querySelector('.pay-price-input') || {}).value || ''),
       payment_method: isCost ? 'cost' : (methodVal ? methodVal.value : (row.dataset.method || '')),
+      expense_category: isCost ? (methodVal ? methodVal.value : (row.dataset.category || '')) : '',
       note: (row.querySelector('.pay-note-input') || {}).value || '',
       time: (row.querySelector('.pay-time-input') || {}).value || '',
       status: isCost ? 'cost' : (statusVal ? statusVal.value : (row.dataset.status || '')),
@@ -220,6 +230,7 @@
     row.dataset.orderId = data.id_order || '';
     row.dataset.status = data.status || '';
     row.dataset.method = data.method || '';
+    row.dataset.category = data.expense_category || '';
     row.dataset.hasProduct = data.has_product ? '1' : '0';
     if (data.is_cost) row.classList.add('is-cost');
 
@@ -241,8 +252,13 @@
 
     var methodLabel = row.querySelector('.pay-method-label');
     var methodVal = row.querySelector('.pay-method-value');
-    if (methodLabel) methodLabel.textContent = data.method_label || '—';
-    if (methodVal) methodVal.value = data.method || '';
+    if (data.is_cost || isCostTab) {
+      if (methodLabel) methodLabel.textContent = data.category_label || '—';
+      if (methodVal) methodVal.value = data.expense_category || '';
+    } else {
+      if (methodLabel) methodLabel.textContent = data.method_label || '—';
+      if (methodVal) methodVal.value = data.method || '';
+    }
 
     var noteInput = row.querySelector('.pay-note-input');
     var noteView = row.querySelector('.pay-note-view');
@@ -350,21 +366,24 @@
       id_user: fields.id_user,
       amount: fields.amount,
       payment_method: fields.payment_method,
+      expense_category: fields.expense_category,
       note: fields.note,
       time: fields.time,
       new_status: fields.status
     }).then(function (data) {
       applyRowData(row, data.row);
-      toast(data.msg || 'روش پرداخت ذخیره شد.', 'ok');
+      toast(data.msg || (isCostTab ? 'دسته هزینه ذخیره شد.' : 'روش پرداخت ذخیره شد.'), 'ok');
     }).catch(function (err) {
       var val = row.querySelector('.pay-method-value');
-      if (val) val.value = row.dataset.method || '';
+      var prev = isCostTab ? (row.dataset.category || '') : (row.dataset.method || '');
+      if (val) val.value = prev;
       var label = row.querySelector('.pay-method-label');
-      if (label && cfg.methodOptions) {
-        label.textContent = cfg.methodOptions[row.dataset.method] || row.dataset.method || '—';
+      var opts = isCostTab ? cfg.categoryOptions : cfg.methodOptions;
+      if (label && opts) {
+        label.textContent = opts[prev] || prev || '—';
       }
       closePickers();
-      toast(err.message || 'خطا در ذخیره روش پرداخت', 'error');
+      toast(err.message || (isCostTab ? 'خطا در ذخیره دسته هزینه' : 'خطا در ذخیره روش پرداخت'), 'error');
     });
   }
 
@@ -380,6 +399,7 @@
         id_user: fields.id_user,
         amount: fields.amount,
         payment_method: fields.payment_method,
+        expense_category: fields.expense_category,
         note: fields.note,
         time: fields.time,
         new_status: fields.status,
@@ -432,12 +452,16 @@
     var now = cfg.nowJalali || '';
     var defaultMethod = 'manual invoice';
     var defaultStatus = 'paid';
+    var defaultCategory = cfg.defaultCategory || Object.keys(cfg.categoryOptions || {})[0] || 'other';
     var methodLabel = (cfg.methodOptions && cfg.methodOptions[defaultMethod]) || 'فاکتور دستی';
+    var categoryLabel = (cfg.categoryOptions && cfg.categoryOptions[defaultCategory]) || 'سایر';
     var meta = statusMeta(defaultStatus);
     var costMeta = cfg.costStatus || { cls: 'tag-plain', lbl: 'هزینه شده' };
 
     var methodCell = isCostTab
-      ? '<span class="pay-method-label">هزینه</span>'
+      ? '<button type="button" class="pay-dd-trigger" data-pay-menu="category"><span class="pay-method-label">'
+        + escapeHtml(categoryLabel) + '</span><span class="pay-dd-caret">▾</span></button>'
+        + '<input type="hidden" class="pay-method-value" value="' + escapeHtml(defaultCategory) + '">'
       : '<button type="button" class="pay-dd-trigger" data-pay-menu="method"><span class="pay-method-label">'
         + escapeHtml(methodLabel) + '</span><span class="pay-dd-caret">▾</span></button>'
         + '<input type="hidden" class="pay-method-value" value="' + escapeHtml(defaultMethod) + '">';
@@ -453,6 +477,7 @@
     tr.dataset.orderId = oid;
     tr.dataset.status = isCostTab ? 'cost' : defaultStatus;
     tr.dataset.method = isCostTab ? 'cost' : defaultMethod;
+    tr.dataset.category = isCostTab ? defaultCategory : '';
     tr.dataset.hasProduct = '0';
     tr.innerHTML =
       '<td class="pay-idx" style="color:var(--text-dim)">—</td>'
@@ -501,7 +526,7 @@
       var kind = menu._payKind;
       var value = btn.getAttribute('data-value') || '';
       if (row && kind === 'status') applyStatusChoice(row, value);
-      else if (row && kind === 'method') applyMethodChoice(row, value);
+      else if (row && (kind === 'method' || kind === 'category')) applyMethodChoice(row, value, kind);
       else if (row && kind === 'user') applyUserChoice(row, value);
     });
     document.body.appendChild(menu);
@@ -530,7 +555,7 @@
   }
 
   function openCellMenu(row, kind, anchor) {
-    if (row.classList.contains('is-cost')) return;
+    if (row.classList.contains('is-cost') && kind === 'status') return;
     var existing = document.getElementById('paySheetMenu');
     if (existing && !existing.hidden && existing._payRow === row && existing._payKind === kind) {
       closePickers();
@@ -538,10 +563,19 @@
     }
     closePickers();
     var menu = ensureMenu();
-    var current = kind === 'status'
-      ? ((row.querySelector('.pay-status-value') || {}).value || row.dataset.status || '')
-      : ((row.querySelector('.pay-method-value') || {}).value || row.dataset.method || '');
-    menu.innerHTML = kind === 'status' ? statusOptionsHtml(current) : methodOptionsHtml(current);
+    var current;
+    var html;
+    if (kind === 'status') {
+      current = (row.querySelector('.pay-status-value') || {}).value || row.dataset.status || '';
+      html = statusOptionsHtml(current);
+    } else if (kind === 'category') {
+      current = (row.querySelector('.pay-method-value') || {}).value || row.dataset.category || '';
+      html = categoryOptionsHtml(current);
+    } else {
+      current = (row.querySelector('.pay-method-value') || {}).value || row.dataset.method || '';
+      html = methodOptionsHtml(current);
+    }
+    menu.innerHTML = html;
     menu._payRow = row;
     menu._payKind = kind;
     row.classList.add(kind === 'status' ? 'is-picking-status' : 'is-picking-method');
@@ -572,16 +606,19 @@
     saveStatus(row, next, false, false);
   }
 
-  function applyMethodChoice(row, next) {
+  function applyMethodChoice(row, next, kind) {
+    var isCategory = kind === 'category' || isCostTab || row.classList.contains('is-cost');
     var val = row.querySelector('.pay-method-value');
     if (val) val.value = next;
     var label = row.querySelector('.pay-method-label');
-    if (label && cfg.methodOptions) {
-      label.textContent = cfg.methodOptions[next] || next;
+    var opts = isCategory ? cfg.categoryOptions : cfg.methodOptions;
+    if (label && opts) {
+      label.textContent = opts[next] || next;
     }
     closePickers();
     if (row.classList.contains('is-editing') || row.classList.contains('is-new')) return;
-    if (next === row.dataset.method) return;
+    var prev = isCategory ? (row.dataset.category || '') : (row.dataset.method || '');
+    if (next === prev) return;
     saveMethod(row);
   }
 
@@ -696,10 +733,12 @@
   body.addEventListener('click', function (e) {
     var row = e.target.closest('.pay-sheet-row');
     var trigger = e.target.closest('.pay-dd-trigger');
-    if (trigger && row && !row.classList.contains('is-cost')) {
+    if (trigger && row) {
+      var kind = trigger.getAttribute('data-pay-menu');
+      if (row.classList.contains('is-cost') && kind === 'status') return;
       e.preventDefault();
       e.stopPropagation();
-      openCellMenu(row, trigger.getAttribute('data-pay-menu'), trigger);
+      openCellMenu(row, kind, trigger);
       return;
     }
 

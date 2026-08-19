@@ -5,7 +5,7 @@ require_once __DIR__ . '/inc/payments_lib.php';
 require_auth();
 
 $pdo = panel_ensure_pdo();
-panel_payment_ensure_note_column($pdo);
+panel_payment_ensure_schema($pdo);
 
 $tab = $_GET['tab'] ?? 'list';
 if (!in_array($tab, ['list', 'pending', 'costs'], true)) {
@@ -26,6 +26,7 @@ function payment_redirect_url(string $tab, array $extra = []): string
         'from' => $extra['from'] ?? '',
         'to' => $extra['to'] ?? '',
         'method' => $extra['method'] ?? '',
+        'category' => $extra['category'] ?? '',
         'page' => $extra['page'] ?? '',
     ], static fn($v) => $v !== null && $v !== '');
     return $qs ? ('payment.php?' . http_build_query($qs, '', '&', PHP_QUERY_RFC3986)) : 'payment.php';
@@ -83,7 +84,8 @@ function payment_shared_filter_clauses(
     $priceMax,
     ?array $fromFilter,
     ?array $toFilter,
-    string $method = ''
+    string $method = '',
+    string $category = ''
 ): array {
     $where = [];
     $params = [];
@@ -94,6 +96,10 @@ function payment_shared_filter_clauses(
     if ($method !== '') {
         $where[] = 'Payment_Method = ?';
         $params[] = $method;
+    }
+    if ($category !== '') {
+        $where[] = 'expense_category = ?';
+        $params[] = $category;
     }
     if ($priceMin !== null) {
         $where[] = 'CAST(price AS DECIMAL(20,0)) >= ?';
@@ -124,6 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'from' => trim((string) ($_POST['from'] ?? '')),
         'to' => trim((string) ($_POST['to'] ?? '')),
         'method' => trim((string) ($_POST['filter_method'] ?? '')),
+        'category' => trim((string) ($_POST['filter_category'] ?? '')),
         'page' => !empty($_POST['page']) ? (int) $_POST['page'] : '',
     ]);
 
@@ -182,6 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'id_user' => $_POST['id_user'] ?? '',
             'note' => $_POST['note'] ?? '',
             'method' => $_POST['payment_method'] ?? '',
+            'expense_category' => $_POST['expense_category'] ?? '',
             'status' => $_POST['new_status'] ?? $_POST['status'] ?? '',
             'remove_product' => !empty($_POST['remove_product']),
             'reject_invoice' => !empty($_POST['reject_invoice']),
@@ -262,6 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'id_order' => $_POST['id_order'] ?? '',
             'id_user' => $_POST['id_user'] ?? '',
             'note' => $_POST['note'] ?? '',
+            'expense_category' => $_POST['expense_category'] ?? '',
         ]);
         flash($r['ok'] ? 'success' : 'error', $r['msg']);
         $redirect = 'payment.php?tab=costs';
@@ -301,6 +310,7 @@ if ($fromFilter && $toFilter && $fromFilter['ts'] > $toFilter['ts']) {
 $fromInput = $fromFilter['input'] ?? '';
 $toInput = $toFilter['input'] ?? '';
 $method = trim((string) ($_GET['method'] ?? ''));
+$category = trim((string) ($_GET['category'] ?? ''));
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 30;
 $offset = ($page - 1) * $perPage;
@@ -324,9 +334,9 @@ if ($tab === 'pending') {
         $where[] = 'CAST(price AS DECIMAL(20,0)) <= ?';
         $params[] = $priceMax;
     }
-    if ($method !== '') {
-        $where[] = 'Payment_Method = ?';
-        $params[] = $method;
+    if ($category !== '') {
+        $where[] = 'expense_category = ?';
+        $params[] = $category;
     }
     panel_payment_append_time_range($where, $params, $fromFilter, $toFilter);
 } else {
@@ -393,7 +403,15 @@ $forecastIncome = 0;
 $todayCount = 0;
 $pendingCount = 0;
 try {
-    [$cardWhere, $cardParams] = payment_shared_filter_clauses($search, $priceMin, $priceMax, $fromFilter, $toFilter, $method);
+    [$cardWhere, $cardParams] = payment_shared_filter_clauses(
+        $search,
+        $priceMin,
+        $priceMax,
+        $fromFilter,
+        $toFilter,
+        $tab === 'costs' ? '' : $method,
+        $tab === 'costs' ? $category : ''
+    );
 
     $successWhere = array_merge(["payment_Status = 'paid'"], $cardWhere);
     $successParams = $cardParams;
@@ -441,7 +459,9 @@ try {
 } catch (Exception $e) {
 }
 $netIncome = $totalSuccess - $totalCosts;
-$cardsFiltered = $search !== '' || $priceMin !== null || $priceMax !== null || $fromFilter || $toFilter || $method !== '' || ($tab !== 'costs' && $status !== '');
+$cardsFiltered = $search !== '' || $priceMin !== null || $priceMax !== null || $fromFilter || $toFilter
+    || ($tab === 'costs' ? $category !== '' : $method !== '')
+    || ($tab !== 'costs' && $status !== '');
 $successMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'از ابتدای فعالیت';
 $costMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'هزینه شده';
 $netMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'درآمد منهای هزینه';
@@ -488,6 +508,10 @@ foreach ($methodOptions as $k => $lbl) {
     $sheetMethodOptions[$k] = $lbl;
 }
 asort($sheetMethodOptions, SORT_STRING);
+$categoryOptions = panel_expense_category_map($pdo);
+if ($category !== '' && !isset($categoryOptions[$category])) {
+    $categoryOptions[$category] = panel_expense_category_label($pdo, $category);
+}
 $nowJalali = jalali_tehran_format(time(), 'Y/m/d H:i', 'en');
 
 $activeFilterCount = 0;
@@ -507,7 +531,11 @@ if ($tab !== 'pending') {
     if ($toFilter) {
         $activeFilterCount++;
     }
-    if ($method !== '') {
+    if ($tab === 'costs') {
+        if ($category !== '') {
+            $activeFilterCount++;
+        }
+    } elseif ($method !== '') {
         $activeFilterCount++;
     }
 }
@@ -533,7 +561,6 @@ include __DIR__ . '/inc/layout_head.php';
   .pay-sheet-row.is-editing .pay-edit { display: block; }
   .pay-dd-trigger{display:inline-flex;align-items:center;gap:4px;max-width:100%;border:0;padding:0;background:transparent;font:inherit;color:inherit;cursor:pointer;text-align:right}
   .pay-dd-caret{opacity:.65;font-size:.68rem;flex-shrink:0;line-height:1}
-  .pay-sheet-row.is-cost .pay-dd-trigger{cursor:default}
   .pay-sheet-menu{position:fixed;z-index:4000;min-width:180px;max-width:min(280px,calc(100vw - 16px));max-height:min(320px,70vh);overflow:auto;padding:6px;border:1px solid var(--bd);border-radius:12px;background:var(--sf);box-shadow:0 10px 28px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:4px}
   .pay-sheet-menu[hidden]{display:none!important}
   .pay-sheet-menu-item{display:flex;align-items:center;width:100%;padding:7px 8px;border:0;border-radius:8px;background:transparent;cursor:pointer;text-align:right;font:inherit;color:var(--text);font-size:.8rem}
@@ -573,7 +600,10 @@ include __DIR__ . '/inc/layout_head.php';
     </a>
     <a href="payment.php?tab=costs" class="btn btn-sm <?= $tab === 'costs' ? 'btn-primary' : 'btn-ghost' ?>">هزینه‌ها</a>
   </div>
-  <a href="payment_methods.php" class="btn btn-ghost btn-sm"><?= icon('settings', 14) ?> درگاه‌های پرداخت</a>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="settings.php?tab=finance" class="btn btn-ghost btn-sm"><?= icon('wallet', 14) ?> دسته‌های هزینه</a>
+    <a href="payment_methods.php" class="btn btn-ghost btn-sm"><?= icon('settings', 14) ?> درگاه‌های پرداخت</a>
+  </div>
 </div>
 
 <?php if ($tab !== 'pending'): ?>
@@ -655,6 +685,7 @@ include __DIR__ . '/inc/layout_head.php';
         <input type="hidden" name="from" value="<?= htmlspecialchars($fromInput) ?>">
         <input type="hidden" name="to" value="<?= htmlspecialchars($toInput) ?>">
         <input type="hidden" name="method" value="<?= htmlspecialchars($method) ?>">
+        <input type="hidden" name="category" value="<?= htmlspecialchars($category) ?>">
         <div class="search-box">
           <?= icon('search', 14) ?>
           <input type="text" name="q" placeholder="<?= $tab === 'costs' ? 'شناسه، یادداشت...' : 'آیدی کاربر، شماره تراکنش یا یادداشت...' ?>"
@@ -675,7 +706,7 @@ include __DIR__ . '/inc/layout_head.php';
           <th>کاربر</th>
           <th>شناسه</th>
           <th>مبلغ</th>
-          <th>روش پرداخت</th>
+          <th><?= $tab === 'costs' ? 'دسته هزینه' : 'روش پرداخت' ?></th>
           <th>یادداشت</th>
           <th>تاریخ</th>
           <th>وضعیت</th>
@@ -707,6 +738,8 @@ include __DIR__ . '/inc/layout_head.php';
             [$cls, $lbl] = $statusMap[$st] ?? ['tag-plain', $st ?: '—'];
             $methodKey = (string) ($p['Payment_Method'] ?? '');
             $methodLabel = panel_payment_method_label($methodKey);
+            $categoryKey = panel_expense_resolve_slug($pdo, (string) ($p['expense_category'] ?? ''));
+            $categoryLabel = panel_expense_category_label($pdo, $categoryKey);
             $oid = (string) ($p['id_order'] ?? '');
             $hasProduct = panel_payment_row_has_product($p);
             $uid = trim((string) ($p['id_user'] ?? ''));
@@ -769,6 +802,7 @@ include __DIR__ . '/inc/layout_head.php';
               data-order-id="<?= htmlspecialchars($oid, ENT_QUOTES) ?>"
               data-status="<?= htmlspecialchars((string) $st, ENT_QUOTES) ?>"
               data-method="<?= htmlspecialchars($methodKey, ENT_QUOTES) ?>"
+              data-category="<?= htmlspecialchars($categoryKey, ENT_QUOTES) ?>"
               data-has-product="<?= $hasProduct ? '1' : '0' ?>">
               <td class="pay-idx" style="color:var(--text-dim)"><?= $i++ ?></td>
               <td>
@@ -796,7 +830,11 @@ include __DIR__ . '/inc/layout_head.php';
               </td>
               <td class="pay-method-view">
                 <?php if ($isCostRow): ?>
-                  <span class="pay-method-label"><?= htmlspecialchars($methodLabel) ?></span>
+                  <button type="button" class="pay-dd-trigger" data-pay-menu="category">
+                    <span class="pay-method-label"><?= htmlspecialchars($categoryLabel) ?></span>
+                    <span class="pay-dd-caret">▾</span>
+                  </button>
+                  <input type="hidden" class="pay-method-value" value="<?= htmlspecialchars($categoryKey) ?>">
                 <?php else: ?>
                   <button type="button" class="pay-dd-trigger" data-pay-menu="method">
                     <span class="pay-method-label"><?= htmlspecialchars($methodLabel) ?></span>
@@ -969,6 +1007,16 @@ function openRejectModal(orderId) {
               <?php endforeach; ?>
             </select>
           </div>
+          <?php else: ?>
+          <div class="field">
+            <label class="lbl">دسته هزینه</label>
+            <select name="category" class="select" style="width:100%">
+              <option value="">همه دسته‌ها</option>
+              <?php foreach ($categoryOptions as $k => $lbl): ?>
+                <option value="<?= htmlspecialchars($k) ?>" <?= $category === $k ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
           <?php endif; ?>
           <div class="field">
             <label class="lbl">حداقل مبلغ</label>
@@ -1030,6 +1078,8 @@ window.PAYMENT_SHEET = <?= json_encode([
     'statusOptions' => $sheetStatusJs,
     'costStatus' => ['cls' => $costStatusJs[0], 'lbl' => $costStatusJs[1]],
     'methodOptions' => $sheetMethodOptions,
+    'categoryOptions' => $categoryOptions,
+    'defaultCategory' => panel_expense_default_slug(),
     'icons' => [
         'edit' => icon('edit', 14),
         'save' => icon('check', 14),

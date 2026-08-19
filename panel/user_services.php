@@ -19,7 +19,7 @@ if (!$user) {
 }
 
 $page = max(1, (int) ($_GET['page'] ?? 1));
-$perPage = 25;
+$perPage = 10;
 $offset = ($page - 1) * $perPage;
 $total = panel_count_user_services($pdo, $id);
 $services = panel_enrich_services_usage(panel_fetch_user_services($pdo, $id, $perPage, $offset));

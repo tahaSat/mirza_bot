@@ -55,13 +55,22 @@
         btn.addEventListener('click', function () {
             var invoiceId = btn.dataset.invoice || '';
             var username = btn.dataset.username || '';
+            var price = parseInt(btn.dataset.price || '0', 10) || 0;
             var msgEl = document.getElementById('refundServiceText');
             var idInput = document.getElementById('refundInvoiceId');
             var disableCheck = document.getElementById('refundDisableProduct');
+            var walletCheck = document.getElementById('refundCreditWallet');
+            var walletLabel = document.getElementById('refundCreditWalletLabel');
             if (idInput) idInput.value = invoiceId;
             if (disableCheck) disableCheck.checked = true;
+            if (walletCheck) walletCheck.checked = false;
+            if (walletLabel) {
+                walletLabel.textContent = price > 0
+                    ? 'مبلغ سرویس (' + price.toLocaleString('fa-IR') + ' تومان) به کیف پول کاربر بازگردانده شود؟'
+                    : 'مبلغ سرویس به کیف پول کاربر بازگردانده شود؟';
+            }
             if (msgEl) {
-                msgEl.textContent = 'پرداخت سرویس «' + username + '» مرجوعی می‌شود (بازگشت وجه به مشتری).';
+                msgEl.textContent = 'سرویس «' + username + '» مرجوعی می‌شود. در صورت تمایل، مبلغ به کیف پول کاربر برمی‌گردد.';
             }
             if (typeof openModal === 'function') {
                 openModal('refundServiceModal');
@@ -79,6 +88,36 @@
                 showConfirm(label + '\n\nادامه می‌دهید؟', function () {
                     removeForm.submit();
                 }, 'تأیید حذف سرویس');
+            }
+        });
+    }
+
+    var refundForm = document.getElementById('refundServiceForm');
+    if (refundForm) {
+        refundForm.addEventListener('submit', function (e) {
+            var walletCheck = document.getElementById('refundCreditWallet');
+            var disableCheck = document.getElementById('refundDisableProduct');
+            if (!((walletCheck && walletCheck.checked) || (disableCheck && disableCheck.checked))) {
+                e.preventDefault();
+                if (typeof toast === 'function') {
+                    toast('یکی از گزینه‌های بازگشت مبلغ به کیف پول یا غیرفعال‌سازی سرویس را انتخاب کنید.', 'warn');
+                } else {
+                    alert('یکی از گزینه‌های بازگشت مبلغ به کیف پول یا غیرفعال‌سازی سرویس را انتخاب کنید.');
+                }
+                return;
+            }
+            if (typeof showConfirm === 'function') {
+                e.preventDefault();
+                var parts = [];
+                if (walletCheck && walletCheck.checked) {
+                    parts.push('مبلغ به کیف پول کاربر بازگردانده می‌شود.');
+                }
+                if (disableCheck && disableCheck.checked) {
+                    parts.push('سرویس در پنل و ربات غیرفعال می‌شود.');
+                }
+                showConfirm(parts.join('\n') + '\n\nادامه می‌دهید؟', function () {
+                    refundForm.submit();
+                }, 'تأیید مرجوعی سرویس');
             }
         });
     }

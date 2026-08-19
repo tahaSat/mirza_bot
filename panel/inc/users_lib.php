@@ -194,6 +194,7 @@ function panel_invoice_status_map(): array
         'unpaid' => ['tag-plain', 'پرداخت نشده'],
         'unpiad' => ['tag-plain', 'پرداخت نشده'],
         'removebyadmin' => ['tag-no', 'حذف توسط ادمین'],
+        'disablebyadmin' => ['tag-no', 'غیرفعال توسط ادمین'],
         'disabledn' => ['tag-no', 'غیرفعال در پنل'],
         'Unsuccessful' => ['tag-plain', 'خطا دریافت اطلاعات'],
     ];
@@ -431,6 +432,136 @@ function panel_mark_invoice_removed(PDO $pdo, string $idInvoice): void
         "UPDATE invoice SET Status = 'removebyadmin', status = 'removebyadmin' WHERE id_invoice = ?",
         [$idInvoice]
     );
+}
+
+function panel_mark_invoice_disabled_by_admin(PDO $pdo, string $idInvoice): void
+{
+    db_query(
+        $pdo,
+        "UPDATE invoice SET Status = 'disablebyadmin' WHERE id_invoice = ?",
+        [$idInvoice]
+    );
+}
+
+/**
+ * Disable the VPN user on the sub-link panel and mark the robot invoice as disabled by admin.
+ * The invoice row is kept. Local status is updated even if the panel call fails.
+ *
+ * @return array{ok:bool,msg:string}
+ */
+function panel_disable_invoice_service(PDO $pdo, array $invoice): array
+{
+    panel_service_bootstrap();
+    global $ManagePanel;
+
+    $idInvoice = (string) ($invoice['id_invoice'] ?? '');
+    $username = trim((string) ($invoice['username'] ?? ''));
+    $location = trim((string) ($invoice['Service_location'] ?? ''));
+    $notes = [];
+    $panelOk = true;
+
+    if ($username === '' || $location === '') {
+        $panelOk = false;
+        $notes[] = 'نام کاربری یا پنل سرویس مشخص نیست.';
+    } else {
+        try {
+            $live = $ManagePanel->DataUser($location, $username);
+            $liveStatus = is_array($live) ? (string) ($live['status'] ?? '') : '';
+            if ($liveStatus === 'Unsuccessful') {
+                $panelOk = false;
+                $detail = trim((string) ($live['msg'] ?? $live['detail'] ?? ''));
+                $notes[] = 'غیرفعال‌سازی پنل ساب‌لینک ناموفق بود' . ($detail !== '' ? ': ' . $detail : '.');
+            } elseif ($liveStatus === 'disabled') {
+                $notes[] = 'سرویس از قبل در پنل ساب‌لینک غیرفعال بود.';
+            } elseif ($liveStatus === 'active') {
+                $result = $ManagePanel->Change_status($username, $location);
+                $ok = is_array($result) && ($result['status'] ?? '') === 'successful';
+                $panelOk = $ok;
+                $notes[] = $ok
+                    ? 'سرویس در پنل ساب‌لینک غیرفعال شد.'
+                    : ('غیرفعال‌سازی پنل ساب‌لینک: ' . trim((string) ($result['msg'] ?? 'ناموفق')));
+            } else {
+                $result = $ManagePanel->Modifyuser($username, $location, ['status' => 'disabled']);
+                if (is_array($result) && array_key_exists('status', $result) && $result['status'] === false) {
+                    $panelOk = false;
+                    $notes[] = 'غیرفعال‌سازی پنل ساب‌لینک: ' . trim((string) ($result['msg'] ?? 'ناموفق'));
+                } else {
+                    $notes[] = 'سرویس در پنل ساب‌لینک غیرفعال شد.';
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('panel_disable_invoice_service: ' . $e->getMessage());
+            $panelOk = false;
+            $notes[] = 'غیرفعال‌سازی در پنل ساب‌لینک ناموفق بود.';
+        }
+    }
+
+    if ($idInvoice !== '') {
+        panel_mark_invoice_disabled_by_admin($pdo, $idInvoice);
+        $notes[] = 'وضعیت سرویس در ربات به غیرفعال توسط ادمین تغییر کرد.';
+    }
+
+    return ['ok' => $panelOk, 'msg' => implode(' ', $notes)];
+}
+
+/**
+ * Refund a purchased service: optionally credit the wallet and/or disable the product.
+ *
+ * @return array{ok:bool,msg:string}
+ */
+function panel_invoice_apply_refund(PDO $pdo, string $idInvoice, bool $disableProduct = false, bool $creditWallet = false): array
+{
+    $invoice = db_fetch($pdo, 'SELECT * FROM invoice WHERE id_invoice = ?', [$idInvoice]);
+    if (!$invoice) {
+        return ['ok' => false, 'msg' => 'فاکتور یافت نشد.'];
+    }
+
+    if (!$disableProduct && !$creditWallet) {
+        return ['ok' => false, 'msg' => 'یکی از گزینه‌های بازگشت مبلغ به کیف پول یا غیرفعال‌سازی سرویس را انتخاب کنید.'];
+    }
+
+    $notes = [];
+    $userId = $invoice['id_user'] ?? null;
+
+    if ($creditWallet) {
+        $price = (int) ($invoice['price_product'] ?? 0);
+        if ($price <= 0) {
+            $notes[] = 'مبلغ سرویس صفر است و به کیف پول اضافه نشد.';
+        } else {
+            $already = db_count(
+                $pdo,
+                "SELECT COUNT(*) FROM Payment_report
+                 WHERE id_user = ? AND id_invoice = ? AND Payment_Method = 'refund to wallet'",
+                [(string) $userId, $idInvoice]
+            );
+            if ($already) {
+                $notes[] = 'مبلغ این سرویس قبلاً به کیف پول کاربر بازگردانده شده است.';
+            } else {
+                db_query($pdo, 'UPDATE user SET Balance = Balance + ? WHERE id = ?', [$price, $userId]);
+                $dateacc = date('Y/m/d H:i:s');
+                $orderId = bin2hex(random_bytes(5));
+                db_query(
+                    $pdo,
+                    'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice) VALUES (?,?,?,?,?,?,?)',
+                    [$userId, $orderId, $dateacc, $price, 'paid', 'refund to wallet', $idInvoice]
+                );
+                panel_notify_user($userId, '💎 کاربر عزیز مبلغ ' . number_format($price) . ' تومان بابت مرجوعی سرویس به موجودی کیف پول تان اضافه گردید.');
+                $notes[] = 'مبلغ ' . number_format($price) . ' تومان به کیف پول کاربر بازگردانده شد.';
+            }
+        }
+    }
+
+    if ($disableProduct) {
+        $status = panel_invoice_get_status($invoice);
+        if (in_array($status, ['disablebyadmin', 'removebyadmin'], true)) {
+            $notes[] = 'این سرویس از قبل در ربات غیرفعال است.';
+        } else {
+            $disabled = panel_disable_invoice_service($pdo, $invoice);
+            $notes[] = $disabled['msg'];
+        }
+    }
+
+    return ['ok' => true, 'msg' => implode(' ', $notes)];
 }
 
 /**

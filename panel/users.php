@@ -118,7 +118,7 @@ $status = $_GET['status'] ?? '';
 $role = $_GET['role'] ?? '';
 $userFilters = panel_user_segment_from_request();
 $userFiltersActive = panel_user_segment_active($userFilters);
-$view = $_GET['view'] === 'admins' ? 'admins' : 'users';
+$view = ($_GET['view'] ?? '') === 'admins' ? 'admins' : 'users';
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 25;
 $offset = ($page - 1) * $perPage;

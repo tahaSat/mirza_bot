@@ -65,9 +65,18 @@ switch ($action) {
             flash('error', 'سرویس یافت نشد یا متعلق به این کاربر نیست.');
             break;
         }
-        $result = panel_invoice_apply_refund($pdo, $idInvoice, !empty($_POST['disable_product']));
+        $result = panel_invoice_apply_refund(
+            $pdo,
+            $idInvoice,
+            !empty($_POST['disable_product']),
+            !empty($_POST['credit_wallet'])
+        );
         flash($result['ok'] ? 'success' : 'error', $result['msg']);
-        error_log("Admin {$_SESSION['admin_user']} refunded service $idInvoice for user $userId disable=" . (!empty($_POST['disable_product']) ? '1' : '0'));
+        error_log(
+            "Admin {$_SESSION['admin_user']} refunded service $idInvoice for user $userId"
+            . ' disable=' . (!empty($_POST['disable_product']) ? '1' : '0')
+            . ' wallet=' . (!empty($_POST['credit_wallet']) ? '1' : '0')
+        );
         break;
 
     default:

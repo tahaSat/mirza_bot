@@ -157,6 +157,7 @@ $orderStatusMap = [
   'reject' => ['tag-no', 'رد شده'],
   'removebyadmin' => ['tag-no', 'حذف توسط ادمین'],
   'removedbyadmin' => ['tag-no', 'حذف توسط ادمین'],
+  'disablebyadmin' => ['tag-no', 'غیرفعال توسط ادمین'],
 ];
 
 $paymentStatusMap = [

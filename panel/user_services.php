@@ -119,7 +119,8 @@ include __DIR__ . '/inc/layout_head.php';
                                     <button type="button" class="btn btn-ghost btn-sm btn-icon btn-refund-service"
                                         title="مرجوعی"
                                         data-invoice="<?= htmlspecialchars($svc['id_invoice'] ?? '') ?>"
-                                        data-username="<?= htmlspecialchars($svc['username'] ?? '') ?>">
+                                        data-username="<?= htmlspecialchars($svc['username'] ?? '') ?>"
+                                        data-price="<?= (int) ($svc['price_product'] ?? 0) ?>">
                                         <?= icon('block', 13) ?>
                                     </button>
                                     <button type="button" class="btn btn-no btn-sm btn-icon btn-remove-service"
@@ -232,12 +233,16 @@ include __DIR__ . '/inc/layout_head.php';
                 <input type="hidden" name="back" value="user_services.php?id=<?= $id ?>">
                 <input type="hidden" name="id_invoice" id="refundInvoiceId" value="">
                 <p id="refundServiceText" style="font-size:.88rem;color:var(--mute);line-height:1.7;margin-bottom:14px"></p>
+                <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6;margin-bottom:10px">
+                    <input type="checkbox" name="credit_wallet" id="refundCreditWallet" value="1" style="width:16px;height:16px;margin-top:3px">
+                    <span id="refundCreditWalletLabel">مبلغ سرویس به کیف پول کاربر بازگردانده شود؟</span>
+                </label>
                 <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
                     <input type="checkbox" name="disable_product" id="refundDisableProduct" value="1" checked style="width:16px;height:16px;margin-top:3px">
                     <span>سرویس در پنل ساب‌لینک و ربات غیرفعال شود؟</span>
                 </label>
                 <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
-                    پرداخت مرتبط مرجوعی می‌شود. رکورد سفارش باقی می‌ماند و در صورت تأیید، وضعیت سرویس «غیرفعال توسط ادمین» می‌گردد.
+                    رکورد سفارش باقی می‌ماند. در صورت تأیید غیرفعال‌سازی، وضعیت سرویس «غیرفعال توسط ادمین» می‌گردد.
                 </p>
             </div>
             <div class="modal-foot">

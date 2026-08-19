@@ -606,6 +606,32 @@ if ($table_exists) {
     }
     $json_list_product_list_admin = json_encode($list_product);
 }
+
+function keyboard_admin_addorder_products(string $panelName, string $agent = 'f'): string
+{
+    global $pdo, $textbotlang;
+    $list_product = [
+        'keyboard' => [],
+        'resize_keyboard' => true,
+    ];
+    $list_product['keyboard'][] = [
+        ['text' => $textbotlang['Admin']['backadmin'] ?? 'بازگشت'],
+    ];
+    $panel = select("marzban_panel", "*", "name_panel", $panelName, "select");
+    if (is_array($panel) && ($panel['type'] ?? '') !== 'Manualsale') {
+        $list_product['keyboard'][] = [
+            ['text' => panel_custom_button_text($panel)],
+        ];
+    }
+    $stmt = $pdo->prepare("SELECT name_product, emoji_id FROM product WHERE Location = :loc OR Location = '/all' ORDER BY name_product");
+    $stmt->execute([':loc' => $panelName]);
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $list_product['keyboard'][] = [
+            telegram_button_with_icon(['text' => $row['name_product']], $row['emoji_id'] ?? ''),
+        ];
+    }
+    return json_encode($list_product);
+}
 //--------------------------------------------------
 $stmt = $pdo->prepare("SHOW TABLES LIKE 'Discount'");
 $stmt->execute();

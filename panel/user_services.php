@@ -27,12 +27,36 @@ $totalPages = max(1, (int) ceil($total / $perPage));
 
 $panels = [];
 $products = [];
+$panelsMeta = [];
 try {
-    $panels = db_fetchAll($pdo, "SELECT name_panel FROM marzban_panel WHERE status = 'active' ORDER BY name_panel");
-    if (!$panels) {
-        $panels = db_fetchAll($pdo, "SELECT name_panel FROM marzban_panel ORDER BY name_panel");
-    }
+    $panelRows = db_fetchAll($pdo, "SELECT * FROM marzban_panel ORDER BY name_panel");
+    $activePanels = array_values(array_filter($panelRows, static function ($row) {
+        return ($row['status'] ?? '') === 'active';
+    }));
+    $panels = $activePanels ?: $panelRows;
     $products = db_fetchAll($pdo, "SELECT name_product, Location FROM product ORDER BY name_product");
+    $userAgent = (string) ($user['agent'] ?? 'f');
+    foreach ($panels as $pr) {
+        $name = (string) ($pr['name_panel'] ?? '');
+        if ($name === '') {
+            continue;
+        }
+        $method = (string) ($pr['MethodUsername'] ?? '');
+        $monthOpts = [];
+        foreach (panel_custom_months($pr) as $opt) {
+            $m = (int) $opt['months'];
+            $monthOpts[] = ['months' => $m, 'label' => $m . ' ماهه'];
+        }
+        $panelsMeta[$name] = [
+            'method' => $method,
+            'asksUsername' => panel_method_asks_custom_username($method),
+            'customEnabled' => (($pr['type'] ?? '') !== 'Manualsale'),
+            'customLabel' => panel_custom_button_text($pr),
+            'months' => $monthOpts,
+            'minVolume' => (int) panel_agent_field($pr, 'mainvolume', $userAgent, '1'),
+            'maxVolume' => (int) panel_agent_field($pr, 'maxvolume', $userAgent, '1000'),
+        ];
+    }
 } catch (Throwable $e) {
     error_log('user_services.php: ' . $e->getMessage());
 }
@@ -164,12 +188,6 @@ include __DIR__ . '/inc/layout_head.php';
                 <input type="hidden" name="action" value="add_service">
                 <input type="hidden" name="user_id" value="<?= $id ?>">
                 <div class="field">
-                    <label>نام کاربری سرویس</label>
-                    <input type="text" name="username" class="input cm" pattern="[A-Za-z0-9_]{3,32}" minlength="3" maxlength="32" required
-                        placeholder="مثلاً user_5016" autocomplete="off">
-                    <span class="field-hint">۳ تا ۳۲ کاراکتر — حروف انگلیسی، عدد و _</span>
-                </div>
-                <div class="field">
                     <label>پنل / لوکیشن</label>
                     <select name="panel" id="servicePanel" class="select" required>
                         <option value="">انتخاب پنل...</option>
@@ -183,6 +201,26 @@ include __DIR__ . '/inc/layout_head.php';
                     <select name="product" id="serviceProduct" class="select" required disabled>
                         <option value="">ابتدا پنل را انتخاب کنید</option>
                     </select>
+                </div>
+                <div id="customServiceFields" hidden>
+                    <div class="field">
+                        <label>حجم (گیگابایت)</label>
+                        <input type="number" name="custom_gb" id="customGb" class="input" min="1" step="1">
+                        <span class="field-hint" id="customGbHint"></span>
+                    </div>
+                    <div class="field">
+                        <label>مدت سرویس</label>
+                        <select name="custom_months" id="customMonths" class="select">
+                            <option value="">انتخاب مدت...</option>
+                        </select>
+                    </div>
+                </div>
+                <p id="usernameAutoHint" class="field-hint" style="margin:0 0 12px">نام کاربری طبق روش نام‌گذاری پنل به‌صورت خودکار ساخته می‌شود.</p>
+                <div class="field" id="serviceUsernameField" hidden>
+                    <label>نام کاربری سرویس</label>
+                    <input type="text" name="username" id="serviceUsername" class="input cm" pattern="[A-Za-z0-9_]{3,32}" minlength="3" maxlength="32"
+                        placeholder="مثلاً user_5016" autocomplete="off">
+                    <span class="field-hint">فقط برای روش «نام کاربری دلخواه» روی این پنل</span>
                 </div>
             </div>
             <div class="modal-foot">
@@ -255,6 +293,8 @@ include __DIR__ . '/inc/layout_head.php';
 
 <script>
 window.__serviceProducts = <?= json_encode($products, JSON_UNESCAPED_UNICODE) ?>;
+window.__servicePanels = <?= json_encode($panelsMeta, JSON_UNESCAPED_UNICODE) ?>;
+window.__customServiceToken = <?= json_encode(admin_custom_service_product_token(), JSON_UNESCAPED_UNICODE) ?>;
 window.__serviceUsage = {
     userId: <?= (int) $id ?>,
     csrf: <?= json_encode(csrf_token(), JSON_UNESCAPED_UNICODE) ?>

@@ -576,130 +576,17 @@ function panel_invoice_apply_refund(PDO $pdo, string $idInvoice, bool $disablePr
 /**
  * @return array{ok:bool,msg:string}
  */
-function panel_add_user_service(PDO $pdo, $userId, string $username, string $panelName, string $productName): array
+function panel_add_user_service(PDO $pdo, $userId, string $username, string $panelName, string $productName, array $extra = []): array
 {
     panel_service_bootstrap();
-    global $ManagePanel, $textbotlang, $datatextbot;
-
-    $username = strtolower(trim($username));
-    if (!preg_match('/^\w{3,32}$/', $username)) {
-        return ['ok' => false, 'msg' => 'نام کاربری باید ۳ تا ۳۲ کاراکتر و فقط حروف، عدد و _ باشد.'];
-    }
-
-    if (db_count($pdo, 'SELECT COUNT(*) FROM invoice WHERE username = ?', [$username])) {
-        return ['ok' => false, 'msg' => 'این نام کاربری از قبل در ربات ثبت شده است.'];
-    }
-
-    $info_product = db_fetch(
-        $pdo,
-        "SELECT * FROM product WHERE name_product = ? AND (Location = ? OR Location = '/all') LIMIT 1",
-        [$productName, $panelName]
-    );
-    if (!$info_product) {
-        return ['ok' => false, 'msg' => 'محصول انتخاب‌شده برای این پنل یافت نشد.'];
-    }
-
-    $marzban_list_get = db_fetch($pdo, 'SELECT * FROM marzban_panel WHERE name_panel = ?', [$panelName]);
-    if (!$marzban_list_get) {
-        return ['ok' => false, 'msg' => 'پنل یافت نشد.'];
-    }
-
-    $DataUserOut = $ManagePanel->DataUser($panelName, $username);
-    if (($DataUserOut['status'] ?? '') === 'Unsuccessful') {
-        $serviceTime = (int) ($info_product['Service_time'] ?? 0);
-        $datetimestep = $serviceTime === 0 ? 0 : strtotime('+' . $serviceTime . ' days');
-        $datac = [
-            'expire' => $datetimestep,
-            'data_limit' => (int) $info_product['Volume_constraint'] * pow(1024, 3),
-            'from_id' => $userId,
-            'username' => '',
-            'type' => 'buy',
-        ];
-        $DataUserOut = $ManagePanel->createUser($panelName, $info_product['code_product'], $username, $datac);
-        if (empty($DataUserOut['username'])) {
-            $err = is_string($DataUserOut['msg'] ?? null) ? $DataUserOut['msg'] : json_encode($DataUserOut['msg'] ?? 'unknown');
-            return ['ok' => false, 'msg' => 'خطا در ساخت سرویس روی پنل: ' . $err];
-        }
-    } else {
-        $DataUserOut['configs'] = $DataUserOut['links'] ?? [];
-    }
-
-    $idInvoice = bin2hex(random_bytes(4));
-    $notifctions = json_encode(['volume' => false, 'time' => false]);
-    db_query(
-        $pdo,
-        'INSERT INTO invoice (id_user, id_invoice, username, time_sell, Service_location, name_product, price_product, Volume, Service_time, Status, notifctions) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-        [
-            (string) $userId,
-            $idInvoice,
-            $username,
-            time(),
-            $panelName,
-            $info_product['name_product'],
-            $info_product['price_product'],
-            $info_product['Volume_constraint'],
-            $info_product['Service_time'],
-            'active',
-            $notifctions,
-        ]
-    );
-
-    $output_config_link = ($marzban_list_get['sublink'] ?? '') === 'onsublink' ? ($DataUserOut['subscription_url'] ?? '') : '';
-    $config = '';
-    if (($marzban_list_get['config'] ?? '') === 'onconfig' && is_array($DataUserOut['configs'] ?? null)) {
-        foreach ($DataUserOut['configs'] as $link) {
-            $config .= "\n" . $link;
-        }
-    }
-
-    $textTemplate = $datatextbot['textafterpay'] ?? '✅ سرویس {name_service} برای {username} ایجاد شد.';
-    if (($marzban_list_get['type'] ?? '') === 'Manualsale') {
-        $textTemplate = $datatextbot['textmanual'] ?? $textTemplate;
-    } elseif (in_array($marzban_list_get['type'] ?? '', ['ibsng', 'mikrotik'], true)) {
-        $textTemplate = $datatextbot['textafterpayibsng'] ?? $textTemplate;
-    }
-
-    $dayLabel = (int) ($info_product['Service_time'] ?? 0) === 0
-        ? ($textbotlang['users']['stateus']['Unlimited'] ?? 'نامحدود')
-        : $info_product['Service_time'];
-    $volumeLabel = (int) ($info_product['Volume_constraint'] ?? 0) === 0
-        ? ($textbotlang['users']['stateus']['Unlimited'] ?? 'نامحدود')
-        : $info_product['Volume_constraint'];
-
-    $textcreatuser = str_replace(
-        ['{username}', '{name_service}', '{location}', '{day}', '{volume}', '{config}', '{links}', '{links2}'],
-        [
-            '<code>' . ($DataUserOut['username'] ?? $username) . '</code>',
-            $info_product['name_product'],
-            $panelName,
-            $dayLabel,
-            $volumeLabel,
-            '<code>' . $output_config_link . '</code>',
-            $config,
-            $output_config_link,
-        ],
-        $textTemplate
-    );
-
-    if (function_exists('sendMessageService')) {
-        $Shoppinginfo = json_encode([
-            'inline_keyboard' => [[['text' => $textbotlang['users']['help']['btninlinebuy'] ?? 'راهنما', 'callback_data' => 'helpbtn']]],
-        ]);
-        sendMessageService(
-            $marzban_list_get,
-            $DataUserOut['configs'] ?? [],
-            $output_config_link,
-            $DataUserOut['username'] ?? $username,
-            $Shoppinginfo,
-            $textcreatuser,
-            $idInvoice,
-            $userId
-        );
-    } else {
-        panel_notify_user($userId, strip_tags(str_replace(['<code>', '</code>'], '', $textcreatuser)));
-    }
-
-    return ['ok' => true, 'msg' => 'سرویس «' . $username . '» با موفقیت برای کاربر ایجاد شد.'];
+    panel_usage_bootstrap();
+    return admin_provision_user_service($userId, [
+        'panel' => $panelName,
+        'product' => $productName,
+        'username' => $username,
+        'gb' => (int) ($extra['gb'] ?? 0),
+        'months' => (int) ($extra['months'] ?? 0),
+    ]);
 }
 
 /**

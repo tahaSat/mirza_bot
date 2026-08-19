@@ -2210,6 +2210,319 @@ function generateUsername($from_id, $Metode, $username, $randomString, $text, $n
         return $usernamecustom . "_" . $user['number_username'];
     }
 }
+
+function panel_method_asks_custom_username($method): bool
+{
+    return in_array((string) $method, [
+        'نام کاربری دلخواه',
+        'نام کاربری دلخواه + عدد رندوم',
+    ], true);
+}
+
+function panel_method_uses_sequential_username($method): bool
+{
+    return in_array((string) $method, [
+        'متن دلخواه + عدد ترتیبی',
+        'نام کاربری + عدد به ترتیب',
+        'آیدی عددی+عدد ترتیبی',
+        'متن دلخواه نماینده + عدد ترتیبی',
+    ], true);
+}
+
+function bump_username_sequence_counters($panel, $userId): void
+{
+    if (!is_array($panel) || !panel_method_uses_sequential_username($panel['MethodUsername'] ?? '')) {
+        return;
+    }
+    $user = select("user", "*", "id", $userId, "select");
+    if (!is_array($user)) {
+        return;
+    }
+    update("user", "number_username", intval($user['number_username']) + 1, "id", $userId);
+    $method = (string) ($panel['MethodUsername'] ?? '');
+    if ($method === 'متن دلخواه + عدد ترتیبی' || $method === 'متن دلخواه نماینده + عدد ترتیبی') {
+        $setting = select("setting", "*", null, null, "select");
+        update("setting", "numbercount", intval($setting['numbercount'] ?? 0) + 1);
+    }
+}
+
+/**
+ * Build a VPN username from the panel MethodUsername setting.
+ *
+ * @return array{ok:bool,username:string,msg:string}
+ */
+function allocate_service_username($panel, $user, string $customText = '', $ManagePanel = null): array
+{
+    if (!is_array($panel) || !is_array($user)) {
+        return ['ok' => false, 'username' => '', 'msg' => 'پنل یا کاربر نامعتبر است.'];
+    }
+    $method = (string) ($panel['MethodUsername'] ?? '');
+    $customText = trim($customText);
+    if (panel_method_asks_custom_username($method)) {
+        if ($customText === '' || !preg_match('/^\w{3,32}$/', strtolower($customText))) {
+            return ['ok' => false, 'username' => '', 'msg' => 'نام کاربری باید ۳ تا ۳۲ کاراکتر و فقط حروف، عدد و _ باشد.'];
+        }
+    }
+
+    $userId = $user['id'] ?? '';
+    $tgUsername = (string) ($user['username'] ?? '');
+    $namecustomUser = (string) ($user['namecustom'] ?? 'none');
+    $prefix = panel_username_prefix($panel);
+    $panelName = (string) ($panel['name_panel'] ?? '');
+
+    for ($i = 0; $i < 8; $i++) {
+        $randomString = bin2hex(random_bytes(2));
+        $username = generateUsername(
+            $userId,
+            $method,
+            $tgUsername,
+            $randomString,
+            $customText,
+            $prefix,
+            $namecustomUser
+        );
+        $username = strtolower(trim((string) $username));
+        if ($username === '') {
+            $username = strtolower($prefix . '_' . $randomString);
+        }
+        $taken = rowExists('invoice', 'username', $username);
+        if (!$taken && is_object($ManagePanel) && $panelName !== '') {
+            $existing = $ManagePanel->DataUser($panelName, $username);
+            if (($existing['status'] ?? '') !== 'Unsuccessful' && !empty($existing['username'])) {
+                $taken = true;
+            }
+        }
+        if (!$taken) {
+            return ['ok' => true, 'username' => $username, 'msg' => ''];
+        }
+        if (panel_method_asks_custom_username($method)) {
+            return ['ok' => false, 'username' => '', 'msg' => 'این نام کاربری از قبل ثبت شده است.'];
+        }
+        $username = strtolower(rand(1000000, 9999999) . '_' . $username);
+        if (strlen($username) > 32) {
+            $username = substr($username, 0, 32);
+        }
+        $takenRetry = rowExists('invoice', 'username', $username);
+        if (!$takenRetry) {
+            return ['ok' => true, 'username' => $username, 'msg' => ''];
+        }
+    }
+
+    return ['ok' => false, 'username' => '', 'msg' => 'ساخت نام کاربری طبق تنظیمات پنل ناموفق بود. دوباره تلاش کنید.'];
+}
+
+function admin_custom_service_product_token(): string
+{
+    return '__customvolume__';
+}
+
+function is_custom_service_product_choice($panel, string $productName): bool
+{
+    $productName = trim($productName);
+    if ($productName === '' || $productName === 'customvolume' || $productName === admin_custom_service_product_token()) {
+        return $productName !== '';
+    }
+    if (preg_match('/^customvolume_\d+_\d+$/', $productName)) {
+        return true;
+    }
+    $label = is_array($panel) ? panel_custom_button_text($panel) : '';
+    return $productName === $label
+        || $productName === '⚙️ سرویس دلخواه'
+        || $productName === '🛍 حجم دلخواه';
+}
+
+/**
+ * Create a catalog or custom service for a user from admin (web panel / Telegram).
+ *
+ * @param array{panel:string,product?:string,username?:string,gb?:int,months?:int,custom?:bool} $opts
+ * @return array{ok:bool,msg:string,username?:string}
+ */
+function admin_provision_user_service($userId, array $opts): array
+{
+    global $pdo, $ManagePanel, $textbotlang, $datatextbot;
+
+    $userId = (string) $userId;
+    $panelName = trim((string) ($opts['panel'] ?? ''));
+    $productName = trim((string) ($opts['product'] ?? ''));
+    $customText = trim((string) ($opts['username'] ?? ''));
+    $gb = (int) ($opts['gb'] ?? 0);
+    $months = (int) ($opts['months'] ?? 0);
+
+    $user = select("user", "*", "id", $userId, "select");
+    if (!is_array($user)) {
+        return ['ok' => false, 'msg' => 'کاربر یافت نشد.'];
+    }
+    $panel = select("marzban_panel", "*", "name_panel", $panelName, "select");
+    if (!is_array($panel)) {
+        return ['ok' => false, 'msg' => 'پنل یافت نشد.'];
+    }
+
+    if (!class_exists('ManagePanel', false)) {
+        require_once __DIR__ . '/panels.php';
+    }
+    if (!isset($ManagePanel) || !is_object($ManagePanel)) {
+        $ManagePanel = new ManagePanel();
+    }
+
+    if (preg_match('/^customvolume_(\d+)_(\d+)$/', $productName, $m)) {
+        $daysFromToken = (int) $m[1];
+        $gb = (int) $m[2];
+        $months = (int) round($daysFromToken / 30);
+        $productName = admin_custom_service_product_token();
+    }
+
+    $isCustom = !empty($opts['custom']) || is_custom_service_product_choice($panel, $productName);
+    if ($isCustom) {
+        if (($panel['type'] ?? '') === 'Manualsale') {
+            return ['ok' => false, 'msg' => 'سرویس دلخواه برای فروش دستی در دسترس نیست.'];
+        }
+        $minVol = (int) panel_agent_field($panel, 'mainvolume', (string) ($user['agent'] ?? 'f'), '1');
+        $maxVol = (int) panel_agent_field($panel, 'maxvolume', (string) ($user['agent'] ?? 'f'), '1000');
+        if ($gb < $minVol || $gb > $maxVol) {
+            return ['ok' => false, 'msg' => "حجم باید بین {$minVol} تا {$maxVol} گیگابایت باشد."];
+        }
+        if (!panel_custom_month_option($panel, $months)) {
+            return ['ok' => false, 'msg' => 'مدت انتخاب‌شده نامعتبر است.'];
+        }
+        $days = panel_custom_months_to_days($months);
+        $price = panel_custom_service_price_for_user($panel, $user, $gb, $days);
+        if ($price === null) {
+            return ['ok' => false, 'msg' => 'قیمت سرویس دلخواه قابل محاسبه نیست.'];
+        }
+        $info_product = [
+            'Volume_constraint' => $gb,
+            'name_product' => panel_custom_button_text($panel),
+            'code_product' => 'customvolume',
+            'Service_time' => $days,
+            'price_product' => $price,
+        ];
+    } else {
+        if ($productName === '') {
+            return ['ok' => false, 'msg' => 'محصول را انتخاب کنید.'];
+        }
+        $stmt = $pdo->prepare("SELECT * FROM product WHERE name_product = ? AND (Location = ? OR Location = '/all') LIMIT 1");
+        $stmt->execute([$productName, $panelName]);
+        $info_product = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$info_product) {
+            return ['ok' => false, 'msg' => 'محصول انتخاب‌شده برای این پنل یافت نشد.'];
+        }
+    }
+
+    $alloc = allocate_service_username($panel, $user, $customText, $ManagePanel);
+    if (!$alloc['ok']) {
+        return $alloc;
+    }
+    $username = $alloc['username'];
+
+    $DataUserOut = $ManagePanel->DataUser($panelName, $username);
+    $reused = (($DataUserOut['status'] ?? '') !== 'Unsuccessful' && !empty($DataUserOut['username']));
+    if (!$reused) {
+        $serviceTime = (int) ($info_product['Service_time'] ?? 0);
+        $datetimestep = $serviceTime === 0 ? 0 : strtotime('+' . $serviceTime . ' days');
+        $datac = [
+            'expire' => $datetimestep,
+            'data_limit' => (int) $info_product['Volume_constraint'] * pow(1024, 3),
+            'from_id' => $userId,
+            'username' => (string) ($user['username'] ?? ''),
+            'type' => 'buy',
+        ];
+        $DataUserOut = $ManagePanel->createUser($panelName, $info_product['code_product'], $username, $datac);
+        if (empty($DataUserOut['username'])) {
+            $err = is_string($DataUserOut['msg'] ?? null) ? $DataUserOut['msg'] : json_encode($DataUserOut['msg'] ?? 'unknown');
+            return ['ok' => false, 'msg' => 'خطا در ساخت سرویس روی پنل: ' . $err];
+        }
+    } else {
+        $DataUserOut['configs'] = $DataUserOut['configs'] ?? ($DataUserOut['links'] ?? []);
+    }
+
+    $idInvoice = bin2hex(random_bytes(4));
+    $notifctions = json_encode(['volume' => false, 'time' => false]);
+    $stmt = $pdo->prepare('INSERT INTO invoice (id_user, id_invoice, username, time_sell, Service_location, name_product, price_product, Volume, Service_time, Status, notifctions) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+    $stmt->execute([
+        $userId,
+        $idInvoice,
+        $username,
+        time(),
+        $panelName,
+        $info_product['name_product'],
+        $info_product['price_product'],
+        $info_product['Volume_constraint'],
+        $info_product['Service_time'],
+        'active',
+        $notifctions,
+    ]);
+
+    bump_username_sequence_counters($panel, $userId);
+
+    if (!is_array($datatextbot) || empty($datatextbot['textafterpay'])) {
+        $datatextbot = $pdo->query('SELECT id_text, text FROM textbot')->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+    }
+
+    $output_config_link = ($panel['sublink'] ?? '') === 'onsublink' ? ($DataUserOut['subscription_url'] ?? '') : '';
+    $config = '';
+    if (($panel['config'] ?? '') === 'onconfig' && is_array($DataUserOut['configs'] ?? null)) {
+        foreach ($DataUserOut['configs'] as $link) {
+            $config .= "\n" . $link;
+        }
+    }
+
+    $textTemplate = $datatextbot['textafterpay'] ?? '✅ سرویس {name_service} برای {username} ایجاد شد.';
+    if (($panel['type'] ?? '') === 'Manualsale') {
+        $textTemplate = $datatextbot['textmanual'] ?? $textTemplate;
+    } elseif (in_array($panel['type'] ?? '', ['ibsng', 'mikrotik'], true)) {
+        $textTemplate = $datatextbot['textafterpayibsng'] ?? $textTemplate;
+    } elseif (($panel['type'] ?? '') === 'WGDashboard') {
+        $textTemplate = $datatextbot['text_wgdashboard'] ?? $textTemplate;
+    }
+
+    $dayLabel = (int) ($info_product['Service_time'] ?? 0) === 0
+        ? ($textbotlang['users']['stateus']['Unlimited'] ?? 'نامحدود')
+        : $info_product['Service_time'];
+    $volumeLabel = (int) ($info_product['Volume_constraint'] ?? 0) === 0
+        ? ($textbotlang['users']['stateus']['Unlimited'] ?? 'نامحدود')
+        : $info_product['Volume_constraint'];
+
+    $createdUsername = (string) ($DataUserOut['username'] ?? $username);
+    $textcreatuser = str_replace(
+        ['{username}', '{name_service}', '{location}', '{day}', '{volume}', '{config}', '{links}', '{links2}'],
+        [
+            '<code>' . $createdUsername . '</code>',
+            $info_product['name_product'],
+            $panelName,
+            $dayLabel,
+            $volumeLabel,
+            '<code>' . $output_config_link . '</code>',
+            $config,
+            $output_config_link,
+        ],
+        $textTemplate
+    );
+    if ((int) ($info_product['Volume_constraint'] ?? 0) === 0) {
+        $textcreatuser = str_replace('گیگابایت', '', $textcreatuser);
+    }
+    if (in_array($panel['type'] ?? '', ['Manualsale', 'ibsng', 'mikrotik'], true)) {
+        $textcreatuser = str_replace('{password}', $DataUserOut['subscription_url'] ?? '', $textcreatuser);
+        update("invoice", "user_info", $DataUserOut['subscription_url'] ?? '', "id_invoice", $idInvoice);
+    }
+
+    if (function_exists('sendMessageService')) {
+        $Shoppinginfo = json_encode([
+            'inline_keyboard' => [[['text' => $textbotlang['users']['help']['btninlinebuy'] ?? 'راهنما', 'callback_data' => 'helpbtn']]],
+        ]);
+        sendMessageService(
+            $panel,
+            $DataUserOut['configs'] ?? [],
+            $output_config_link,
+            $createdUsername,
+            $Shoppinginfo,
+            $textcreatuser,
+            $idInvoice,
+            $userId
+        );
+    }
+
+    return ['ok' => true, 'msg' => 'سرویس «' . $createdUsername . '» با موفقیت برای کاربر ایجاد شد.', 'username' => $createdUsername];
+}
 function outputlink($text)
 {
     $ch = curl_init();

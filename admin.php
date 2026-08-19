@@ -7909,130 +7909,108 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
 } elseif (preg_match('/addordermanualـ(\w+)/', $datain, $dataget)) {
     $iduser = $dataget[1];
     update("user", "Processing_value", $iduser, "id", $from_id);
-    sendmessage($from_id, $textbotlang['Admin']['addorder']['towstep'], $backadmin, 'HTML');
-    step('getusernameconfig', $from_id);
-} elseif ($user['step'] == "getusernameconfig") {
-    $text = strtolower($text);
-    if (!preg_match('/^\w{3,32}$/', $text)) {
-        sendmessage($from_id, $textbotlang['users']['stateus']['Invalidusername'], $backuser, 'html');
-        return;
-    }
-    if (rowExists('invoice', 'username', $text)) {
-        sendmessage($from_id, "❌ این نام کاربری از قبل داخل ربات وجود دارد.", null, 'HTML');
-        return;
-    }
-    update("user", "Processing_value_one", $text, "id", $from_id);
     sendmessage($from_id, $textbotlang['Admin']['addorder']['threestep'], $json_list_marzban_panel, 'HTML');
     step('getnamepanelconfig', $from_id);
 } elseif ($user['step'] == "getnamepanelconfig") {
+    $panelForOrder = select("marzban_panel", "*", "name_panel", $text, "select");
+    if (!$panelForOrder) {
+        sendmessage($from_id, "❌ پنل یافت نشد. از لیست زیر انتخاب کنید.", $json_list_marzban_panel, 'HTML');
+        return;
+    }
     update("user", "Processing_value_tow", $text, "id", $from_id);
-    sendmessage($from_id, $textbotlang['Admin']['addorder']['fourstep'], $json_list_product_list_admin, 'HTML');
+    sendmessage($from_id, $textbotlang['Admin']['addorder']['fourstep'], keyboard_admin_addorder_products($text), 'HTML');
     step('stependforaddorder', $from_id);
 } elseif ($user['step'] == "stependforaddorder") {
-    $sql = "SELECT * FROM product  WHERE name_product = :name_product AND (Location = :location OR Location = '/all') LIMIT 1";
-    $stmt = $pdo->prepare($sql);
-    $stmt->bindParam(':name_product', $text, PDO::PARAM_STR);
-    $stmt->bindParam(':location', $user['Processing_value_tow'], PDO::PARAM_STR);
-    $stmt->execute();
-    $info_product = $stmt->fetch(PDO::FETCH_ASSOC);
-    $marzban_list_get = select("marzban_panel", "*", "name_panel", $user['Processing_value_tow'], "select");
-    $DataUserOut = $ManagePanel->DataUser($user['Processing_value_tow'], $user['Processing_value_one']);
-    if ($DataUserOut['status'] == "Unsuccessful") {
-        $datetimestep = strtotime("+" . $info_product['Service_time'] . "days");
-        if ($info_product['Service_time'] == 0) {
-            $datetimestep = 0;
-        } else {
-            $datetimestep = strtotime(date("Y-m-d H:i:s", $datetimestep));
-        }
-        $datac = array(
-            'expire' => $datetimestep,
-            'data_limit' => $info_product['Volume_constraint'] * pow(1024, 3),
-            'from_id' => $user['Processing_value'],
-            'username' => "",
-            'type' => 'buy'
-        );
-        $DataUserOut = $ManagePanel->createUser($user['Processing_value_tow'], $info_product['code_product'], $user['Processing_value_one'], $datac);
-        if ($DataUserOut['username'] == null) {
-            sendmessage($from_id, "❌ خطایی در ساخت اشتراک رخ داده است برای رفع مشکل علت خطا را در گروه گزارش تان بررسی کنید", null, 'HTML');
-            $DataUserOut['msg'] = json_encode($DataUserOut['msg']);
-            $texterros = "
-خطا در ساخت کافنیگ از پنل ادمین
-✍️ دلیل خطا : 
-{$DataUserOut['msg']}
-آیدی ادمین : $from_id
-نام پنل : {$marzban_list_get['name_panel']}";
-            if (strlen($setting['Channel_Report']) > 0) {
-                telegram('sendmessage', [
-                    'chat_id' => $setting['Channel_Report'],
-                    'message_thread_id' => $errorreport,
-                    'text' => $texterros,
-                    'parse_mode' => "HTML"
-                ]);
-                step("home", $from_id);
-            }
+    $panelForOrder = select("marzban_panel", "*", "name_panel", $user['Processing_value_tow'], "select");
+    $targetUser = select("user", "*", "id", $user['Processing_value'], "select");
+    if (!$panelForOrder || !$targetUser) {
+        sendmessage($from_id, "❌ پنل یا کاربر یافت نشد. مراحل را از اول انجام دهید.", $keyboardadmin, 'HTML');
+        step('home', $from_id);
+        return;
+    }
+    if (is_custom_service_product_choice($panelForOrder, (string) $text)) {
+        if (($panelForOrder['type'] ?? '') === 'Manualsale') {
+            sendmessage($from_id, "❌ سرویس دلخواه برای فروش دستی در دسترس نیست.", $keyboardadmin, 'HTML');
             return;
         }
-    } else {
-        $DataUserOut['configs'] = $DataUserOut['links'];
+        $custompricevalue = panel_agent_field($panelForOrder, 'pricecustomvolume', (string) ($targetUser['agent'] ?? 'f'), '4000');
+        $mainvolume = panel_agent_field($panelForOrder, 'mainvolume', (string) ($targetUser['agent'] ?? 'f'), '1');
+        $maxvolume = panel_agent_field($panelForOrder, 'maxvolume', (string) ($targetUser['agent'] ?? 'f'), '1000');
+        sendmessage($from_id, textbot_custom_volume_ask($custompricevalue, $mainvolume, $maxvolume), $backadmin, 'HTML');
+        step('adminaddcustomvol', $from_id);
+        return;
     }
-    $date = time();
-    $randomString = bin2hex(random_bytes(4));
-    $notifctions = json_encode(array(
-        'volume' => false,
-        'time' => false,
-    ));
-    $stmt = $pdo->prepare("INSERT IGNORE INTO invoice (id_user, id_invoice, username, time_sell, Service_location, name_product, price_product, Volume, Service_time, Status,notifctions) VALUES (:id_user, :id_invoice, :username, :time_sell, :Service_location, :name_product, :price_product, :Volume, :Service_time, :Status,:notifctions)");
-    $Status = "active";
-    $stmt->bindParam(':id_user', $user['Processing_value'], PDO::PARAM_STR);
-    $stmt->bindParam(':id_invoice', $randomString, PDO::PARAM_STR);
-    $stmt->bindParam(':username', $user['Processing_value_one'], PDO::PARAM_STR);
-    $stmt->bindParam(':time_sell', $date, PDO::PARAM_STR);
-    $stmt->bindParam(':Service_location', $user['Processing_value_tow'], PDO::PARAM_STR);
-    $stmt->bindParam(':name_product', $info_product['name_product'], PDO::PARAM_STR);
-    $stmt->bindParam(':price_product', $info_product['price_product'], PDO::PARAM_STR);
-    $stmt->bindParam(':Volume', $info_product['Volume_constraint'], PDO::PARAM_STR);
-    $stmt->bindParam(':Service_time', $info_product['Service_time'], PDO::PARAM_STR);
-    $stmt->bindParam(':Status', $Status, PDO::PARAM_STR);
-    $stmt->bindParam(':notifctions', $notifctions, PDO::PARAM_STR);
-    $stmt->execute();
-    $output_config_link = $marzban_list_get['sublink'] == "onsublink" ? $DataUserOut['subscription_url'] : "";
-    $config = "";
-    if ($marzban_list_get['config'] == "onconfig" && is_array($DataUserOut['configs'])) {
-        foreach ($DataUserOut['configs'] as $link) {
-            $config .= "\n" . $link;
-        }
+    update("user", "Processing_value_one", $text, "id", $from_id);
+    if (panel_method_asks_custom_username($panelForOrder['MethodUsername'] ?? '')) {
+        sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), $backadmin, 'HTML');
+        step('adminaddcustomuser', $from_id);
+        return;
     }
-    $Shoppinginfo = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => $textbotlang['users']['help']['btninlinebuy'], 'callback_data' => "helpbtn"],
-            ]
-        ]
+    $resultAdd = admin_provision_user_service($user['Processing_value'], [
+        'panel' => $user['Processing_value_tow'],
+        'product' => $text,
     ]);
-    $datatextbot['textafterpay'] = $marzban_list_get['type'] == "Manualsale" ? $datatextbot['textmanual'] : $datatextbot['textafterpay'];
-    $datatextbot['textafterpay'] = $marzban_list_get['type'] == "WGDashboard" ? $datatextbot['text_wgdashboard'] : $datatextbot['textafterpay'];
-    $datatextbot['textafterpay'] = $marzban_list_get['type'] == "ibsng" || $marzban_list_get['type'] == "mikrotik" ? $datatextbot['textafterpayibsng'] : $datatextbot['textafterpay'];
-    if (intval($info_product['Service_time']) == 0)
-        $info_product['Service_time'] = $textbotlang['users']['stateus']['Unlimited'];
-    if (intval($info_product['Volume_constraint']) == 0)
-        $info_product['Volume_constraint'] = $textbotlang['users']['stateus']['Unlimited'];
-    $textcreatuser = str_replace('{username}', "<code>{$DataUserOut['username']}</code>", $datatextbot['textafterpay']);
-    $textcreatuser = str_replace('{name_service}', $info_product['name_product'], $textcreatuser);
-    $textcreatuser = str_replace('{location}', $marzban_list_get['name_panel'], $textcreatuser);
-    $textcreatuser = str_replace('{day}', $info_product['Service_time'], $textcreatuser);
-    $textcreatuser = str_replace('{volume}', $info_product['Volume_constraint'], $textcreatuser);
-    $textcreatuser = str_replace('{config}', "<code>{$output_config_link}</code>", $textcreatuser);
-    $textcreatuser = str_replace('{links}', $config, $textcreatuser);
-    $textcreatuser = str_replace('{links2}', $output_config_link, $textcreatuser);
-    if (intval($info_product['Volume_constraint']) == 0) {
-        $textcreatuser = str_replace('گیگابایت', "", $textcreatuser);
+    sendmessage($from_id, $resultAdd['ok'] ? $textbotlang['Admin']['addorder']['fivestep'] : ('❌ ' . $resultAdd['msg']), $keyboardadmin, 'HTML');
+    step('home', $from_id);
+} elseif ($user['step'] == "adminaddcustomvol") {
+    $panelForOrder = select("marzban_panel", "*", "name_panel", $user['Processing_value_tow'], "select");
+    $targetUser = select("user", "*", "id", $user['Processing_value'], "select");
+    if (!$panelForOrder || !$targetUser) {
+        sendmessage($from_id, "❌ پنل یا کاربر یافت نشد.", $keyboardadmin, 'HTML');
+        step('home', $from_id);
+        return;
     }
-    if ($marzban_list_get['type'] == "Manualsale" || $marzban_list_get['type'] == "ibsng" || $marzban_list_get['type'] == "mikrotik") {
-        $textcreatuser = str_replace('{password}', $DataUserOut['subscription_url'], $textcreatuser);
-        update("invoice", "user_info", $DataUserOut['subscription_url'], "id_invoice", $randomString);
+    $mainvolume = panel_agent_field($panelForOrder, 'mainvolume', (string) ($targetUser['agent'] ?? 'f'), '1');
+    $maxvolume = panel_agent_field($panelForOrder, 'maxvolume', (string) ($targetUser['agent'] ?? 'f'), '1000');
+    if (!ctype_digit((string) $text) || intval($text) < intval($mainvolume) || intval($text) > intval($maxvolume)) {
+        sendmessage($from_id, textbot_custom_volume_invalid($mainvolume, $maxvolume), $backadmin, 'HTML');
+        return;
     }
-    sendMessageService($marzban_list_get, $DataUserOut['configs'], $output_config_link, $DataUserOut['username'], $Shoppinginfo, $textcreatuser, $randomString, $user['Processing_value']);
-    sendmessage($from_id, $textbotlang['Admin']['addorder']['fivestep'], $keyboardadmin, 'HTML');
+    update("user", "Processing_value_four", $text, "id", $from_id);
+    sendmessage($from_id, textbot_get(
+        'text_custom_month_ask',
+        "⌛️ مدت زمان سرویس را انتخاب کنید\n📌 هر ماه معادل ۳۰ روز است"
+    ), KeyboardCustomMonths($panelForOrder, 'admincustommonth_', 'adminaddorderback', (int) $text, $targetUser), 'html');
+    step('adminaddcustommonth', $from_id);
+} elseif ($datain == "adminaddorderback") {
+    sendmessage($from_id, $textbotlang['Admin']['addorder']['fourstep'], keyboard_admin_addorder_products((string) $user['Processing_value_tow']), 'HTML');
+    step('stependforaddorder', $from_id);
+} elseif (preg_match('/^admincustommonth_(\d+)$/', $datain, $dataget) && $user['step'] == "adminaddcustommonth") {
+    if (!empty($callback_query_id)) {
+        telegram('answerCallbackQuery', [
+            'callback_query_id' => $callback_query_id,
+        ]);
+    }
+    $months = (int) $dataget[1];
+    $gb = (int) $user['Processing_value_four'];
+    $panelForOrder = select("marzban_panel", "*", "name_panel", $user['Processing_value_tow'], "select");
+    if (!$panelForOrder || !panel_custom_month_option($panelForOrder, $months)) {
+        sendmessage($from_id, "❌ مدت انتخاب‌شده نامعتبر است.", $backadmin, 'HTML');
+        return;
+    }
+    $customToken = 'customvolume_' . panel_custom_months_to_days($months) . '_' . $gb;
+    update("user", "Processing_value_one", $customToken, "id", $from_id);
+    if (panel_method_asks_custom_username($panelForOrder['MethodUsername'] ?? '')) {
+        sendmessage($from_id, textbot_get('text_select_username', $textbotlang['users']['selectusername']), $backadmin, 'HTML');
+        step('adminaddcustomuser', $from_id);
+        return;
+    }
+    $resultAdd = admin_provision_user_service($user['Processing_value'], [
+        'panel' => $user['Processing_value_tow'],
+        'product' => $customToken,
+        'gb' => $gb,
+        'months' => $months,
+        'custom' => true,
+    ]);
+    sendmessage($from_id, $resultAdd['ok'] ? $textbotlang['Admin']['addorder']['fivestep'] : ('❌ ' . $resultAdd['msg']), $keyboardadmin, 'HTML');
+    step('home', $from_id);
+} elseif ($user['step'] == "adminaddcustomuser") {
+    $resultAdd = admin_provision_user_service($user['Processing_value'], [
+        'panel' => $user['Processing_value_tow'],
+        'product' => $user['Processing_value_one'],
+        'username' => $text,
+    ]);
+    sendmessage($from_id, $resultAdd['ok'] ? $textbotlang['Admin']['addorder']['fivestep'] : ('❌ ' . $resultAdd['msg']), $keyboardadmin, 'HTML');
     step('home', $from_id);
 } elseif ($text == "⬇️ حداقل موجودی خرید عمده" && $adminrulecheck['rule'] == "administrator") {
     $PaySetting = select("shopSetting", "value", "Namevalue", "minbalancebuybulk", "select")['value'];

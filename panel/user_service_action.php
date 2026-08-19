@@ -45,7 +45,11 @@ switch ($action) {
             $userId,
             (string) ($_POST['username'] ?? ''),
             (string) ($_POST['panel'] ?? ''),
-            (string) ($_POST['product'] ?? '')
+            (string) ($_POST['product'] ?? ''),
+            [
+                'gb' => (int) ($_POST['custom_gb'] ?? 0),
+                'months' => (int) ($_POST['custom_months'] ?? 0),
+            ]
         );
         flash($result['ok'] ? 'success' : 'error', $result['msg']);
         break;

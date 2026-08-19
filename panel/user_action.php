@@ -100,6 +100,9 @@ switch ($action) {
     case 'zero_balance':
         $prev = (int) ($user['Balance'] ?? 0);
         db_query($pdo, "UPDATE user SET Balance = 0 WHERE id = ?", [$id]);
+        if ($prev > 0) {
+            panel_record_admin_balance_change($pdo, $id, $prev, 'low balance by admin');
+        }
         flash('success', 'موجودی کاربر (' . number_format($prev) . ' تومان) صفر شد.');
         break;
 

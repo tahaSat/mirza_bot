@@ -406,16 +406,7 @@ function panel_enrich_services_usage(array $services): array
 
 function panel_record_admin_balance_change(PDO $pdo, $userId, int $amount, string $method): void
 {
-    if ($amount <= 0) {
-        return;
-    }
-    $dateacc = date('Y/m/d H:i:s');
-    $orderId = bin2hex(random_bytes(5));
-    db_query(
-        $pdo,
-        "INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice) VALUES (?,?,?,?,?,?,?)",
-        [$userId, $orderId, $dateacc, $amount, 'paid', $method, null]
-    );
+    record_admin_balance_payment($pdo, $userId, $amount, $method);
 }
 
 function panel_notify_user($userId, string $text): void

@@ -4678,6 +4678,12 @@ $caption";
     $Balance_user = $stmt->fetchAll();
     $stmt = $pdo->prepare("UPDATE user as u SET  Balance = Balance + {$userdata['price']} " . $query_where);
     $stmt->execute();
+    $bulkPrice = (int) $userdata['price'];
+    if ($bulkPrice > 0) {
+        foreach ($Balance_user as $row) {
+            record_admin_balance_payment($pdo, $row['id'] ?? null, $bulkPrice, 'add balance by admin');
+        }
+    }
     step('home', $from_id);
     if ($text == "1") {
         $cancelmessage = json_encode([
@@ -4724,6 +4730,7 @@ $caption";
     $Balance_usersa = select("user", "*", "id", $user['Processing_value'], "select");
     $Balance_Low_userkam = $Balance_usersa['Balance'] - $text;
     update("user", "Balance", $Balance_Low_userkam, "id", $user['Processing_value']);
+    record_admin_balance_payment($pdo, $user['Processing_value'], (int) $text, 'low balance by admin');
     $balances1 = number_format($text, 0);
     $Balance_user_afters = number_format(select("user", "*", "id", $user['Processing_value'], "select")['Balance']);
     $textkam = "❌ کاربر عزیز مبلغ $balances1 تومان از  موجودی کیف پول تان کسر گردید.";
@@ -6210,14 +6217,7 @@ $text_agent_volume$text_expie_agent
         sendmessage($from_id, "❌ حداکثر مبلغ 100 میلیون تومان می باشد", $backadmin, 'HTML');
         return;
     }
-    $dateacc = date('Y/m/d H:i:s');
-    $randomString = bin2hex(random_bytes(5));
-    $stmt = $connect->prepare("INSERT INTO Payment_report (id_user,id_order,time,price,payment_Status,Payment_Method,id_invoice) VALUES (?,?,?,?,?,?,?)");
-    $payment_Status = "paid";
-    $Payment_Method = "add balance by admin";
-    $invoice = null;
-    $stmt->bind_param("sssssss", $user['Processing_value'], $randomString, $dateacc, $text, $payment_Status, $Payment_Method, $invoice);
-    $stmt->execute();
+    record_admin_balance_payment($pdo, $user['Processing_value'], (int) $text, 'add balance by admin');
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['addbalanced'], $keyboardadmin, 'html');
     $Balance_user = select("user", "*", "id", $user['Processing_value'], "select");
     $Balance_add_user = $Balance_user['Balance'] + $text;
@@ -6265,14 +6265,7 @@ $text_agent_volume$text_expie_agent
         sendmessage($from_id, "❌ حداکثر مبلغ 100 میلیون تومان می باشد", $backadmin, 'HTML');
         return;
     }
-    $dateacc = date('Y/m/d H:i:s');
-    $randomString = bin2hex(random_bytes(5));
-    $stmt = $connect->prepare("INSERT INTO Payment_report (id_user,id_order,time,price,payment_Status,Payment_Method,id_invoice) VALUES (?,?,?,?,?,?,?)");
-    $payment_Status = "paid";
-    $Payment_Method = "low balance by admin";
-    $invoice = null;
-    $stmt->bind_param("sssssss", $user['Processing_value'], $randomString, $dateacc, $text, $payment_Status, $Payment_Method, $invoice);
-    $stmt->execute();
+    record_admin_balance_payment($pdo, $user['Processing_value'], (int) $text, 'low balance by admin');
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['lowbalanced'], $keyboardadmin, 'html');
     $Balance_user = select("user", "*", "id", $user['Processing_value'], "select");
     $Balance_add_user = $Balance_user['Balance'] - $text;
@@ -6732,6 +6725,15 @@ $iduser  در ربات  رفع مسدود گردید
     $Balance_add_user = $Balance_user['Balance'] + $text;
     $balanceusers = number_format($text, 0);
     update("user", "Balance", $Balance_add_user, "id", $Payment_report['id_user']);
+    $creditAmount = (int) $text;
+    $originalPrice = (int) ($Payment_report['price'] ?? 0);
+    if ($creditAmount !== $originalPrice) {
+        update("Payment_report", "price", (string) $creditAmount, "id_order", $Payment_report['id_order']);
+    }
+    $payPrefix = trim(explode('|', (string) ($Payment_report['id_invoice'] ?? ''), 2)[0]);
+    if (in_array($payPrefix, ['getconfigafterpay', 'getextenduser', 'getextravolumeuser', 'getextratimeuser'], true)) {
+        update("Payment_report", "id_invoice", '', "id_order", $Payment_report['id_order']);
+    }
     $textadd = "💎 کاربر عزیز مبلغ $balanceusers تومان به موجودی کیف پول تان اضافه گردید.";
     sendmessage($Payment_report['id_user'], $textadd, null, 'HTML');
     $text_report = "تایید رسید کارت به کارت و افزایش دستی موجودی توسط ادمین
@@ -10600,7 +10602,11 @@ f,n.n2", $backadmin, 'HTML');
 } elseif ((preg_match('/zerobalance-(\w+)/', $datain, $dataget))) {
     $iduser = $dataget[1];
     $userdata = select("user", "*", "id", $iduser, "select");
+    $prevBalance = (int) ($userdata['Balance'] ?? 0);
     update("user", "Balance", "0", "id", $iduser);
+    if ($prevBalance > 0) {
+        record_admin_balance_payment($pdo, $iduser, $prevBalance, 'low balance by admin');
+    }
     sendmessage($from_id, "موجودی کاربر به مبلغ {$userdata['Balance']} صفر گردید", $keyboardadmin, 'HTML');
 } elseif (preg_match('/removeadmin_(\w+)/', $datain, $dataget) && $adminrulecheck['rule'] == "administrator") {
     $idadmin = trim($dataget[1]);

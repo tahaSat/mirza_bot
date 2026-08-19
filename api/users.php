@@ -392,6 +392,7 @@ switch ($data['actions'] ?? '') {
         $stmt->bindValue(':user_id', intval($data['chat_id']), PDO::PARAM_INT);
         $stmt->bindValue(':amount', intval($data['amount']), PDO::PARAM_INT);
         $stmt->execute();
+        record_admin_balance_payment($pdo, $data['chat_id'], (int) $data['amount'], 'add balance by admin');
         $text_balance = "💎 کاربر عزیز مبلغ {$data['amount']} تومان به موجودی کیف پول تان اضافه گردید.";
         sendmessage($data['chat_id'], $text_balance, null, 'html');
         sendJsonResponse(true, "Successful");
@@ -410,6 +411,7 @@ switch ($data['actions'] ?? '') {
         $stmt->bindValue(':user_id', intval($data['chat_id']), PDO::PARAM_INT);
         $stmt->bindValue(':amount', intval($data['amount']), PDO::PARAM_INT);
         $stmt->execute();
+        record_admin_balance_payment($pdo, $data['chat_id'], (int) $data['amount'], 'low balance by admin');
         $text_balance = "❌ کاربر عزیز مبلغ {$data['amount']} تومان از  موجودی کیف پول تان کسر گردید.";
         sendmessage($data['chat_id'], $text_balance, null, 'html');
         sendJsonResponse(true, "Successful");

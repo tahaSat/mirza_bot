@@ -365,6 +365,37 @@ function paid_real_income_sql(): string
         AND COALESCE(Payment_Method,'') NOT IN ('add balance by admin','low balance by admin')";
 }
 
+/**
+ * Record an admin wallet credit/debit so it appears in Payment_report.
+ */
+function record_admin_balance_payment(PDO $pdo, $userId, int $amount, string $method): ?string
+{
+    if ($amount <= 0 || $userId === null || $userId === '') {
+        return null;
+    }
+    $dateacc = date('Y/m/d H:i:s');
+    $orderId = bin2hex(random_bytes(5));
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            (string) $userId,
+            $orderId,
+            $dateacc,
+            (string) $amount,
+            'paid',
+            $method,
+            null,
+        ]);
+        return $orderId;
+    } catch (Throwable $e) {
+        error_log('record_admin_balance_payment: ' . $e->getMessage());
+        return null;
+    }
+}
+
 function unix_column_epoch_sql(string $column): string
 {
     return "CASE
@@ -923,12 +954,14 @@ function bot_format_first_purchase_block(array $fp, int $ordersCount, float $ord
     $sum = number_format((float) ($fp['sum'] ?? 0), 0);
     $pct = $ordersCount > 0 ? round(((int) ($fp['count'] ?? 0) / $ordersCount) * 100, 2) : 0;
     $pctMoney = $ordersSum > 0 ? round(((float) ($fp['sum'] ?? 0) / $ordersSum) * 100, 2) : 0;
+    $rli = "\u{2067}";
+    $pdi = "\u{2069}";
     if ($html) {
-        return "🆕 <b>خرید اول:</b> <code>$count</code> عدد (<code>$pct</code>٪ از فروش)\n"
-            . "💰 <b>مبلغ خرید اول:</b> <code>$sum</code> تومان (<code>$pctMoney</code>٪ از مبلغ فروش)";
+        return "{$rli}🆕 <b>خرید اول:</b> <code>$count</code> عدد (<code>$pct</code>٪ از فروش){$pdi}\n"
+            . "{$rli}💰 <b>مبلغ خرید اول:</b> <code>$sum</code> تومان (<code>$pctMoney</code>٪ از مبلغ فروش){$pdi}";
     }
-    return "🆕 خرید اول : $count عدد ($pct٪ از سفارشات)\n"
-        . "💰 مبلغ خرید اول : $sum تومان ($pctMoney٪ از مبلغ سفارشات)";
+    return "{$rli}🆕 خرید اول : $count عدد ($pct٪ از سفارشات){$pdi}\n"
+        . "{$rli}💰 مبلغ خرید اول : $sum تومان ($pctMoney٪ از مبلغ سفارشات){$pdi}";
 }
 
 /**

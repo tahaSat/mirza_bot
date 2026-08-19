@@ -283,10 +283,17 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $monthe_buy = number_format(forecast_monthly_paid_income($pdo));
     $percent_of_extend = $invoiceTotal > 0 ? round(($extendsum / $invoiceTotal) * 100, 2) : 0;
     $percent_of_extend = $percent_of_extend > 100 ? 100 : $percent_of_extend;
+    $firstPurchaseStats = bot_first_purchase_stats($pdo);
+    $firstPurchaseSum = (float) ($firstPurchaseStats['sum'] ?? 0);
+    $repeatPurchaseSum = max(0.0, $invoicePaidSum - $firstPurchaseSum);
+    $percent_of_loyalty = $invoiceTotal > 0
+        ? round((($repeatPurchaseSum + $extendsum) / $invoiceTotal) * 100, 2)
+        : 0;
+    $percent_of_loyalty = $percent_of_loyalty > 100 ? 100 : $percent_of_loyalty;
     $extendsum = number_format($extendsum, 0);
     $avgJoinBuy = avg_join_to_first_purchase_label($pdo);
     $soldVolumeText = bot_format_sold_volume_block(bot_sold_volume_stats($pdo), true);
-    $firstPurchaseText = bot_format_first_purchase_block(bot_first_purchase_stats($pdo), (int) $invoice, $invoicePaidSum, true);
+    $firstPurchaseText = bot_format_first_purchase_block($firstPurchaseStats, (int) $invoice, $invoicePaidSum, true);
     if (count($statispay) != 0) {
         foreach ($statispay as $tracepay) {
             $status_var = [
@@ -333,6 +340,7 @@ $soldVolumeText
 ⏱ <b>میانگین زمان عضویت تا اولین خرید:</b> <code>$avgJoinBuy</code>  
 📅 <b>درآمد پیش‌بینی‌شده ماهانه:</b> <code>$monthe_buy</code> تومان  
 📊 <b>درصد تمدید از فروش:</b> <code>$percent_of_extend</code>٪  
+💚 <b>درصد وفاداری:</b> <code>$percent_of_loyalty</code>٪  
 
 
 👨‍💼 <b>تعداد کل نمایندگان:</b> <code>$agentsum</code> نفر  

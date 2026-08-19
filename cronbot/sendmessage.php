@@ -72,12 +72,8 @@ if ($btnmessage != 'none' && $btnmessage != '') {
     $callback = ($broadcast_id > 0)
         ? ('bc_' . $broadcast_id . '_' . $btnmessage)
         : ($action_map[$btnmessage] ?? $btnmessage);
-    $btnkeyboard = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => $btn_text, 'callback_data' => $callback],
-            ],
-        ]
+    $btnkeyboard = broadcast_inline_keyboard($btnmessage, $btn_text, [
+        'callback_data' => $callback,
     ]);
 }
 $batch = array_splice($userid, 0, 50);

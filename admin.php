@@ -864,12 +864,8 @@ elseif ($datain == "systemsms") {
     $preview_keyboard = null;
     if ($btn_type_selected !== 'none') {
         global $usernamebot;
-        $preview_keyboard = json_encode([
-            'inline_keyboard' => [
-                [
-                    ['text' => $btn_title_show, 'url' => "https://t.me/{$usernamebot}"],
-                ],
-            ]
+        $preview_keyboard = broadcast_inline_keyboard($btn_type_selected, $btn_title_show, [
+            'url' => "https://t.me/{$usernamebot}",
         ]);
     }
     sendmessage($from_id, "👁 <b>پیش‌نمایش پست</b>\nپیام زیر همان محتوایی است که پس از تایید در کانال منتشر می‌شود:", null, 'HTML');
@@ -1239,12 +1235,8 @@ $textday
             $btn_text = broadcast_resolve_btn_text($btn_type, $userdata['btntextmessage'] ?? '', $datatextbot);
             $payload = broadcast_channel_start_payload($btn_type, $broadcast['id']);
             $btn_url = "https://t.me/{$usernamebot}?start={$payload}";
-            $btn_keyboard = json_encode([
-                'inline_keyboard' => [
-                    [
-                        ['text' => $btn_text, 'url' => $btn_url],
-                    ],
-                ]
+            $btn_keyboard = broadcast_inline_keyboard($btn_type, $btn_text, [
+                'url' => $btn_url,
             ]);
         }
         $result = publish_channel_post($channel_id, $userdata, $btn_keyboard);

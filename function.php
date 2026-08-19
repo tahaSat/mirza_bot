@@ -8160,6 +8160,84 @@ function broadcast_resolve_btn_text($btn_type, $custom_text = null, $texts = nul
     return broadcast_btn_label($btn_type, $texts);
 }
 
+function broadcast_btn_icon_id($btn_type): string
+{
+    $meta = broadcast_attachable_buttons()[$btn_type] ?? null;
+    $text_key = $meta['text_key'] ?? null;
+    if ($text_key === null || $text_key === '') {
+        return '';
+    }
+    $icons = get_main_keyboard_button_icons();
+    return stored_custom_emoji_id($icons[$text_key] ?? '');
+}
+
+function broadcast_btn_style($btn_type): string
+{
+    $meta = broadcast_attachable_buttons()[$btn_type] ?? null;
+    $text_key = $meta['text_key'] ?? null;
+    if ($text_key === null || $text_key === '') {
+        return '';
+    }
+    $styles = get_main_keyboard_button_styles();
+    $style = (string) ($styles[$text_key] ?? '');
+    $allowed = array_keys(get_main_keyboard_allowed_styles());
+    return in_array($style, $allowed, true) ? $style : '';
+}
+
+function broadcast_inline_button($btn_type, string $text, array $action): array
+{
+    $button = array_merge(['text' => $text], $action);
+    $button = telegram_button_with_icon($button, broadcast_btn_icon_id($btn_type));
+    $style = broadcast_btn_style($btn_type);
+    if ($style !== '') {
+        $button['style'] = $style;
+    }
+    return $button;
+}
+
+function broadcast_inline_keyboard($btn_type, string $text, array $action): ?string
+{
+    if ($btn_type === '' || $btn_type === 'none') {
+        return null;
+    }
+    return json_encode([
+        'inline_keyboard' => [
+            [broadcast_inline_button($btn_type, $text, $action)],
+        ],
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+function broadcast_keyboard_without_premium_fields($keyboard_json)
+{
+    $decoded = is_string($keyboard_json) ? json_decode($keyboard_json, true) : $keyboard_json;
+    if (!is_array($decoded)) {
+        return $keyboard_json;
+    }
+    $changed = false;
+    foreach ($decoded['inline_keyboard'] ?? [] as $i => $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        foreach ($row as $j => $btn) {
+            if (!is_array($btn)) {
+                continue;
+            }
+            if (isset($decoded['inline_keyboard'][$i][$j]['icon_custom_emoji_id'])) {
+                unset($decoded['inline_keyboard'][$i][$j]['icon_custom_emoji_id']);
+                $changed = true;
+            }
+            if (isset($decoded['inline_keyboard'][$i][$j]['style'])) {
+                unset($decoded['inline_keyboard'][$i][$j]['style']);
+                $changed = true;
+            }
+        }
+    }
+    if (!$changed) {
+        return is_string($keyboard_json) ? $keyboard_json : json_encode($decoded, JSON_UNESCAPED_UNICODE);
+    }
+    return json_encode($decoded, JSON_UNESCAPED_UNICODE);
+}
+
 function broadcast_ask_btn_title_step($from_id, $btn_type)
 {
     global $datatextbot;
@@ -8653,11 +8731,22 @@ function channel_post_attach_reply_markup($chat_id, $send_result, $btn_keyboard)
     if ($message_id <= 0) {
         return $send_result;
     }
-    telegram('editMessageReplyMarkup', [
+    $edit = telegram('editMessageReplyMarkup', [
         'chat_id' => $chat_id,
         'message_id' => $message_id,
         'reply_markup' => $btn_keyboard,
     ]);
+    if (is_array($edit) && !empty($edit['ok'])) {
+        return $send_result;
+    }
+    $stripped = broadcast_keyboard_without_premium_fields($btn_keyboard);
+    if ($stripped !== $btn_keyboard) {
+        telegram('editMessageReplyMarkup', [
+            'chat_id' => $chat_id,
+            'message_id' => $message_id,
+            'reply_markup' => $stripped,
+        ]);
+    }
     return $send_result;
 }
 
@@ -8711,6 +8800,27 @@ function compose_channel_post($chat_id, array $userdata)
     return telegram('sendmessage', $params);
 }
 
+function telegram_with_optional_premium_markup($method, array $params, $btn_keyboard = null)
+{
+    if ($btn_keyboard !== null) {
+        $params['reply_markup'] = $btn_keyboard;
+    }
+    $result = telegram($method, $params);
+    if (is_array($result) && !empty($result['ok'])) {
+        return $result;
+    }
+    if ($btn_keyboard === null) {
+        return $result;
+    }
+    $stripped = broadcast_keyboard_without_premium_fields($btn_keyboard);
+    if ($stripped === $btn_keyboard) {
+        return $result;
+    }
+    $params['reply_markup'] = $stripped;
+    $retry = telegram($method, $params);
+    return (is_array($retry) && !empty($retry['ok'])) ? $retry : $result;
+}
+
 function compose_channel_post_html($chat_id, array $userdata, $btn_keyboard = null)
 {
     $is_photo = (($userdata['messagemediatype'] ?? 'text') == 'photo') && !empty($userdata['photoid']);
@@ -8724,20 +8834,14 @@ function compose_channel_post_html($chat_id, array $userdata, $btn_keyboard = nu
         if ($html !== '') {
             $params['caption'] = $html;
         }
-        if ($btn_keyboard !== null) {
-            $params['reply_markup'] = $btn_keyboard;
-        }
-        return telegram('sendphoto', $params);
+        return telegram_with_optional_premium_markup('sendphoto', $params, $btn_keyboard);
     }
     $params = [
         'chat_id' => $chat_id,
         'text' => $html,
         'parse_mode' => 'HTML',
     ];
-    if ($btn_keyboard !== null) {
-        $params['reply_markup'] = $btn_keyboard;
-    }
-    return telegram('sendmessage', $params);
+    return telegram_with_optional_premium_markup('sendmessage', $params, $btn_keyboard);
 }
 
 /**

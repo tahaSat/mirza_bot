@@ -227,9 +227,11 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $sql1 = "SELECT COUNT(*) AS invoice_count FROM invoice WHERE (status = 'active' OR status = 'end_of_time' OR status = 'end_of_volume' OR status = 'sendedwarn' OR status = 'send_on_hold') AND name_product != 'سرویس تست'";
     $stmt1 = $pdo->query($sql1);
     $invoiceactive = $stmt1->fetch(PDO::FETCH_ASSOC)['invoice_count'];
-    $sqlall = "SELECT COUNT(*) AS invoice_count FROM invoice WHERE " . invoice_paid_status_sql('Status') . " AND name_product != 'سرویس تست'";
+    $sqlall = "SELECT COUNT(*) AS invoice_count, COALESCE(SUM(price_product),0) AS invoice_sum FROM invoice WHERE " . invoice_paid_status_sql('Status') . " AND name_product != 'سرویس تست'";
     $sqlall = $pdo->query($sqlall);
-    $invoice = $sqlall->fetch(PDO::FETCH_ASSOC)['invoice_count'];
+    $invoiceRow = $sqlall->fetch(PDO::FETCH_ASSOC) ?: [];
+    $invoice = $invoiceRow['invoice_count'] ?? 0;
+    $invoicePaidSum = (float) ($invoiceRow['invoice_sum'] ?? 0);
     $sql2 = "SELECT SUM(price_product) AS total_price FROM invoice WHERE (status = 'active' OR status = 'end_of_time' OR status = 'end_of_volume' OR status = 'sendedwarn' OR status = 'send_on_hold') AND name_product != 'سرویس تست'";
     $stmt2 = $pdo->query($sql2);
     $invoicesum = $stmt2->fetch(PDO::FETCH_ASSOC)['total_price'];
@@ -284,6 +286,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $extendsum = number_format($extendsum, 0);
     $avgJoinBuy = avg_join_to_first_purchase_label($pdo);
     $soldVolumeText = bot_format_sold_volume_block(bot_sold_volume_stats($pdo), true);
+    $firstPurchaseText = bot_format_first_purchase_block(bot_first_purchase_stats($pdo), (int) $invoice, $invoicePaidSum, true);
     if (count($statispay) != 0) {
         foreach ($statispay as $tracepay) {
             $status_var = [
@@ -317,6 +320,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
 💰 <b>موجودی کل کاربران:</b> <code>$Balanceall</code> تومان  
 
 🧾 <b>تعداد کل فروش:</b> <code>$invoice</code> عدد  
+$firstPurchaseText
 🧾 <b>تعداد کل فروش سرویس های فعال:</b> <code>$invoiceactive</code> عدد  
 💵 <b>جمع کل درآمد (پرداخت‌های موفق):</b> <code>$invoicesumall</code> تومان  
 💵 <b>جمع کل فروش سرویس های فعال:</b> <code>$invoicesum</code> تومان  

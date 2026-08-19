@@ -780,7 +780,93 @@ function bot_format_sold_volume_block(array $vol, bool $html = false): string
 }
 
 /**
- * @return array{orders:int,orders_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,users:int,avg_join:string,total_count:int,total_sum:float,sold_volume:array}
+ * Lifetime first paid non-test product purchase per user.
+ * Optional window keeps only first purchases whose time_sell falls in the range.
+ *
+ * @return array{count:int, sum:float}
+ */
+function bot_first_purchase_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = null): array
+{
+    $empty = ['count' => 0, 'sum' => 0.0];
+    $paidSql = invoice_paid_status_sql('i.Status');
+    $sellEpoch = unix_column_epoch_sql('i.time_sell');
+    $hasRange = $startTs !== null && $endTs !== null;
+    $timeFilter = $hasRange ? 'AND t.time_sell BETWEEN :start AND :end' : '';
+    $params = $hasRange ? [':start' => $startTs, ':end' => $endTs] : [];
+
+    $sqlWindow = "SELECT COUNT(*) AS count, COALESCE(SUM(t.price_product), 0) AS sum
+        FROM (
+            SELECT i.price_product, i.time_sell,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY i.id_user
+                       ORDER BY ($sellEpoch) ASC, i.id_invoice ASC
+                   ) AS rn
+            FROM invoice i
+            WHERE i.name_product != 'سرویس تست'
+              AND $paidSql
+              AND ($sellEpoch) IS NOT NULL
+              AND ($sellEpoch) > 0
+        ) t
+        WHERE t.rn = 1
+          $timeFilter";
+
+    try {
+        $stmt = $pdo->prepare($sqlWindow);
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        return [
+            'count' => (int) ($row['count'] ?? 0),
+            'sum' => (float) ($row['sum'] ?? 0),
+        ];
+    } catch (Throwable $e) {
+        error_log('bot_first_purchase_stats window: ' . $e->getMessage());
+    }
+
+    $paidNoAlias = invoice_paid_status_sql('Status');
+    $timeFilterI = $hasRange ? 'AND i.time_sell BETWEEN :start AND :end' : '';
+    $sqlFallback = "SELECT COUNT(*) AS count, COALESCE(SUM(i.price_product), 0) AS sum
+        FROM invoice i
+        INNER JOIN (
+            SELECT id_user, MIN(CAST(time_sell AS UNSIGNED)) AS first_ts
+            FROM invoice
+            WHERE name_product != 'سرویس تست'
+              AND $paidNoAlias
+            GROUP BY id_user
+        ) fp ON fp.id_user = i.id_user
+           AND CAST(i.time_sell AS UNSIGNED) = fp.first_ts
+        WHERE i.name_product != 'سرویس تست'
+          AND $paidSql
+          $timeFilterI";
+    try {
+        $stmt = $pdo->prepare($sqlFallback);
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        return [
+            'count' => (int) ($row['count'] ?? 0),
+            'sum' => (float) ($row['sum'] ?? 0),
+        ];
+    } catch (Throwable $e) {
+        error_log('bot_first_purchase_stats fallback: ' . $e->getMessage());
+        return $empty;
+    }
+}
+
+function bot_format_first_purchase_block(array $fp, int $ordersCount, float $ordersSum, bool $html = false): string
+{
+    $count = number_format((int) ($fp['count'] ?? 0));
+    $sum = number_format((float) ($fp['sum'] ?? 0), 0);
+    $pct = $ordersCount > 0 ? round(((int) ($fp['count'] ?? 0) / $ordersCount) * 100, 2) : 0;
+    $pctMoney = $ordersSum > 0 ? round(((float) ($fp['sum'] ?? 0) / $ordersSum) * 100, 2) : 0;
+    if ($html) {
+        return "🆕 <b>خرید اول:</b> <code>$count</code> عدد (<code>$pct</code>٪ از فروش)\n"
+            . "💰 <b>مبلغ خرید اول:</b> <code>$sum</code> تومان (<code>$pctMoney</code>٪ از مبلغ فروش)";
+    }
+    return "🆕 خرید اول : $count عدد ($pct٪ از سفارشات)\n"
+        . "💰 مبلغ خرید اول : $sum تومان ($pctMoney٪ از مبلغ سفارشات)";
+}
+
+/**
+ * @return array{orders:int,orders_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,users:int,avg_join:string,total_count:int,total_sum:float,sold_volume:array,first_purchase:array}
  */
 function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
 {
@@ -850,6 +936,7 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
         'total_count' => (int) ($orders['count'] ?? 0) + (int) ($extends['count'] ?? 0) + (int) ($extraVolume['count'] ?? 0) + (int) ($extraTime['count'] ?? 0) + (int) ($changeLocation['count'] ?? 0) + $walletCount,
         'total_sum' => $orderSum + $extendSum + $extraVolumeSum + $extraTimeSum + $changeLocationSum + $walletSum,
         'sold_volume' => bot_sold_volume_stats($pdo, $startTs, $endTs),
+        'first_purchase' => bot_first_purchase_stats($pdo, $startTs, $endTs),
     ];
 }
 
@@ -867,12 +954,18 @@ function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = 
     $sumWallet = number_format((float) ($s['wallet_sum'] ?? 0), 0);
     $sumTotal = number_format($s['total_sum'], 0);
     $soldVolumeBlock = bot_format_sold_volume_block($s['sold_volume'] ?? []);
+    $firstPurchaseBlock = bot_format_first_purchase_block(
+        $s['first_purchase'] ?? [],
+        (int) ($s['orders'] ?? 0),
+        (float) ($s['orders_sum'] ?? 0)
+    );
 
     return "
 🕐 <b>$title</b>
 $rangeLine
 🛍 تعداد سفارشات : {$s['orders']} عدد
 💸 جمع مبلغ سفارشات  : $sumOrder تومان
+$firstPurchaseBlock
 
 🧲 تعداد تمدید  : {$s['extends']} عدد
 💰 جمع مبلغ تمدید: $sumExtend تومان

@@ -826,22 +826,34 @@ elseif ($datain == "systemsms") {
         step("home", $from_id);
         return;
     }
-    $html = text_from_telegram_update($update);
+    $message = is_array($update) ? ($update['message'] ?? null) : null;
+    $raw_text = '';
+    $raw_entities = [];
     if ($photo) {
+        $raw_text = is_array($message) ? (string) ($message['caption'] ?? '') : '';
+        $raw_entities = (is_array($message) && isset($message['caption_entities']) && is_array($message['caption_entities']))
+            ? $message['caption_entities']
+            : [];
         savedata("save", "messagemediatype", "photo");
         savedata("save", "photoid", $photoid);
-        savedata("save", "message", $html);
-    } elseif ($text) {
+    } elseif (is_array($message) && isset($message['text']) && $message['text'] !== '') {
+        $raw_text = (string) $message['text'];
+        $raw_entities = (isset($message['entities']) && is_array($message['entities'])) ? $message['entities'] : [];
         savedata("save", "messagemediatype", "text");
         savedata("save", "photoid", "");
-        savedata("save", "message", $html);
     } else {
         sendmessage($from_id, "📌 لطفا متن یا عکس (با کپشن اختیاری) ارسال کنید.", $backadmin, 'HTML');
         return;
     }
     savedata("save", "source_message_id", $message_id);
     savedata("save", "source_chat_id", $from_id);
+    savedata("save", "message_raw", $raw_text);
+    savedata("save", "message_entities", normalize_outgoing_telegram_entities($raw_entities));
+    savedata("save", "message", text_from_telegram_update($update));
     $userdata = json_decode(select("user", "*", "id", $from_id, "select")['Processing_value'], true);
+    if (!is_array($userdata)) {
+        $userdata = [];
+    }
     $btn_type_selected = $userdata['btntypemessage'] ?? 'none';
     $btn_title_show = ($btn_type_selected === 'none')
         ? 'بدون دکمه'
@@ -849,6 +861,19 @@ elseif ($datain == "systemsms") {
     $media_label = (($userdata['messagemediatype'] ?? 'text') == 'photo') ? 'عکس + متن' : 'فقط متن';
     $channel_title = htmlspecialchars($userdata['channel_title'] ?? $userdata['channel_id'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $btn_title_safe = htmlspecialchars($btn_title_show, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $preview_keyboard = null;
+    if ($btn_type_selected !== 'none') {
+        global $usernamebot;
+        $preview_keyboard = json_encode([
+            'inline_keyboard' => [
+                [
+                    ['text' => $btn_title_show, 'url' => "https://t.me/{$usernamebot}"],
+                ],
+            ]
+        ]);
+    }
+    sendmessage($from_id, "👁 <b>پیش‌نمایش پست</b>\nپیام زیر همان محتوایی است که پس از تایید در کانال منتشر می‌شود:", null, 'HTML');
+    send_channel_post_preview($from_id, $userdata, $preview_keyboard);
     $textconfirm = "📌 شما در حال ارسال پست به کانال هستید. با تایید، پست منتشر می‌شود.
 
 ⚙️ نوع عملیات : پست در کانال
@@ -1191,7 +1216,9 @@ $textday
             return;
         }
         $is_photo = (($userdata['messagemediatype'] ?? 'text') == 'photo') && !empty($userdata['photoid']);
-        if (!$is_photo && (($userdata['message'] ?? '') === '')) {
+        $raw = channel_post_source_text($userdata);
+        $has_source = intval($userdata['source_message_id'] ?? 0) > 0;
+        if (!$is_photo && $raw === '' && !$has_source) {
             sendmessage($from_id, "❌ متن پست خالی است.", $keyboardadmin, 'HTML');
             return;
         }

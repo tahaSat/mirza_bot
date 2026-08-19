@@ -4707,10 +4707,7 @@ $textinvite
     }
     $affiliatescommission = select("affiliates", "*", null, null, "select");
     $marzbanporsant_one_buy = select("affiliates", "*", null, null, "select");
-    $stmt = $pdo->prepare("SELECT * FROM invoice WHERE name_product != 'سرویس تست'  AND id_user = :id_user AND Status != 'Unpaid'");
-    $stmt->bindParam(':id_user', $from_id);
-    $stmt->execute();
-    $countinvoice = $stmt->rowCount();
+    $countinvoice = bot_non_test_purchase_count($pdo, $from_id, $randomString);
     if ($affiliatescommission['status_commission'] == "oncommission" && ($user['affiliates'] != null && intval($user['affiliates']) != 0)) {
         if ($marzbanporsant_one_buy['porsant_one_buy'] == "on_buy_porsant") {
             if ($countinvoice == 1) {
@@ -4778,7 +4775,7 @@ $textinvite
     }
     $balanceformatsell = number_format(select("user", "Balance", "id", $from_id, "select")['Balance'], 0);
     $textonebuy = "";
-    if ($countinvoice == 1) {
+    if (bot_is_first_product_purchase($pdo, $from_id, $randomString)) {
         $textonebuy = "📌 خرید اول کاربر";
     }
     $balanceformatsellbefore = number_format($user['Balance'], 0);

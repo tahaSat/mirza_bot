@@ -8,7 +8,7 @@ $pdo = panel_ensure_pdo();
 panel_payment_ensure_schema($pdo);
 
 $tab = $_GET['tab'] ?? 'list';
-if (!in_array($tab, ['list', 'pending', 'costs'], true)) {
+if (!in_array($tab, ['list', 'income', 'pending', 'costs'], true)) {
     $tab = 'list';
 }
 
@@ -18,7 +18,7 @@ function payment_redirect_url(string $tab, array $extra = []): string
         return 'payment.php?tab=pending';
     }
     $qs = array_filter([
-        'tab' => $tab === 'costs' ? 'costs' : '',
+        'tab' => in_array($tab, ['costs', 'income'], true) ? $tab : '',
         'q' => $extra['q'] ?? '',
         'status' => $extra['status'] ?? '',
         'price_min' => $extra['price_min'] ?? '',
@@ -27,6 +27,8 @@ function payment_redirect_url(string $tab, array $extra = []): string
         'to' => $extra['to'] ?? '',
         'method' => $extra['method'] ?? '',
         'category' => $extra['category'] ?? '',
+        'kind' => $extra['kind'] ?? '',
+        'expense_status' => $extra['expense_status'] ?? '',
         'page' => $extra['page'] ?? '',
     ], static fn($v) => $v !== null && $v !== '');
     return $qs ? ('payment.php?' . http_build_query($qs, '', '&', PHP_QUERY_RFC3986)) : 'payment.php';
@@ -113,16 +115,52 @@ function payment_shared_filter_clauses(
     return [$where, $params];
 }
 
+function payment_income_type_sql(): string
+{
+    return "payment_Status != 'cost'";
+}
+
+function payment_expense_type_sql(): string
+{
+    return "payment_Status = 'cost'";
+}
+
+function payment_append_income_filters(array &$where, array &$params, string $status, string $method): void
+{
+    if ($status === 'manual') {
+        $where[] = "Payment_Method = 'manual invoice'";
+    } elseif ($status !== '') {
+        $where[] = 'payment_Status = ?';
+        $params[] = $status;
+    }
+    if ($method !== '') {
+        $where[] = 'Payment_Method = ?';
+        $params[] = $method;
+    }
+}
+
+function payment_append_expense_filters(array &$where, array &$params, string $category, string $expenseStatus): void
+{
+    if ($expenseStatus !== '') {
+        $where[] = 'payment_Status = ?';
+        $params[] = $expenseStatus;
+    }
+    if ($category !== '') {
+        $where[] = 'expense_category = ?';
+        $params[] = $category;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check_post();
     $action = $_POST['action'] ?? '';
     $orderId = trim($_POST['order_id'] ?? '');
     $postTab = (string) ($_POST['tab'] ?? $tab);
-    if (!in_array($postTab, ['list', 'pending', 'costs'], true)) {
+    if (!in_array($postTab, ['list', 'income', 'pending', 'costs'], true)) {
         $postTab = $tab;
     }
     $isAjax = payment_is_ajax();
-    $redirect = payment_redirect_url($tab === 'pending' ? 'pending' : ($tab === 'costs' ? 'costs' : 'list'), [
+    $redirect = payment_redirect_url($tab === 'pending' ? 'pending' : $postTab, [
         'q' => trim((string) ($_POST['q'] ?? '')),
         'status' => trim((string) ($_POST['status_filter'] ?? '')),
         'price_min' => isset($_POST['price_min']) && $_POST['price_min'] !== '' ? (int) $_POST['price_min'] : '',
@@ -131,6 +169,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'to' => trim((string) ($_POST['to'] ?? '')),
         'method' => trim((string) ($_POST['filter_method'] ?? '')),
         'category' => trim((string) ($_POST['filter_category'] ?? '')),
+        'kind' => trim((string) ($_POST['filter_kind'] ?? '')),
+        'expense_status' => trim((string) ($_POST['filter_expense_status'] ?? '')),
         'page' => !empty($_POST['page']) ? (int) $_POST['page'] : '',
     ]);
 
@@ -212,7 +252,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             payment_json_exit($r, !empty($r['ok']) ? 200 : 400);
         }
         flash(!empty($r['ok']) ? 'success' : 'error', $r['msg'] ?? '');
-        $redirect = $asCost ? 'payment.php?tab=costs' : payment_redirect_url('list');
+        $redirect = payment_redirect_url(in_array($postTab, ['list', 'income', 'costs'], true) ? $postTab : 'list');
     } elseif ($action === 'delete_row' && $orderId !== '') {
         $r = panel_payment_delete_row($pdo, $orderId);
         if ($isAjax) {
@@ -311,6 +351,14 @@ $fromInput = $fromFilter['input'] ?? '';
 $toInput = $toFilter['input'] ?? '';
 $method = trim((string) ($_GET['method'] ?? ''));
 $category = trim((string) ($_GET['category'] ?? ''));
+$kind = trim((string) ($_GET['kind'] ?? ''));
+if (!in_array($kind, ['income', 'expense'], true)) {
+    $kind = '';
+}
+$expenseStatus = trim((string) ($_GET['expense_status'] ?? ''));
+if ($expenseStatus !== 'cost') {
+    $expenseStatus = '';
+}
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 30;
 $offset = ($page - 1) * $perPage;
@@ -340,20 +388,38 @@ if ($tab === 'pending') {
     }
     panel_payment_append_time_range($where, $params, $fromFilter, $toFilter);
 } else {
-    $where[] = "payment_Status != 'cost'";
     if ($search !== '') {
         $where[] = "(`id_user` LIKE ? OR `id_order` LIKE ? OR COALESCE(`note`,'') LIKE ?)";
         $params = ["%$search%", "%$search%", "%$search%"];
     }
-    if ($status === 'manual') {
-        $where[] = "Payment_Method = 'manual invoice'";
-    } elseif ($status !== '') {
-        $where[] = "payment_Status = ?";
-        $params[] = $status;
-    }
-    if ($method !== '') {
-        $where[] = 'Payment_Method = ?';
-        $params[] = $method;
+    if ($tab === 'income' || ($tab === 'list' && $kind === 'income')) {
+        $where[] = payment_income_type_sql();
+        payment_append_income_filters($where, $params, $status, $method);
+    } elseif ($tab === 'list' && $kind === 'expense') {
+        $where[] = payment_expense_type_sql();
+        payment_append_expense_filters($where, $params, $category, $expenseStatus);
+    } elseif ($tab === 'list') {
+        $hasIncomeFilter = $status !== '' || $method !== '';
+        $hasExpenseFilter = $category !== '' || $expenseStatus !== '';
+        $incomeParts = [payment_income_type_sql()];
+        $incomeParams = [];
+        payment_append_income_filters($incomeParts, $incomeParams, $status, $method);
+        $expenseParts = [payment_expense_type_sql()];
+        $expenseParams = [];
+        payment_append_expense_filters($expenseParts, $expenseParams, $category, $expenseStatus);
+        if ($hasIncomeFilter && $hasExpenseFilter) {
+            $where[] = '(' . implode(' AND ', $incomeParts) . ' OR ' . implode(' AND ', $expenseParts) . ')';
+            $params = array_merge($params, $incomeParams, $expenseParams);
+        } elseif ($hasIncomeFilter) {
+            array_push($where, ...$incomeParts);
+            $params = array_merge($params, $incomeParams);
+        } elseif ($hasExpenseFilter) {
+            array_push($where, ...$expenseParts);
+            $params = array_merge($params, $expenseParams);
+        }
+    } else {
+        $where[] = payment_income_type_sql();
+        payment_append_income_filters($where, $params, $status, $method);
     }
     if ($priceMin !== null) {
         $where[] = 'CAST(price AS DECIMAL(20,0)) >= ?';
@@ -409,32 +475,43 @@ try {
         $priceMax,
         $fromFilter,
         $toFilter,
-        $tab === 'costs' ? '' : $method,
-        $tab === 'costs' ? $category : ''
+        '',
+        ''
     );
+
+    $hideIncomeCards = ($tab === 'list' && $kind === 'expense')
+        || ($tab === 'list' && $kind === '' && ($category !== '' || $expenseStatus !== '') && $status === '' && $method === '');
+    $hideCostCards = ($tab === 'list' && $kind === 'income')
+        || ($tab === 'list' && $kind === '' && ($status !== '' || $method !== '') && $category === '' && $expenseStatus === '');
 
     $successWhere = array_merge(["payment_Status = 'paid'"], $cardWhere);
     $successParams = $cardParams;
-    if ($status === 'manual') {
-        $successWhere[] = "Payment_Method = 'manual invoice'";
-    }
+    payment_append_income_filters($successWhere, $successParams, $status, $tab === 'costs' ? '' : $method);
     $successSQL = 'WHERE ' . implode(' AND ', $successWhere);
-    $totalSuccess = (int) db_query(
+    $totalSuccess = $hideIncomeCards ? 0 : (int) db_query(
         $pdo,
         "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report $successSQL",
         $successParams
     )->fetchColumn();
 
     $costWhere = array_merge(["payment_Status = 'cost'"], $cardWhere);
+    $costParams = $cardParams;
+    payment_append_expense_filters($costWhere, $costParams, in_array($tab, ['costs', 'list'], true) ? $category : '', $tab === 'list' ? $expenseStatus : '');
     $costSQL = 'WHERE ' . implode(' AND ', $costWhere);
-    $totalCosts = (int) db_query(
+    $totalCosts = $hideCostCards ? 0 : (int) db_query(
         $pdo,
         "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report $costSQL",
-        $cardParams
+        $costParams
     )->fetchColumn();
 
     $forecastIncome = (int) round(forecast_monthly_paid_income($pdo));
-    $todayWhere = $tab === 'costs' ? "payment_Status = 'cost'" : "payment_Status != 'cost'";
+    if ($tab === 'costs' || ($tab === 'list' && $kind === 'expense')) {
+        $todayWhere = "payment_Status = 'cost'";
+    } elseif ($tab === 'income' || ($tab === 'list' && $kind === 'income')) {
+        $todayWhere = "payment_Status != 'cost'";
+    } else {
+        $todayWhere = '1=1';
+    }
     $tehran = new DateTimeZone('Asia/Tehran');
     $dayStart = new DateTime('today', $tehran);
     $dayEnd = (clone $dayStart)->modify('+1 day');
@@ -460,7 +537,7 @@ try {
 }
 $netIncome = $totalSuccess - $totalCosts;
 $cardsFiltered = $search !== '' || $priceMin !== null || $priceMax !== null || $fromFilter || $toFilter
-    || ($tab === 'costs' ? $category !== '' : $method !== '')
+    || $method !== '' || $category !== '' || $kind !== '' || $expenseStatus !== ''
     || ($tab !== 'costs' && $status !== '');
 $successMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'از ابتدای فعالیت';
 $costMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'هزینه شده';
@@ -519,6 +596,12 @@ if ($tab !== 'pending') {
     if ($tab !== 'costs' && $status !== '') {
         $activeFilterCount++;
     }
+    if ($tab === 'list' && $kind !== '') {
+        $activeFilterCount++;
+    }
+    if ($tab === 'list' && $expenseStatus !== '') {
+        $activeFilterCount++;
+    }
     if ($priceMin !== null) {
         $activeFilterCount++;
     }
@@ -531,18 +614,14 @@ if ($tab !== 'pending') {
     if ($toFilter) {
         $activeFilterCount++;
     }
-    if ($tab === 'costs') {
-        if ($category !== '') {
-            $activeFilterCount++;
-        }
-    } elseif ($method !== '') {
+    if ($tab !== 'costs' && $method !== '') {
+        $activeFilterCount++;
+    }
+    if ($tab !== 'income' && $category !== '') {
         $activeFilterCount++;
     }
 }
-$clearFiltersUrl = $tab === 'costs' ? 'payment.php?tab=costs' : 'payment.php';
-if ($search !== '') {
-    $clearFiltersUrl .= (str_contains($clearFiltersUrl, '?') ? '&' : '?') . 'q=' . urlencode($search);
-}
+$clearFiltersUrl = payment_redirect_url($tab, $search !== '' ? ['q' => $search] : []);
 
 $pageTitle = 'مالی';
 $pageLede = 'گزارش پرداخت‌ها، فاکتور دستی، هزینه‌ها و درآمد خالص.';
@@ -586,12 +665,15 @@ include __DIR__ . '/inc/layout_head.php';
   .pay-sheet-row.is-editing .pay-time-edit.pay-edit { display: flex; }
   .pay-time-edit .pay-time-input { flex: 1; min-width: 0; }
   .pay-time-now { flex-shrink: 0; font-size: .72rem; padding: 0 8px; height: 32px; }
+  .pay-filter-group { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; border: 1px solid var(--bd); border-radius: 10px; background: var(--sf); }
+  .pay-filter-group-title { grid-column: 1 / -1; font-size: .75rem; font-weight: 700; color: var(--mute); }
 </style>
 <?php endif; ?>
 
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px" class="fade-up">
   <div style="display:flex;gap:4px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:4px;flex-wrap:wrap">
     <a href="payment.php" class="btn btn-sm <?= $tab === 'list' ? 'btn-primary' : 'btn-ghost' ?>">همه تراکنش‌ها</a>
+    <a href="payment.php?tab=income" class="btn btn-sm <?= $tab === 'income' ? 'btn-primary' : 'btn-ghost' ?>">درآمدها</a>
     <a href="payment.php?tab=pending" class="btn btn-sm <?= $tab === 'pending' ? 'btn-primary' : 'btn-ghost' ?>">
       رسید در انتظار
       <?php if ($pendingCount > 0): ?>
@@ -631,12 +713,12 @@ include __DIR__ . '/inc/layout_head.php';
   <div class="stat">
     <div class="stat-label">تعداد کل</div>
     <div class="stat-num"><?= number_format($total) ?></div>
-    <div class="stat-meta"><?= $tab === 'costs' ? 'رکورد هزینه' : 'رکورد تراکنش' ?></div>
+    <div class="stat-meta"><?= $tab === 'costs' ? 'رکورد هزینه' : ($tab === 'income' ? 'رکورد درآمد' : 'رکورد تراکنش') ?></div>
   </div>
   <div class="stat warn">
     <div class="stat-label">امروز</div>
     <div class="stat-num"><?= number_format($todayCount) ?></div>
-    <div class="stat-meta"><?= $tab === 'costs' ? 'هزینه امروز' : 'تراکنش جدید امروز' ?></div>
+    <div class="stat-meta"><?= $tab === 'costs' ? 'هزینه امروز' : ($tab === 'income' ? 'درآمد امروز' : 'تراکنش جدید امروز') ?></div>
   </div>
 </div>
 <?php endif; ?>
@@ -649,8 +731,10 @@ include __DIR__ . '/inc/layout_head.php';
           echo 'رسیدهای کارت‌به‌کارت در انتظار';
       } elseif ($tab === 'costs') {
           echo 'هزینه‌ها';
+      } elseif ($tab === 'income') {
+          echo 'درآمدها';
       } else {
-          echo 'گزارش تراکنش‌ها';
+          echo 'همه تراکنش‌ها';
       }
       ?>
       <small>(<?= number_format($total) ?>)</small>
@@ -672,12 +756,12 @@ include __DIR__ . '/inc/layout_head.php';
         </button>
           <button type="button" class="btn btn-primary btn-sm" id="payAddRowBtn"><?= icon('plus', 14) ?> افزودن</button>
         <?php if ($search || $activeFilterCount > 0): ?>
-          <a href="<?= $tab === 'costs' ? 'payment.php?tab=costs' : 'payment.php' ?>" class="btn btn-ghost btn-sm pay-toolbar-clear">پاک</a>
+          <a href="<?= htmlspecialchars($clearFiltersUrl) ?>" class="btn btn-ghost btn-sm pay-toolbar-clear">پاک</a>
         <?php endif; ?>
       </div>
       <form method="GET" class="pay-toolbar-search">
-        <?php if ($tab === 'costs'): ?>
-          <input type="hidden" name="tab" value="costs">
+        <?php if (in_array($tab, ['costs', 'income'], true)): ?>
+          <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
         <?php endif; ?>
         <input type="hidden" name="status" value="<?= htmlspecialchars($status) ?>">
         <input type="hidden" name="price_min" value="<?= $priceMin !== null ? (int) $priceMin : '' ?>">
@@ -686,6 +770,8 @@ include __DIR__ . '/inc/layout_head.php';
         <input type="hidden" name="to" value="<?= htmlspecialchars($toInput) ?>">
         <input type="hidden" name="method" value="<?= htmlspecialchars($method) ?>">
         <input type="hidden" name="category" value="<?= htmlspecialchars($category) ?>">
+        <input type="hidden" name="kind" value="<?= htmlspecialchars($kind) ?>">
+        <input type="hidden" name="expense_status" value="<?= htmlspecialchars($expenseStatus) ?>">
         <div class="search-box">
           <?= icon('search', 14) ?>
           <input type="text" name="q" placeholder="<?= $tab === 'costs' ? 'شناسه، یادداشت...' : 'آیدی کاربر، شماره تراکنش یا یادداشت...' ?>"
@@ -706,7 +792,15 @@ include __DIR__ . '/inc/layout_head.php';
           <th>کاربر</th>
           <th>شناسه</th>
           <th>مبلغ</th>
-          <th><?= $tab === 'costs' ? 'دسته هزینه' : 'روش پرداخت' ?></th>
+          <th><?php
+          if ($tab === 'costs') {
+              echo 'دسته هزینه';
+          } elseif ($tab === 'list') {
+              echo 'روش / دسته';
+          } else {
+              echo 'روش پرداخت';
+          }
+          ?></th>
           <th>یادداشت</th>
           <th>تاریخ</th>
           <th>وضعیت</th>
@@ -724,6 +818,8 @@ include __DIR__ . '/inc/layout_head.php';
                     echo 'رسید در انتظاری نیست';
                 } elseif ($tab === 'costs') {
                     echo 'هزینه‌ای ثبت نشده';
+                } elseif ($tab === 'income') {
+                    echo 'درآمدی یافت نشد';
                 } else {
                     echo 'تراکنشی یافت نشد';
                 }
@@ -888,7 +984,7 @@ include __DIR__ . '/inc/layout_head.php';
     <span><?= number_format($total) ?> رکورد · صفحه <?= $page ?> از <?= $totalPages ?></span>
     <div class="pager">
       <?php
-      $qs = static function (int $p) use ($tab, $search, $status, $priceMin, $priceMax, $fromInput, $toInput, $method): string {
+      $qs = static function (int $p) use ($tab, $search, $status, $priceMin, $priceMax, $fromInput, $toInput, $method, $category, $kind, $expenseStatus): string {
           if ($tab === 'pending') {
               return htmlspecialchars('payment.php?tab=pending&page=' . $p, ENT_QUOTES);
           }
@@ -900,6 +996,9 @@ include __DIR__ . '/inc/layout_head.php';
               'from' => $fromInput,
               'to' => $toInput,
               'method' => $method,
+              'category' => $category,
+              'kind' => $kind,
+              'expense_status' => $expenseStatus,
               'page' => $p,
           ]), ENT_QUOTES);
       };
@@ -983,12 +1082,61 @@ function openRejectModal(orderId) {
     </div>
     <form method="GET">
       <div class="modal-body">
-        <?php if ($tab === 'costs'): ?>
-          <input type="hidden" name="tab" value="costs">
+        <?php if (in_array($tab, ['costs', 'income'], true)): ?>
+          <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
         <?php endif; ?>
         <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
         <div class="form-grid">
-          <?php if ($tab !== 'costs'): ?>
+          <?php if ($tab === 'list'): ?>
+          <div class="field" style="grid-column:1/-1">
+            <label class="lbl">نوع تراکنش</label>
+            <select name="kind" class="select" style="width:100%">
+              <option value="" <?= $kind === '' ? 'selected' : '' ?>>همه (درآمد و هزینه)</option>
+              <option value="income" <?= $kind === 'income' ? 'selected' : '' ?>>فقط درآمد</option>
+              <option value="expense" <?= $kind === 'expense' ? 'selected' : '' ?>>فقط هزینه</option>
+            </select>
+          </div>
+          <div class="pay-filter-group">
+            <div class="pay-filter-group-title">درآمد</div>
+            <div class="field">
+              <label class="lbl">وضعیت درآمد</label>
+              <select name="status" class="select" style="width:100%">
+                <option value="">همه وضعیت‌ها</option>
+                <?php foreach ($filterStatusMap as $k => [$_, $lbl]): ?>
+                  <option value="<?= htmlspecialchars($k) ?>" <?= $status === $k ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="field">
+              <label class="lbl">روش پرداخت</label>
+              <select name="method" class="select" style="width:100%">
+                <option value="">همه روش‌ها</option>
+                <?php foreach ($methodOptions as $k => $lbl): ?>
+                  <option value="<?= htmlspecialchars($k) ?>" <?= $method === $k ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+          </div>
+          <div class="pay-filter-group">
+            <div class="pay-filter-group-title">هزینه</div>
+            <div class="field">
+              <label class="lbl">وضعیت هزینه</label>
+              <select name="expense_status" class="select" style="width:100%">
+                <option value="">همه وضعیت‌ها</option>
+                <option value="cost" <?= $expenseStatus === 'cost' ? 'selected' : '' ?>><?= htmlspecialchars($statusMap['cost'][1] ?? 'هزینه شده') ?></option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="lbl">دسته هزینه</label>
+              <select name="category" class="select" style="width:100%">
+                <option value="">همه دسته‌ها</option>
+                <?php foreach ($categoryOptions as $k => $lbl): ?>
+                  <option value="<?= htmlspecialchars($k) ?>" <?= $category === $k ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+          </div>
+          <?php elseif ($tab !== 'costs'): ?>
           <div class="field">
             <label class="lbl">وضعیت</label>
             <select name="status" class="select" style="width:100%">
@@ -1074,7 +1222,7 @@ window.PAYMENT_SHEET = <?= json_encode([
     'csrf' => csrf_token(),
     'tab' => $tab,
     'nowJalali' => $nowJalali,
-    'emptyText' => $tab === 'costs' ? 'هزینه‌ای ثبت نشده' : 'تراکنشی یافت نشد',
+    'emptyText' => $tab === 'costs' ? 'هزینه‌ای ثبت نشده' : ($tab === 'income' ? 'درآمدی یافت نشد' : 'تراکنشی یافت نشد'),
     'statusOptions' => $sheetStatusJs,
     'costStatus' => ['cls' => $costStatusJs[0], 'lbl' => $costStatusJs[1]],
     'methodOptions' => $sheetMethodOptions,

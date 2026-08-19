@@ -825,6 +825,7 @@ function panel_payment_method_map(): array
         'nowpayment' => 'NowPayment',
         'tetraminator' => 'Tetraminator',
         'manual invoice' => 'فاکتور دستی',
+        'add order by admin' => 'سفارش توسط ادمین',
         'refund to wallet' => 'مرجوعی به کیف پول',
     ];
 }
@@ -1129,7 +1130,7 @@ function panel_payment_set_status(
     $leavingPaid = $wasPaid && $newStatus !== 'paid';
     $method = (string) ($payment['Payment_Method'] ?? '');
     $idInvoice = (string) ($payment['id_invoice'] ?? '');
-    $skipWalletClawback = in_array($method, ['add balance by admin', 'low balance by admin', 'refund to wallet', 'cost'], true)
+    $skipWalletClawback = in_array($method, ['add balance by admin', 'low balance by admin', 'add order by admin', 'refund to wallet', 'cost'], true)
         || $idInvoice === 'manual'
         || $idInvoice === 'cost';
 

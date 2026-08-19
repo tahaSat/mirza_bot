@@ -307,9 +307,10 @@ if (in_array($text, $textadmin) || $datain == "admin") {
                 'Currency Rial 3' => $datatextbot['iranpay1'],
                 'paymentnotverify' => $datatextbot['textpaymentnotverify'],
                 'Star Telegram' => $datatextbot['text_star_telegram'],
-                'tetraminator' => $datatextbot['tetraminator'] ?? 'Tetraminator'
+                'tetraminator' => $datatextbot['tetraminator'] ?? 'Tetraminator',
+                'add order by admin' => 'سفارش توسط ادمین',
 
-            ][$tracepay['Payment_Method']];
+            ][$tracepay['Payment_Method']] ?? ($tracepay['Payment_Method'] ?: 'سایر');
             $paycount .= "
 📌 نام درگاه : <code>$status_var</code>
  - تعداد پرداخت موفق : <code>{$tracepay['countpay']}</code>

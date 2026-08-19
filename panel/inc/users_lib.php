@@ -586,6 +586,7 @@ function panel_add_user_service(PDO $pdo, $userId, string $username, string $pan
         'username' => $username,
         'gb' => (int) ($extra['gb'] ?? 0),
         'months' => (int) ($extra['months'] ?? 0),
+        'custom' => is_custom_service_product_choice(null, $productName),
     ]);
 }
 

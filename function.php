@@ -396,6 +396,48 @@ function record_admin_balance_payment(PDO $pdo, $userId, int $amount, string $me
     }
 }
 
+/**
+ * Record a paid purchase payment for a service created by admin (panel or Telegram).
+ * Linked as getconfigafterpay|{username} so it shows as «خرید سرویس» in reports.
+ */
+function record_admin_order_payment(PDO $pdo, $userId, $price, string $username, string $idInvoice = '', string $productName = ''): ?string
+{
+    if ($userId === null || $userId === '' || trim($username) === '') {
+        return null;
+    }
+    $dateacc = date('Y/m/d H:i:s');
+    $orderId = bin2hex(random_bytes(5));
+    $invoiceRef = 'getconfigafterpay|' . $username;
+    $noteParts = ['سفارش ساخته‌شده توسط ادمین'];
+    if ($productName !== '') {
+        $noteParts[] = $productName;
+    }
+    if ($idInvoice !== '') {
+        $noteParts[] = 'فاکتور ' . $idInvoice;
+    }
+    $note = implode(' | ', $noteParts);
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            (string) $userId,
+            $orderId,
+            $dateacc,
+            (string) max(0, (int) $price),
+            'paid',
+            'add order by admin',
+            $invoiceRef,
+            $note,
+        ]);
+        return $orderId;
+    } catch (Throwable $e) {
+        error_log('record_admin_order_payment: ' . $e->getMessage());
+        return null;
+    }
+}
+
 function unix_column_epoch_sql(string $column): string
 {
     return "CASE
@@ -2451,6 +2493,15 @@ function admin_provision_user_service($userId, array $opts): array
         'active',
         $notifctions,
     ]);
+
+    record_admin_order_payment(
+        $pdo,
+        $userId,
+        $info_product['price_product'] ?? 0,
+        $username,
+        $idInvoice,
+        (string) ($info_product['name_product'] ?? '')
+    );
 
     bump_username_sequence_counters($panel, $userId);
 

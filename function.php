@@ -3325,7 +3325,7 @@ function KeyboardCustomMonths($panel, string $prefix = 'custommonth_', string $b
                 if ($extra <= 0) {
                     $label .= ' - هزینه ی مدت : بدون هزینه';
                 } else {
-                    $label .= ' - هزینه ی مدت : ' . number_format($extra);
+                    $label .= ' - هزینه ی مدت : + ' . number_format($extra);
                 }
             }
         }

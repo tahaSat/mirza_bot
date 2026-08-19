@@ -484,20 +484,13 @@ include __DIR__ . '/inc/layout_head.php';
   .pay-sheet-row .pay-cell-input { height: 32px; padding: 0 8px; font-size: .8rem; }
   .pay-sheet-row.is-editing .pay-view { display: none; }
   .pay-sheet-row.is-editing .pay-edit { display: block; }
-  .pay-sheet-row .pay-method-select,
-  .pay-sheet-row .pay-status-select { display: none; width: 100%; min-width: 0; height: 32px; padding: 0 8px; font-size: .78rem; }
-  .pay-sheet-row.is-editing:not(.is-cost) .pay-method-label,
-  .pay-sheet-row.is-editing:not(.is-cost) .pay-status-tag { display: none; }
-  .pay-sheet-row.is-editing .pay-method-select,
-  .pay-sheet-row.is-editing .pay-status-select { display: block; }
-  .pay-sheet-row.is-picking-method .pay-method-label,
-  .pay-sheet-row.is-picking-status .pay-status-tag { display: none; }
-  .pay-sheet-row.is-picking-method .pay-method-select,
-  .pay-sheet-row.is-picking-status .pay-status-select { display: block; }
-  .pay-sheet-row .pay-status-tag,
-  .pay-sheet-row .pay-method-label { cursor: pointer; }
-  .pay-sheet-row.is-cost .pay-status-tag,
-  .pay-sheet-row.is-cost .pay-method-label { cursor: default; }
+  .pay-dd-trigger{display:inline-flex;align-items:center;gap:4px;max-width:100%;border:0;padding:0;background:transparent;font:inherit;color:inherit;cursor:pointer;text-align:right}
+  .pay-dd-caret{opacity:.65;font-size:.68rem;flex-shrink:0;line-height:1}
+  .pay-sheet-row.is-cost .pay-dd-trigger{cursor:default}
+  .pay-sheet-menu{position:fixed;z-index:4000;min-width:180px;max-width:min(280px,calc(100vw - 16px));max-height:min(320px,70vh);overflow:auto;padding:6px;border:1px solid var(--bd);border-radius:12px;background:var(--sf);box-shadow:0 10px 28px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:4px}
+  .pay-sheet-menu[hidden]{display:none!important}
+  .pay-sheet-menu-item{display:flex;align-items:center;width:100%;padding:7px 8px;border:0;border-radius:8px;background:transparent;cursor:pointer;text-align:right;font:inherit;color:var(--text);font-size:.8rem}
+  .pay-sheet-menu-item:hover,.pay-sheet-menu-item.active{background:var(--sf2)}
   .pay-sheet-row .pay-actions { white-space: nowrap; }
   .pay-sheet-row .pay-actions { display: flex; gap: 4px; align-items: center; }
   .pay-sheet-row .pay-btn-save,
@@ -753,12 +746,11 @@ include __DIR__ . '/inc/layout_head.php';
                 <?php if ($isCostRow): ?>
                   <span class="pay-method-label"><?= htmlspecialchars($methodLabel) ?></span>
                 <?php else: ?>
-                  <span class="pay-view pay-method-label"><?= htmlspecialchars($methodLabel) ?></span>
-                  <select class="select pay-method-select">
-                    <?php foreach ($sheetMethodOptions as $mk => $ml): ?>
-                      <option value="<?= htmlspecialchars($mk) ?>" <?= $methodKey === $mk ? 'selected' : '' ?>><?= htmlspecialchars($ml) ?></option>
-                    <?php endforeach; ?>
-                  </select>
+                  <button type="button" class="pay-dd-trigger" data-pay-menu="method">
+                    <span class="pay-method-label"><?= htmlspecialchars($methodLabel) ?></span>
+                    <span class="pay-dd-caret">▾</span>
+                  </button>
+                  <input type="hidden" class="pay-method-value" value="<?= htmlspecialchars($methodKey) ?>">
                 <?php endif; ?>
               </td>
               <td>
@@ -780,12 +772,11 @@ include __DIR__ . '/inc/layout_head.php';
                 <?php if ($isCostRow): ?>
                   <span class="tag <?= $cls ?> pay-status-tag"><?= $lbl ?></span>
                 <?php else: ?>
-                  <span class="tag <?= $cls ?> pay-view pay-status-tag"><?= $lbl ?></span>
-                  <select class="select pay-status-select">
-                    <?php foreach ($listStatusMap as $sk => [$sCls, $sLbl]): ?>
-                      <option value="<?= htmlspecialchars($sk) ?>" <?= $st === $sk ? 'selected' : '' ?>><?= htmlspecialchars($sLbl) ?></option>
-                    <?php endforeach; ?>
-                  </select>
+                  <button type="button" class="pay-dd-trigger" data-pay-menu="status">
+                    <span class="tag <?= $cls ?> pay-status-tag"><?= $lbl ?></span>
+                    <span class="pay-dd-caret">▾</span>
+                  </button>
+                  <input type="hidden" class="pay-status-value" value="<?= htmlspecialchars((string) $st) ?>">
                 <?php endif; ?>
               </td>
               <td>

@@ -31,6 +31,52 @@ function payment_redirect_url(string $tab, array $extra = []): string
     return $qs ? ('payment.php?' . http_build_query($qs, '', '&', PHP_QUERY_RFC3986)) : 'payment.php';
 }
 
+function payment_is_ajax(): bool
+{
+    return strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest';
+}
+
+function payment_json_exit(array $payload, int $code = 200): void
+{
+    http_response_code($code);
+    header('Content-Type: application/json; charset=UTF-8');
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+function payment_known_users_for(PDO $pdo, string $uid): array
+{
+    $uid = trim($uid);
+    if ($uid === '' || $uid === '0') {
+        return [];
+    }
+    try {
+        $row = db_fetch($pdo, 'SELECT id FROM user WHERE id = ?', [$uid]);
+        return $row ? [(string) $row['id'] => true] : [];
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
+function payment_sheet_result(PDO $pdo, array $r): array
+{
+    if (empty($r['ok'])) {
+        return $r;
+    }
+    $oid = (string) ($r['id_order'] ?? '');
+    if ($oid === '') {
+        return $r;
+    }
+    $row = db_fetch($pdo, 'SELECT * FROM Payment_report WHERE id_order = ?', [$oid]);
+    if ($row) {
+        $r['row'] = panel_payment_serialize_sheet_row(
+            $row,
+            payment_known_users_for($pdo, (string) ($row['id_user'] ?? ''))
+        );
+    }
+    return $r;
+}
+
 function payment_shared_filter_clauses(
     string $search,
     $priceMin,
@@ -65,6 +111,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check_post();
     $action = $_POST['action'] ?? '';
     $orderId = trim($_POST['order_id'] ?? '');
+    $postTab = (string) ($_POST['tab'] ?? $tab);
+    if (!in_array($postTab, ['list', 'pending', 'costs'], true)) {
+        $postTab = $tab;
+    }
+    $isAjax = payment_is_ajax();
     $redirect = payment_redirect_url($tab === 'pending' ? 'pending' : ($tab === 'costs' ? 'costs' : 'list'), [
         'q' => trim((string) ($_POST['q'] ?? '')),
         'status' => trim((string) ($_POST['status_filter'] ?? '')),
@@ -72,11 +123,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'price_max' => isset($_POST['price_max']) && $_POST['price_max'] !== '' ? (int) $_POST['price_max'] : '',
         'from' => trim((string) ($_POST['from'] ?? '')),
         'to' => trim((string) ($_POST['to'] ?? '')),
-        'method' => trim((string) ($_POST['method'] ?? '')),
+        'method' => trim((string) ($_POST['filter_method'] ?? '')),
         'page' => !empty($_POST['page']) ? (int) $_POST['page'] : '',
     ]);
 
-    if ($action === 'confirm' && $orderId !== '') {
+    if ($action === 'save_row') {
+        $sheetInput = [
+            'amount' => $_POST['amount'] ?? $_POST['price'] ?? 0,
+            'time' => $_POST['time'] ?? '',
+            'id_order' => $orderId,
+            'id_user' => $_POST['id_user'] ?? '',
+            'note' => $_POST['note'] ?? '',
+            'method' => $_POST['payment_method'] ?? '',
+            'status' => $_POST['new_status'] ?? $_POST['status'] ?? '',
+            'remove_product' => !empty($_POST['remove_product']),
+            'reject_invoice' => !empty($_POST['reject_invoice']),
+        ];
+        $existing = $orderId !== ''
+            ? db_fetch($pdo, 'SELECT id, payment_Status, Payment_Method, id_invoice FROM Payment_report WHERE id_order = ?', [$orderId])
+            : null;
+        $asCost = $postTab === 'costs'
+            || ($existing && panel_payment_is_cost($existing))
+            || ($sheetInput['status'] ?? '') === 'cost';
+        if ($existing) {
+            $r = panel_payment_update_row($pdo, $orderId, $sheetInput);
+        } elseif ($asCost) {
+            $r = panel_payment_add_cost($pdo, $sheetInput);
+        } else {
+            $r = panel_payment_add_manual($pdo, $sheetInput);
+        }
+        $r = payment_sheet_result($pdo, $r);
+        if ($isAjax) {
+            payment_json_exit($r, !empty($r['ok']) ? 200 : 400);
+        }
+        flash(!empty($r['ok']) ? 'success' : 'error', $r['msg'] ?? '');
+        $redirect = $asCost ? 'payment.php?tab=costs' : payment_redirect_url('list');
+    } elseif ($action === 'delete_row' && $orderId !== '') {
+        $r = panel_payment_delete_row($pdo, $orderId);
+        if ($isAjax) {
+            payment_json_exit($r, !empty($r['ok']) ? 200 : 400);
+        }
+        flash($r['ok'] ? 'success' : 'error', $r['msg']);
+    } elseif ($action === 'confirm' && $orderId !== '') {
         $r = panel_payment_confirm($pdo, $orderId);
         flash($r['ok'] ? 'success' : 'error', $r['msg']);
     } elseif ($action === 'reject' && $orderId !== '') {
@@ -89,10 +177,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $r = panel_payment_set_status(
             $pdo,
             $orderId,
-            (string) ($_POST['new_status'] ?? ''),
+            (string) ($_POST['new_status'] ?? $_POST['status'] ?? ''),
             !empty($_POST['remove_product']),
             !empty($_POST['reject_invoice'])
         );
+        $r['id_order'] = $orderId;
+        $r = payment_sheet_result($pdo, $r);
+        if ($isAjax) {
+            payment_json_exit($r, !empty($r['ok']) ? 200 : 400);
+        }
         flash($r['ok'] ? 'success' : 'error', $r['msg']);
     } elseif ($action === 'reject_all') {
         db_query(
@@ -109,6 +202,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'id_order' => $_POST['id_order'] ?? '',
             'id_user' => $_POST['id_user'] ?? '',
             'note' => $_POST['note'] ?? '',
+            'method' => $_POST['payment_method'] ?? '',
+            'status' => $_POST['new_status'] ?? $_POST['status'] ?? '',
             'credit_wallet' => !empty($_POST['credit_wallet']),
         ]);
         flash($r['ok'] ? 'success' : 'error', $r['msg']);
@@ -118,6 +213,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'amount' => $_POST['amount'] ?? 0,
             'time' => $_POST['time'] ?? '',
             'id_order' => $_POST['id_order'] ?? '',
+            'id_user' => $_POST['id_user'] ?? '',
             'note' => $_POST['note'] ?? '',
         ]);
         flash($r['ok'] ? 'success' : 'error', $r['msg']);
@@ -303,14 +399,7 @@ $successMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌�
 $costMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'هزینه شده';
 $netMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'درآمد منهای هزینه';
 
-$statusMap = [
-    'paid' => ['tag-ok', 'پرداخت شده'],
-    'Unpaid' => ['tag-no', 'پرداخت نشده'],
-    'expire' => ['tag-plain', 'منقضی'],
-    'reject' => ['tag-no', 'رد شده'],
-    'waiting' => ['tag-warn', 'در انتظار'],
-    'cost' => ['tag-plain', 'هزینه شده'],
-];
+$statusMap = panel_payment_status_meta();
 $listStatusMap = $statusMap;
 unset($listStatusMap['cost']);
 $filterStatusMap = [
@@ -342,6 +431,17 @@ if ($method !== '' && !isset($methodOptions[$method]) && $method !== 'cost') {
     $methodOptions[$method] = panel_payment_method_label($method);
 }
 asort($methodOptions, SORT_STRING);
+
+$sheetMethodOptions = panel_payment_method_map();
+unset($sheetMethodOptions['cost']);
+foreach ($methodOptions as $k => $lbl) {
+    if ($k === 'cost') {
+        continue;
+    }
+    $sheetMethodOptions[$k] = $lbl;
+}
+asort($sheetMethodOptions, SORT_STRING);
+$nowJalali = jalali_tehran_format(time(), 'Y/m/d H:i', 'en');
 
 $activeFilterCount = 0;
 if ($tab !== 'pending') {
@@ -379,6 +479,42 @@ include __DIR__ . '/inc/layout_head.php';
 <style>
   .datepicker-plot-area { z-index: 3000 !important; }
   #paymentFilterModal .modal { overflow: visible; }
+  .pay-sheet-row td { vertical-align: middle; }
+  .pay-sheet-row .pay-edit { display: none; width: 100%; min-width: 0; }
+  .pay-sheet-row .pay-cell-input { height: 32px; padding: 0 8px; font-size: .8rem; }
+  .pay-sheet-row.is-editing .pay-view { display: none; }
+  .pay-sheet-row.is-editing .pay-edit { display: block; }
+  .pay-sheet-row .pay-method-select,
+  .pay-sheet-row .pay-status-select { display: none; width: 100%; min-width: 0; height: 32px; padding: 0 8px; font-size: .78rem; }
+  .pay-sheet-row.is-editing:not(.is-cost) .pay-method-label,
+  .pay-sheet-row.is-editing:not(.is-cost) .pay-status-tag { display: none; }
+  .pay-sheet-row.is-editing .pay-method-select,
+  .pay-sheet-row.is-editing .pay-status-select { display: block; }
+  .pay-sheet-row.is-picking-method .pay-method-label,
+  .pay-sheet-row.is-picking-status .pay-status-tag { display: none; }
+  .pay-sheet-row.is-picking-method .pay-method-select,
+  .pay-sheet-row.is-picking-status .pay-status-select { display: block; }
+  .pay-sheet-row .pay-status-tag,
+  .pay-sheet-row .pay-method-label { cursor: pointer; }
+  .pay-sheet-row.is-cost .pay-status-tag,
+  .pay-sheet-row.is-cost .pay-method-label { cursor: default; }
+  .pay-sheet-row .pay-actions { white-space: nowrap; }
+  .pay-sheet-row .pay-actions { display: flex; gap: 4px; align-items: center; }
+  .pay-sheet-row .pay-btn-save,
+  .pay-sheet-row .pay-btn-delete { display: none; }
+  .pay-sheet-row.is-editing .pay-btn-edit { display: none; }
+  .pay-sheet-row.is-editing .pay-btn-save,
+  .pay-sheet-row.is-editing .pay-btn-delete { display: inline-flex; }
+  .pay-sheet-row.is-new { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .pay-oid { color: var(--accent); font-size: .78rem; }
+  .pay-note-view { font-size: .78rem; max-width: 180px; }
+  .pay-time-view { font-size: .78rem; color: var(--text-dim); white-space: nowrap; }
+  .pay-method-view { font-size: .8rem; }
+  .card .tbl-wrap { overflow-x: auto; overflow-y: visible; }
+  .pay-time-edit { display: none; align-items: center; gap: 4px; }
+  .pay-sheet-row.is-editing .pay-time-edit.pay-edit { display: flex; }
+  .pay-time-edit .pay-time-input { flex: 1; min-width: 0; }
+  .pay-time-now { flex-shrink: 0; font-size: .72rem; padding: 0 8px; height: 32px; }
 </style>
 <?php endif; ?>
 
@@ -460,11 +596,7 @@ include __DIR__ . '/inc/layout_head.php';
             <span class="tag tag-info" style="margin-right:4px"><?= $activeFilterCount ?></span>
           <?php endif; ?>
         </button>
-        <?php if ($tab === 'costs'): ?>
-          <button type="button" class="btn btn-primary btn-sm" onclick="openModal('costModal')"><?= icon('plus', 14) ?> افزودن هزینه</button>
-        <?php else: ?>
-          <button type="button" class="btn btn-primary btn-sm" onclick="openModal('manualModal')"><?= icon('plus', 14) ?> افزودن فاکتور دستی</button>
-        <?php endif; ?>
+          <button type="button" class="btn btn-primary btn-sm" id="payAddRowBtn"><?= icon('plus', 14) ?> افزودن</button>
         <?php if ($search || $activeFilterCount > 0): ?>
           <a href="<?= $tab === 'costs' ? 'payment.php?tab=costs' : 'payment.php' ?>" class="btn btn-ghost btn-sm pay-toolbar-clear">پاک</a>
         <?php endif; ?>
@@ -492,7 +624,7 @@ include __DIR__ . '/inc/layout_head.php';
   </div>
 
   <div class="tbl-wrap">
-    <table class="tbl-lg">
+    <table class="tbl-lg<?= $tab !== 'pending' ? ' pay-sheet-table' : '' ?>">
       <thead>
         <tr>
           <th>#</th>
@@ -506,9 +638,9 @@ include __DIR__ . '/inc/layout_head.php';
           <th>عملیات</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="paySheetBody">
         <?php if (empty($payments)): ?>
-          <tr>
+          <tr class="pay-empty-row">
             <td colspan="9">
               <div class="empty">
                 <div class="empty-mark">—</div>
@@ -529,15 +661,20 @@ include __DIR__ . '/inc/layout_head.php';
           foreach ($payments as $p):
             $st = $p['payment_Status'] ?? '';
             [$cls, $lbl] = $statusMap[$st] ?? ['tag-plain', $st ?: '—'];
-            if (($p['Payment_Method'] ?? '') === 'manual invoice') {
-                [$cls, $lbl] = ['tag-mint', 'فاکتور دستی'];
-            }
-            $methodLabel = panel_payment_method_label($p['Payment_Method'] ?? '');
-            $oid = $p['id_order'] ?? '';
-            $hasProduct = strncmp((string) ($p['id_invoice'] ?? ''), 'getconfigafterpay|', 18) === 0;
+            $methodKey = (string) ($p['Payment_Method'] ?? '');
+            $methodLabel = panel_payment_method_label($methodKey);
+            $oid = (string) ($p['id_order'] ?? '');
+            $hasProduct = panel_payment_row_has_product($p);
             $uid = trim((string) ($p['id_user'] ?? ''));
             $note = trim((string) ($p['note'] ?? ''));
+            $price = (int) ($p['price'] ?? 0);
+            $jalaliTime = panel_payment_time_to_jalali($p['time'] ?? '');
+            $isCostRow = $tab === 'costs' || panel_payment_is_cost($p);
+            if ($tab === 'pending' && $methodKey === 'manual invoice') {
+                [$cls, $lbl] = ['tag-mint', 'فاکتور دستی'];
+            }
             ?>
+            <?php if ($tab === 'pending'): ?>
             <tr>
               <td style="color:var(--text-dim)"><?= $i++ ?></td>
               <td>
@@ -554,18 +691,17 @@ include __DIR__ . '/inc/layout_head.php';
               <td class="cell-mono" style="color:var(--accent);font-size:.78rem">
                 <?= htmlspecialchars(trunc((string) $oid, 22)) ?>
               </td>
-              <td class="cell-strong cell-num"><?= number_format((int) ($p['price'] ?? 0)) ?> <span
+              <td class="cell-strong cell-num"><?= number_format($price) ?> <span
                   style="color:var(--text-dim);font-weight:400;font-size:.72rem">ت</span></td>
               <td style="font-size:.8rem"><?= htmlspecialchars($methodLabel) ?></td>
               <td style="font-size:.78rem;max-width:180px" title="<?= htmlspecialchars($note) ?>">
                 <?= $note !== '' ? htmlspecialchars(trunc($note, 40)) : '<span style="color:var(--text-dim)">—</span>' ?>
               </td>
               <td style="font-size:.78rem;color:var(--text-dim);white-space:nowrap">
-                <?= safe_date($p['time'] ?? null, 'Y/m/d H:i') ?>
+                <?= $jalaliTime !== '' ? htmlspecialchars($jalaliTime) : htmlspecialchars(safe_date($p['time'] ?? null, 'Y/m/d H:i')) ?>
               </td>
               <td><span class="tag <?= $cls ?>"><?= $lbl ?></span></td>
               <td>
-                <?php if ($tab === 'pending'): ?>
                 <div style="display:flex;gap:6px;flex-wrap:wrap">
                   <form method="POST" style="display:inline">
                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
@@ -582,23 +718,85 @@ include __DIR__ . '/inc/layout_head.php';
                     <button type="submit" class="btn btn-ghost btn-sm">حذف</button>
                   </form>
                 </div>
-                <?php elseif ($tab === 'costs'): ?>
-                <form method="POST" style="display:inline" onsubmit="return confirm('این هزینه حذف شود؟')">
-                  <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-                  <input type="hidden" name="action" value="delete_cost">
-                  <input type="hidden" name="order_id" value="<?= htmlspecialchars($oid) ?>">
-                  <button type="submit" class="btn btn-no btn-sm">حذف</button>
-                </form>
-                <?php else: ?>
-                <button type="button" class="btn btn-ghost btn-sm"
-                  onclick="openStatusModal(
-                    '<?= htmlspecialchars($oid, ENT_QUOTES) ?>',
-                    '<?= htmlspecialchars($st, ENT_QUOTES) ?>',
-                    <?= $hasProduct ? 'true' : 'false' ?>
-                  )">تغییر وضعیت</button>
-                <?php endif; ?>
               </td>
             </tr>
+            <?php else: ?>
+            <tr class="pay-sheet-row<?= $isCostRow ? ' is-cost' : '' ?>"
+              data-order-id="<?= htmlspecialchars($oid, ENT_QUOTES) ?>"
+              data-status="<?= htmlspecialchars((string) $st, ENT_QUOTES) ?>"
+              data-method="<?= htmlspecialchars($methodKey, ENT_QUOTES) ?>"
+              data-has-product="<?= $hasProduct ? '1' : '0' ?>">
+              <td class="pay-idx" style="color:var(--text-dim)"><?= $i++ ?></td>
+              <td>
+                <span class="pay-view pay-user-view">
+                  <?php if ($uid === '' || $uid === '0'): ?>
+                    <span style="color:var(--text-dim)">بدون کاربر</span>
+                  <?php elseif (!empty($knownUsers[$uid])): ?>
+                    <a href="user.php?id=<?= htmlspecialchars($uid) ?>" class="cell-mono" style="color:var(--accent)">
+                      <?= htmlspecialchars($uid) ?>
+                    </a>
+                  <?php else: ?>
+                    <span><?= htmlspecialchars($uid) ?></span>
+                  <?php endif; ?>
+                </span>
+                <input class="input pay-edit pay-cell-input pay-user-input" type="text"
+                  value="<?= htmlspecialchars($uid === '0' ? '' : $uid) ?>" placeholder="آیدی کاربر">
+              </td>
+              <td class="cell-mono pay-oid"><?= htmlspecialchars($oid) ?></td>
+              <td>
+                <span class="pay-view cell-strong cell-num pay-price-view"><?= number_format($price) ?> <span
+                    style="color:var(--text-dim);font-weight:400;font-size:.72rem">ت</span></span>
+                <input class="input pay-edit pay-cell-input pay-price-input" type="number" min="1" step="1"
+                  value="<?= $price ?>">
+              </td>
+              <td class="pay-method-view">
+                <?php if ($isCostRow): ?>
+                  <span class="pay-method-label"><?= htmlspecialchars($methodLabel) ?></span>
+                <?php else: ?>
+                  <span class="pay-view pay-method-label"><?= htmlspecialchars($methodLabel) ?></span>
+                  <select class="select pay-method-select">
+                    <?php foreach ($sheetMethodOptions as $mk => $ml): ?>
+                      <option value="<?= htmlspecialchars($mk) ?>" <?= $methodKey === $mk ? 'selected' : '' ?>><?= htmlspecialchars($ml) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                <?php endif; ?>
+              </td>
+              <td>
+                <span class="pay-view pay-note-view" title="<?= htmlspecialchars($note) ?>">
+                  <?= $note !== '' ? htmlspecialchars(trunc($note, 40)) : '<span style="color:var(--text-dim)">—</span>' ?>
+                </span>
+                <input class="input pay-edit pay-cell-input pay-note-input" type="text"
+                  value="<?= htmlspecialchars($note) ?>" placeholder="یادداشت">
+              </td>
+              <td>
+                <span class="pay-view pay-time-view"><?= htmlspecialchars($jalaliTime !== '' ? $jalaliTime : '—') ?></span>
+                <div class="pay-edit pay-time-edit">
+                  <input class="input pay-cell-input jalali-datetime-picker pay-time-input" type="text"
+                    value="<?= htmlspecialchars($jalaliTime) ?>" placeholder="تاریخ و ساعت" autocomplete="off">
+                  <button type="button" class="btn btn-ghost btn-sm pay-time-now" title="تاریخ و ساعت الان">اکنون</button>
+                </div>
+              </td>
+              <td>
+                <?php if ($isCostRow): ?>
+                  <span class="tag <?= $cls ?> pay-status-tag"><?= $lbl ?></span>
+                <?php else: ?>
+                  <span class="tag <?= $cls ?> pay-view pay-status-tag"><?= $lbl ?></span>
+                  <select class="select pay-status-select">
+                    <?php foreach ($listStatusMap as $sk => [$sCls, $sLbl]): ?>
+                      <option value="<?= htmlspecialchars($sk) ?>" <?= $st === $sk ? 'selected' : '' ?>><?= htmlspecialchars($sLbl) ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                <?php endif; ?>
+              </td>
+              <td>
+                <div class="pay-actions">
+                  <button type="button" class="btn btn-ghost btn-sm btn-icon pay-btn-edit" title="ویرایش"><?= icon('edit', 14) ?></button>
+                  <button type="button" class="btn btn-primary btn-sm btn-icon pay-btn-save" title="ذخیره"><?= icon('check', 14) ?></button>
+                  <button type="button" class="btn btn-no btn-sm btn-icon pay-btn-delete" title="حذف"><?= icon('trash', 14) ?></button>
+                </div>
+              </td>
+            </tr>
+            <?php endif; ?>
           <?php endforeach; endif; ?>
       </tbody>
     </table>
@@ -660,168 +858,39 @@ function openRejectModal(orderId) {
   openModal('rejectModal');
 }
 </script>
-<?php elseif ($tab === 'costs'): ?>
-<div class="modal-veil" id="costModal">
-  <div class="modal">
-    <div class="modal-head">
-      <h3>افزودن هزینه</h3>
-      <button type="button" class="modal-x" onclick="closeModal('costModal')"><?= icon('close', 14) ?></button>
-    </div>
-    <form method="POST">
-      <div class="modal-body">
-        <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-        <input type="hidden" name="action" value="add_cost">
-        <div class="field" style="margin-bottom:14px">
-          <label class="lbl">مبلغ (تومان)</label>
-          <input type="number" name="amount" class="input" min="1" step="1" required placeholder="مثلاً ۵۰۰۰۰۰">
-        </div>
-        <div class="field" style="margin-bottom:14px">
-          <label class="lbl">تاریخ</label>
-          <input type="datetime-local" name="time" class="input">
-        </div>
-        <div class="field" style="margin-bottom:14px">
-          <label class="lbl">شناسه</label>
-          <input type="text" name="id_order" class="input" placeholder="خالی = تولید خودکار">
-        </div>
-        <div class="field">
-          <label class="lbl">یادداشت</label>
-          <textarea name="note" class="input" rows="3" placeholder="توضیح هزینه"></textarea>
-        </div>
-      </div>
-      <div class="modal-foot">
-        <button type="submit" class="btn btn-primary">ثبت هزینه</button>
-        <button type="button" class="btn btn-ghost" onclick="closeModal('costModal')">انصراف</button>
-      </div>
-    </form>
-  </div>
-</div>
-<?php else: ?>
-<div class="modal-veil" id="manualModal">
-  <div class="modal">
-    <div class="modal-head">
-      <h3>افزودن فاکتور دستی</h3>
-      <button type="button" class="modal-x" onclick="closeModal('manualModal')"><?= icon('close', 14) ?></button>
-    </div>
-    <form method="POST">
-      <div class="modal-body">
-        <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-        <input type="hidden" name="action" value="add_manual">
-        <div class="field" style="margin-bottom:14px">
-          <label class="lbl">مبلغ (تومان)</label>
-          <input type="number" name="amount" class="input" min="1" step="1" required placeholder="مثلاً ۱۵۰۰۰۰">
-        </div>
-        <div class="field" style="margin-bottom:14px">
-          <label class="lbl">تاریخ</label>
-          <input type="datetime-local" name="time" class="input">
-        </div>
-        <div class="field" style="margin-bottom:14px">
-          <label class="lbl">شناسه</label>
-          <input type="text" name="id_order" class="input" placeholder="خالی = تولید خودکار">
-        </div>
-        <div class="field" style="margin-bottom:14px">
-          <label class="lbl">کاربر</label>
-          <input type="text" name="id_user" class="input" placeholder="آیدی تلگرام یا نام — اختیاری">
-        </div>
-        <div class="field" style="margin-bottom:14px">
-          <label class="lbl">یادداشت</label>
-          <textarea name="note" class="input" rows="3" placeholder="یادداشت ادمین"></textarea>
-        </div>
-        <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
-          <input type="checkbox" name="credit_wallet" value="1" style="width:16px;height:16px;margin-top:3px">
-          <span>افزودن به کیف پول کاربر (فقط اگر آیدی کاربر ربات معتبر باشد)</span>
-        </label>
-      </div>
-      <div class="modal-foot">
-        <button type="submit" class="btn btn-primary">ثبت فاکتور</button>
-        <button type="button" class="btn btn-ghost" onclick="closeModal('manualModal')">انصراف</button>
-      </div>
-    </form>
-  </div>
-</div>
-<div class="modal-veil" id="statusModal">
+<?php elseif ($tab !== 'costs'): ?>
+<div class="modal-veil" id="statusSideModal">
   <div class="modal">
     <div class="modal-head">
       <h3>تغییر وضعیت پرداخت</h3>
-      <button type="button" class="modal-x" onclick="closeModal('statusModal')"><?= icon('close', 14) ?></button>
+      <button type="button" class="modal-x" onclick="closeModal('statusSideModal')"><?= icon('close', 14) ?></button>
     </div>
-    <form method="POST" id="statusForm">
-      <div class="modal-body">
-        <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-        <input type="hidden" name="action" value="set_status">
-        <input type="hidden" name="order_id" id="statusOrderId" value="">
-        <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
-        <input type="hidden" name="status_filter" value="<?= htmlspecialchars($status) ?>">
-        <input type="hidden" name="price_min" value="<?= $priceMin !== null ? (int) $priceMin : '' ?>">
-        <input type="hidden" name="price_max" value="<?= $priceMax !== null ? (int) $priceMax : '' ?>">
-        <input type="hidden" name="from" value="<?= htmlspecialchars($fromInput) ?>">
-        <input type="hidden" name="to" value="<?= htmlspecialchars($toInput) ?>">
-        <input type="hidden" name="method" value="<?= htmlspecialchars($method) ?>">
-        <input type="hidden" name="page" value="<?= (int) $page ?>">
-        <div class="field" style="margin-bottom:14px">
-          <label class="lbl">وضعیت جدید</label>
-          <select name="new_status" id="statusNewSelect" class="select" style="width:100%">
-            <?php foreach ($listStatusMap as $k => [$_, $lbl]): ?>
-              <option value="<?= htmlspecialchars($k) ?>"><?= htmlspecialchars($lbl) ?></option>
-            <?php endforeach; ?>
-          </select>
-        </div>
-        <div id="rejectInvoiceWrap" style="display:none;margin-bottom:12px">
-          <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
-            <input type="checkbox" name="reject_invoice" id="rejectInvoiceCheck" value="1" style="width:16px;height:16px;margin-top:3px">
-            <span>وضعیت فاکتور/سفارش مرتبط هم «رد شده» شود؟</span>
-          </label>
-          <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
-            برای اینکه از آمار سفارشات تلگرام هم خارج شود.
-          </p>
-        </div>
-        <div id="removeProductWrap" style="display:none">
-          <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
-            <input type="checkbox" name="remove_product" id="removeProductCheck" value="1" style="width:16px;height:16px;margin-top:3px">
-            <span>سرویس ساخته‌شده برای این پرداخت هم حذف شود؟</span>
-          </label>
-          <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
-            فقط برای خرید سرویس (نه تمدید/شارژ کیف پول). در صورت انتخاب، سرویس از پنل و ربات حذف می‌شود.
-          </p>
-        </div>
+    <div class="modal-body">
+      <div id="rejectInvoiceWrap" style="margin-bottom:12px">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
+          <input type="checkbox" id="rejectInvoiceCheck" value="1" style="width:16px;height:16px;margin-top:3px">
+          <span>وضعیت فاکتور/سفارش مرتبط هم «رد شده» شود؟</span>
+        </label>
+        <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
+          برای اینکه از آمار سفارشات تلگرام هم خارج شود.
+        </p>
       </div>
-      <div class="modal-foot">
-        <button type="submit" class="btn btn-primary">ذخیره وضعیت</button>
-        <button type="button" class="btn btn-ghost" onclick="closeModal('statusModal')">انصراف</button>
+      <div id="removeProductWrap" style="display:none">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
+          <input type="checkbox" id="removeProductCheck" value="1" style="width:16px;height:16px;margin-top:3px">
+          <span>سرویس ساخته‌شده برای این پرداخت هم حذف شود؟</span>
+        </label>
+        <p style="font-size:.75rem;color:var(--mute);margin-top:8px;line-height:1.6">
+          فقط برای خرید سرویس (نه تمدید/شارژ کیف پول). در صورت انتخاب، سرویس از پنل و ربات حذف می‌شود.
+        </p>
       </div>
-    </form>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn btn-primary" id="statusSideConfirm">ادامه</button>
+      <button type="button" class="btn btn-ghost" id="statusSideCancel">انصراف</button>
+    </div>
   </div>
 </div>
-<script>
-(function () {
-  var currentStatus = '';
-  var hasProduct = false;
-  var selectEl = document.getElementById('statusNewSelect');
-  var wrap = document.getElementById('removeProductWrap');
-  var check = document.getElementById('removeProductCheck');
-  var rejectWrap = document.getElementById('rejectInvoiceWrap');
-  var rejectCheck = document.getElementById('rejectInvoiceCheck');
-
-  function syncRejectPrompts() {
-    var leavingPaidToReject = currentStatus === 'paid' && selectEl.value === 'reject';
-    rejectWrap.style.display = leavingPaidToReject ? 'block' : 'none';
-    if (!leavingPaidToReject) rejectCheck.checked = false;
-    var showRemove = hasProduct && leavingPaidToReject;
-    wrap.style.display = showRemove ? 'block' : 'none';
-    if (!showRemove) check.checked = false;
-  }
-
-  window.openStatusModal = function (orderId, status, product) {
-    currentStatus = status || '';
-    hasProduct = !!product;
-    document.getElementById('statusOrderId').value = orderId;
-    selectEl.value = currentStatus;
-    syncRejectPrompts();
-    openModal('statusModal');
-  };
-
-  selectEl.addEventListener('change', syncRejectPrompts);
-})();
-</script>
 <?php endif; ?>
 
 <?php if ($tab !== 'pending'): ?>
@@ -899,36 +968,33 @@ function openRejectModal(orderId) {
 <?php endif; ?>
 
 <?php if ($tab !== 'pending'): ?>
+<?php
+$sheetStatusJs = [];
+foreach ($listStatusMap as $k => [$cls, $lbl]) {
+    $sheetStatusJs[$k] = ['cls' => $cls, 'lbl' => $lbl];
+}
+$costStatusJs = $statusMap['cost'] ?? ['tag-plain', 'هزینه شده'];
+?>
 <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.min.js"></script>
 <script>
-  $(function () {
-    $('.jalali-datetime-picker').each(function () {
-      var $el = $(this);
-      $el.persianDatepicker({
-        calendarType: 'persian',
-        format: 'YYYY/MM/DD HH:mm',
-        initialValue: $el.val() !== '',
-        initialValueType: 'persian',
-        autoClose: false,
-        responsive: true,
-        observer: false,
-        navigator: { scroll: { enabled: false } },
-        toolbox: {
-          calendarSwitch: { enabled: false },
-          todayButton: { enabled: true },
-          submitButton: { enabled: true }
-        },
-        timePicker: {
-          enabled: true,
-          second: { enabled: false },
-          meridian: { enabled: false }
-        }
-      });
-    });
-  });
+window.PAYMENT_SHEET = <?= json_encode([
+    'csrf' => csrf_token(),
+    'tab' => $tab,
+    'nowJalali' => $nowJalali,
+    'emptyText' => $tab === 'costs' ? 'هزینه‌ای ثبت نشده' : 'تراکنشی یافت نشد',
+    'statusOptions' => $sheetStatusJs,
+    'costStatus' => ['cls' => $costStatusJs[0], 'lbl' => $costStatusJs[1]],
+    'methodOptions' => $sheetMethodOptions,
+    'icons' => [
+        'edit' => icon('edit', 14),
+        'save' => icon('check', 14),
+        'trash' => icon('trash', 14),
+    ],
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 </script>
+<script src="<?= htmlspecialchars(panel_asset('js/payment_sheet.js')) ?>"></script>
 <?php endif; ?>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

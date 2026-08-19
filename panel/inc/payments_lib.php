@@ -490,6 +490,119 @@ function panel_payment_parse_time($raw): int
     return $ts !== false ? $ts : time();
 }
 
+function panel_payment_parse_sheet_time($raw): int
+{
+    $raw = trim((string) $raw);
+    if ($raw === '') {
+        return time();
+    }
+    if (function_exists('jalali_tehran_parse')) {
+        $ts = jalali_tehran_parse($raw, false);
+        if ($ts !== null) {
+            return $ts;
+        }
+    }
+    return panel_payment_parse_time($raw);
+}
+
+function panel_payment_time_to_jalali($raw, string $fmt = 'Y/m/d H:i'): string
+{
+    $raw = trim((string) $raw);
+    if ($raw === '') {
+        return '';
+    }
+    if (ctype_digit($raw) && strlen($raw) >= 9) {
+        $ts = (int) $raw;
+    } else {
+        $normalized = str_replace(['T', '.'], [' ', '/'], $raw);
+        $ts = strtotime(str_replace('/', '-', $normalized));
+        if ($ts === false) {
+            $ts = panel_payment_parse_time($raw);
+        }
+    }
+    return function_exists('jalali_tehran_format')
+        ? jalali_tehran_format($ts, $fmt, 'en')
+        : date($fmt, $ts);
+}
+
+function panel_payment_new_order_id(PDO $pdo): string
+{
+    for ($i = 0; $i < 8; $i++) {
+        $id = bin2hex(random_bytes(5));
+        if (!db_fetch($pdo, 'SELECT id FROM Payment_report WHERE id_order = ?', [$id])) {
+            return $id;
+        }
+    }
+    return bin2hex(random_bytes(8));
+}
+
+function panel_payment_status_meta(): array
+{
+    return [
+        'paid' => ['tag-ok', 'پرداخت شده'],
+        'Unpaid' => ['tag-no', 'پرداخت نشده'],
+        'expire' => ['tag-plain', 'منقضی'],
+        'reject' => ['tag-no', 'رد شده'],
+        'waiting' => ['tag-warn', 'در انتظار'],
+        'cost' => ['tag-plain', 'هزینه شده'],
+    ];
+}
+
+function panel_payment_method_map(): array
+{
+    return [
+        'cart to cart' => 'کارت به کارت',
+        'low balance by admin' => 'کسر موجودی ادمین',
+        'add balance by admin' => 'افزایش توسط ادمین',
+        'Currency Rial 1' => 'درگاه ریالی ۱',
+        'Currency Rial tow' => 'درگاه ریالی ۲',
+        'Currency Rial 3' => 'درگاه ریالی ۳',
+        'aqayepardakht' => 'آقای پرداخت',
+        'zarinpal' => 'زرین‌پال',
+        'plisio' => 'Plisio',
+        'arze digital offline' => 'ارز دیجیتال آفلاین',
+        'Star Telegram' => 'استار تلگرام',
+        'nowpayment' => 'NowPayment',
+        'tetraminator' => 'Tetraminator',
+        'manual invoice' => 'فاکتور دستی',
+        'cost' => 'هزینه',
+        'refund to wallet' => 'مرجوعی به کیف پول',
+    ];
+}
+
+function panel_payment_row_has_product(array $payment): bool
+{
+    return strncmp((string) ($payment['id_invoice'] ?? ''), 'getconfigafterpay|', 18) === 0;
+}
+
+function panel_payment_serialize_sheet_row(array $p, array $knownUsers = []): array
+{
+    $status = (string) ($p['payment_Status'] ?? '');
+    $meta = panel_payment_status_meta();
+    [$cls, $lbl] = $meta[$status] ?? ['tag-plain', $status !== '' ? $status : '—'];
+    $method = (string) ($p['Payment_Method'] ?? '');
+    $uid = trim((string) ($p['id_user'] ?? ''));
+    $note = trim((string) ($p['note'] ?? ''));
+    $oid = (string) ($p['id_order'] ?? '');
+    $price = (int) ($p['price'] ?? 0);
+    return [
+        'id_order' => $oid,
+        'id_user' => $uid,
+        'user_known' => $uid !== '' && $uid !== '0' && !empty($knownUsers[$uid]),
+        'price' => $price,
+        'price_fmt' => number_format($price),
+        'method' => $method,
+        'method_label' => panel_payment_method_label($method),
+        'note' => $note,
+        'time' => panel_payment_time_to_jalali($p['time'] ?? ''),
+        'status' => $status,
+        'status_label' => $lbl,
+        'status_class' => $cls,
+        'has_product' => panel_payment_row_has_product($p),
+        'is_cost' => panel_payment_is_cost($p),
+    ];
+}
+
 function panel_payment_format_time(int $ts): string
 {
     return (new DateTime('@' . $ts))
@@ -589,11 +702,8 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
     $userId = trim((string) ($input['id_user'] ?? ''));
     $note = trim((string) ($input['note'] ?? ''));
     $orderId = trim((string) ($input['id_order'] ?? ''));
-    if ($orderId === '') {
-        $orderId = bin2hex(random_bytes(5));
-    }
-    if (db_fetch($pdo, 'SELECT id FROM Payment_report WHERE id_order = ?', [$orderId])) {
-        return ['ok' => false, 'msg' => 'این شناسه قبلاً ثبت شده است.'];
+    if ($orderId === '' || db_fetch($pdo, 'SELECT id FROM Payment_report WHERE id_order = ?', [$orderId])) {
+        $orderId = panel_payment_new_order_id($pdo);
     }
 
     $creditWallet = !empty($input['credit_wallet']);
@@ -604,13 +714,22 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
         return ['ok' => false, 'msg' => 'برای افزودن به کیف پول باید آیدی کاربر معتبر وارد شود.'];
     }
 
-    $time = panel_payment_format_time(panel_payment_parse_time($input['time'] ?? ''));
+    $method = trim((string) ($input['method'] ?? 'manual invoice'));
+    if ($method === '' || $method === 'cost') {
+        $method = 'manual invoice';
+    }
+    $status = trim((string) ($input['status'] ?? 'paid'));
+    if (!in_array($status, panel_payment_status_values(), true)) {
+        $status = 'paid';
+    }
+
+    $time = panel_payment_format_time(panel_payment_parse_sheet_time($input['time'] ?? ''));
     $idInvoice = $creditWallet ? 'manual|wallet' : 'manual';
 
     db_query(
         $pdo,
         'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note) VALUES (?,?,?,?,?,?,?,?)',
-        [$userId, $orderId, $time, (string) $amount, 'paid', 'manual invoice', $idInvoice, $note !== '' ? $note : null]
+        [$userId, $orderId, $time, (string) $amount, $status, $method, $idInvoice, $note !== '' ? $note : null]
     );
 
     if ($creditWallet && $realUser) {
@@ -622,7 +741,7 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
         );
     }
 
-    return ['ok' => true, 'msg' => 'فاکتور دستی ثبت شد.'];
+    return ['ok' => true, 'msg' => 'فاکتور دستی ثبت شد.', 'id_order' => $orderId];
 }
 
 /**
@@ -637,22 +756,20 @@ function panel_payment_add_cost(PDO $pdo, array $input): array
     }
 
     $note = trim((string) ($input['note'] ?? ''));
+    $userId = trim((string) ($input['id_user'] ?? ''));
     $orderId = trim((string) ($input['id_order'] ?? ''));
-    if ($orderId === '') {
-        $orderId = bin2hex(random_bytes(5));
-    }
-    if (db_fetch($pdo, 'SELECT id FROM Payment_report WHERE id_order = ?', [$orderId])) {
-        return ['ok' => false, 'msg' => 'این شناسه قبلاً ثبت شده است.'];
+    if ($orderId === '' || db_fetch($pdo, 'SELECT id FROM Payment_report WHERE id_order = ?', [$orderId])) {
+        $orderId = panel_payment_new_order_id($pdo);
     }
 
-    $time = panel_payment_format_time(panel_payment_parse_time($input['time'] ?? ''));
+    $time = panel_payment_format_time(panel_payment_parse_sheet_time($input['time'] ?? ''));
     db_query(
         $pdo,
         'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note) VALUES (?,?,?,?,?,?,?,?)',
-        ['', $orderId, $time, (string) $amount, 'cost', 'cost', 'cost', $note !== '' ? $note : null]
+        [$userId, $orderId, $time, (string) $amount, 'cost', 'cost', 'cost', $note !== '' ? $note : null]
     );
 
-    return ['ok' => true, 'msg' => 'هزینه ثبت شد.'];
+    return ['ok' => true, 'msg' => 'هزینه ثبت شد.', 'id_order' => $orderId];
 }
 
 /**
@@ -818,25 +935,81 @@ function panel_payment_reject_linked_order(PDO $pdo, array $payment): string
     return 'سفارش/فاکتور مرتبطی برای رد وجود ندارد.';
 }
 
+/**
+ * @return array{ok:bool,msg:string,id_order?:string}
+ */
+function panel_payment_update_row(PDO $pdo, string $orderId, array $input): array
+{
+    panel_payment_ensure_note_column($pdo);
+    $payment = db_fetch($pdo, 'SELECT * FROM Payment_report WHERE id_order = ?', [$orderId]);
+    if (!$payment) {
+        return ['ok' => false, 'msg' => 'تراکنش یافت نشد.'];
+    }
+
+    $amount = (int) ($input['amount'] ?? 0);
+    if ($amount < 1) {
+        return ['ok' => false, 'msg' => 'مبلغ باید عدد مثبت باشد.'];
+    }
+
+    $userId = trim((string) ($input['id_user'] ?? ''));
+    $note = trim((string) ($input['note'] ?? ''));
+    $method = trim((string) ($input['method'] ?? ''));
+    $isCost = panel_payment_is_cost($payment);
+    if ($isCost) {
+        $method = 'cost';
+    } elseif ($method === '' || $method === 'cost') {
+        $method = (string) ($payment['Payment_Method'] ?? '');
+    }
+
+    $timeRaw = trim((string) ($input['time'] ?? ''));
+    if ($timeRaw === '') {
+        $time = (string) ($payment['time'] ?? panel_payment_format_time(time()));
+    } else {
+        $time = panel_payment_format_time(panel_payment_parse_sheet_time($timeRaw));
+    }
+    db_query(
+        $pdo,
+        'UPDATE Payment_report SET id_user = ?, price = ?, Payment_Method = ?, note = ?, time = ? WHERE id_order = ?',
+        [$userId, (string) $amount, $method, $note !== '' ? $note : null, $time, $orderId]
+    );
+
+    $statusResult = ['ok' => true, 'msg' => ''];
+    $newStatus = trim((string) ($input['status'] ?? ''));
+    if (!$isCost && $newStatus !== '' && $newStatus !== (string) ($payment['payment_Status'] ?? '')) {
+        $statusResult = panel_payment_set_status(
+            $pdo,
+            $orderId,
+            $newStatus,
+            !empty($input['remove_product']),
+            !empty($input['reject_invoice'])
+        );
+        if (!$statusResult['ok']) {
+            return $statusResult;
+        }
+    }
+
+    $msg = 'تراکنش ذخیره شد.';
+    if (($statusResult['msg'] ?? '') !== '' && ($statusResult['msg'] ?? '') !== 'وضعیت تغییری نکرد.') {
+        $msg .= ' ' . $statusResult['msg'];
+    }
+    return ['ok' => true, 'msg' => $msg, 'id_order' => $orderId];
+}
+
+/**
+ * @return array{ok:bool,msg:string}
+ */
+function panel_payment_delete_row(PDO $pdo, string $orderId): array
+{
+    $row = db_fetch($pdo, 'SELECT id FROM Payment_report WHERE id_order = ?', [$orderId]);
+    if (!$row) {
+        return ['ok' => false, 'msg' => 'تراکنش یافت نشد.'];
+    }
+    db_query($pdo, 'DELETE FROM Payment_report WHERE id_order = ?', [$orderId]);
+    return ['ok' => true, 'msg' => 'تراکنش حذف شد.'];
+}
+
 function panel_payment_method_label(string $method): string
 {
-    $map = [
-        'cart to cart' => 'کارت به کارت',
-        'low balance by admin' => 'کسر موجودی ادمین',
-        'add balance by admin' => 'افزایش توسط ادمین',
-        'Currency Rial 1' => 'درگاه ریالی ۱',
-        'Currency Rial tow' => 'درگاه ریالی ۲',
-        'Currency Rial 3' => 'درگاه ریالی ۳',
-        'aqayepardakht' => 'آقای پرداخت',
-        'zarinpal' => 'زرین‌پال',
-        'plisio' => 'Plisio',
-        'arze digital offline' => 'ارز دیجیتال آفلاین',
-        'Star Telegram' => 'استار تلگرام',
-        'nowpayment' => 'NowPayment',
-        'tetraminator' => 'Tetraminator',
-        'manual invoice' => 'فاکتور دستی',
-        'cost' => 'هزینه',
-        'refund to wallet' => 'مرجوعی به کیف پول',
-    ];
-    return $map[$method] ?? ($method ?: '—');
+    $map = panel_payment_method_map();
+    return $map[$method] ?? ($method !== '' ? $method : '—');
 }

@@ -603,14 +603,80 @@ function sql_tehran_day_from_unix(string $unixExpr): string
     ), '%Y-%m-%d')";
 }
 
+function bot_payment_id_invoice_prefix_sql(string $column = 'id_invoice'): string
+{
+    return "TRIM(SUBSTRING_INDEX(COALESCE($column,''), '|', 1))";
+}
+
+function bot_payment_paid_income_sql(): string
+{
+    return paid_real_income_sql() . "
+        AND COALESCE(Payment_Method,'') != 'cost'
+        AND COALESCE(id_invoice,'') != 'cost'";
+}
+
 function bot_payment_wallet_recharge_sql(): string
 {
-    return "payment_Status = 'paid'
-        AND COALESCE(Payment_Method,'') NOT IN ('add balance by admin','low balance by admin','cost')
-        AND COALESCE(id_invoice,'') != 'cost'
-        AND TRIM(SUBSTRING_INDEX(COALESCE(id_invoice,''), '|', 1)) NOT IN (
+    $prefix = bot_payment_id_invoice_prefix_sql();
+    return bot_payment_paid_income_sql() . "
+        AND $prefix NOT IN (
             'getconfigafterpay','getextenduser','getextravolumeuser','getextratimeuser'
         )";
+}
+
+/**
+ * Successful customer payments in a window, split by checkout purpose.
+ *
+ * @return array{purchase_count:int,purchase_sum:float,extend_count:int,extend_sum:float,wallet_count:int,wallet_sum:float}
+ */
+function bot_period_payment_purpose_stats(PDO $pdo, int $startTs, int $endTs): array
+{
+    $empty = [
+        'purchase_count' => 0,
+        'purchase_sum' => 0.0,
+        'extend_count' => 0,
+        'extend_sum' => 0.0,
+        'wallet_count' => 0,
+        'wallet_sum' => 0.0,
+    ];
+    $mixedTime = sql_unix_or_datetime_between('time');
+    $prefix = bot_payment_id_invoice_prefix_sql();
+    $incomeSql = bot_payment_paid_income_sql();
+    $sql = "SELECT
+            COALESCE(SUM(CASE WHEN $prefix = 'getconfigafterpay' THEN 1 ELSE 0 END), 0) AS purchase_count,
+            COALESCE(SUM(CASE WHEN $prefix = 'getconfigafterpay' THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS purchase_sum,
+            COALESCE(SUM(CASE WHEN $prefix = 'getextenduser' THEN 1 ELSE 0 END), 0) AS extend_count,
+            COALESCE(SUM(CASE WHEN $prefix = 'getextenduser' THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS extend_sum,
+            COALESCE(SUM(CASE WHEN $prefix NOT IN (
+                'getconfigafterpay','getextenduser','getextravolumeuser','getextratimeuser'
+            ) THEN 1 ELSE 0 END), 0) AS wallet_count,
+            COALESCE(SUM(CASE WHEN $prefix NOT IN (
+                'getconfigafterpay','getextenduser','getextravolumeuser','getextratimeuser'
+            ) THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS wallet_sum
+        FROM Payment_report
+        WHERE $mixedTime
+          AND $incomeSql";
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([
+            $startTs,
+            $endTs,
+            tehran_datetime_string($startTs, 'Y-m-d H:i:s'),
+            tehran_datetime_string($endTs, 'Y-m-d H:i:s'),
+        ]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        return [
+            'purchase_count' => (int) ($row['purchase_count'] ?? 0),
+            'purchase_sum' => (float) ($row['purchase_sum'] ?? 0),
+            'extend_count' => (int) ($row['extend_count'] ?? 0),
+            'extend_sum' => (float) ($row['extend_sum'] ?? 0),
+            'wallet_count' => (int) ($row['wallet_count'] ?? 0),
+            'wallet_sum' => (float) ($row['wallet_sum'] ?? 0),
+        ];
+    } catch (Throwable $e) {
+        error_log('bot_period_payment_purpose_stats: ' . $e->getMessage());
+        return $empty;
+    }
 }
 
 function bot_format_gb($gb): string
@@ -893,7 +959,7 @@ function bot_is_first_product_purchase(PDO $pdo, $userId, $includeInvoiceId = nu
 }
 
 /**
- * @return array{orders:int,orders_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,users:int,avg_join:string,total_count:int,total_sum:float,sold_volume:array,first_purchase:array}
+ * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,users:int,avg_join:string,total_count:int,total_sum:float,sold_volume:array,first_purchase:array}
  */
 function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
 {
@@ -902,7 +968,7 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
     $mixedTime = sql_unix_or_datetime_between('time');
     $mixedParams = [$startTs, $endTs, $startDt, $endDt];
     $paidSql = invoice_paid_status_sql('Status');
-    $walletSql = bot_payment_wallet_recharge_sql();
+    $payments = bot_period_payment_purpose_stats($pdo, $startTs, $endTs);
 
     $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price_product),0) AS sum FROM invoice WHERE (time_sell BETWEEN :start AND :end) AND $paidSql AND name_product != 'سرویس تست'");
     $stmt->execute([':start' => $startTs, ':end' => $endTs]);
@@ -928,25 +994,23 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
     $stmt->execute($mixedParams);
     $changeLocation = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS sum FROM Payment_report WHERE $mixedTime AND $walletSql");
-    $stmt->execute($mixedParams);
-    $wallet = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
-
     $stmt = $pdo->prepare("SELECT COUNT(*) AS count FROM user WHERE register != 'none' AND (register BETWEEN :start AND :end)");
     $stmt->execute([':start' => $startTs, ':end' => $endTs]);
     $users = (int) ($stmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0);
 
-    $orderSum = (float) ($orders['sum'] ?? 0);
-    $extendSum = (float) ($extends['sum'] ?? 0);
+    $orderInvoiceSum = (float) ($orders['sum'] ?? 0);
+    $orderSum = (float) ($payments['purchase_sum'] ?? 0);
+    $extendSum = (float) ($payments['extend_sum'] ?? 0);
     $extraVolumeSum = (float) ($extraVolume['sum'] ?? 0);
     $extraTimeSum = (float) ($extraTime['sum'] ?? 0);
     $changeLocationSum = (float) ($changeLocation['sum'] ?? 0);
-    $walletSum = (float) ($wallet['sum'] ?? 0);
-    $walletCount = (int) ($wallet['count'] ?? 0);
+    $walletSum = (float) ($payments['wallet_sum'] ?? 0);
+    $walletCount = (int) ($payments['wallet_count'] ?? 0);
 
     return [
         'orders' => (int) ($orders['count'] ?? 0),
         'orders_sum' => $orderSum,
+        'orders_invoice_sum' => $orderInvoiceSum,
         'tests' => $tests,
         'extends' => (int) ($extends['count'] ?? 0),
         'extends_sum' => $extendSum,
@@ -960,8 +1024,8 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
         'wallet_sum' => $walletSum,
         'users' => $users,
         'avg_join' => avg_join_to_first_purchase_label($pdo, $startTs, $endTs),
-        'total_count' => (int) ($orders['count'] ?? 0) + (int) ($extends['count'] ?? 0) + (int) ($extraVolume['count'] ?? 0) + (int) ($extraTime['count'] ?? 0) + (int) ($changeLocation['count'] ?? 0) + $walletCount,
-        'total_sum' => $orderSum + $extendSum + $extraVolumeSum + $extraTimeSum + $changeLocationSum + $walletSum,
+        'total_count' => (int) ($payments['purchase_count'] ?? 0) + (int) ($payments['extend_count'] ?? 0) + $walletCount,
+        'total_sum' => $orderSum + $extendSum + $walletSum,
         'sold_volume' => bot_sold_volume_stats($pdo, $startTs, $endTs),
         'first_purchase' => bot_first_purchase_stats($pdo, $startTs, $endTs),
     ];
@@ -984,7 +1048,7 @@ function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = 
     $firstPurchaseBlock = bot_format_first_purchase_block(
         $s['first_purchase'] ?? [],
         (int) ($s['orders'] ?? 0),
-        (float) ($s['orders_sum'] ?? 0)
+        (float) ($s['orders_invoice_sum'] ?? $s['orders_sum'] ?? 0)
     );
 
     return "

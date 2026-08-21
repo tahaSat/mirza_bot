@@ -192,8 +192,10 @@ function panel_invoice_status_map(): array
         'sendedwarn' => ['tag-warn', 'اعلان همگی ارسال شده'],
         'send_on_hold' => ['tag-plain', 'در انتظار'],
         'unpaid' => ['tag-plain', 'پرداخت نشده'],
+        'Unpaid' => ['tag-plain', 'پرداخت نشده'],
         'unpiad' => ['tag-plain', 'پرداخت نشده'],
         'removebyadmin' => ['tag-no', 'حذف توسط ادمین'],
+        'removedbyadmin' => ['tag-no', 'حذف با تایید ادمین'],
         'disablebyadmin' => ['tag-no', 'غیرفعال توسط ادمین'],
         'disabledn' => ['tag-no', 'غیرفعال در پنل'],
         'Unsuccessful' => ['tag-plain', 'خطا دریافت اطلاعات'],
@@ -208,6 +210,30 @@ function panel_invoice_get_status(array $invoice): string
 function panel_invoice_status_label(string $status): array
 {
     return panel_invoice_status_map()[$status] ?? ['tag-plain', $status ?: '—'];
+}
+
+function panel_migrate_unpaid_status_case(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    $flag = dirname(__DIR__, 2) . '/storage/cache/migrate_unpaid_status.done';
+    if (is_file($flag)) {
+        return;
+    }
+    try {
+        $pdo->exec("UPDATE invoice SET Status = 'unpaid' WHERE BINARY Status = 'Unpaid'");
+        $pdo->exec("UPDATE service_other SET status = 'unpaid' WHERE BINARY status = 'Unpaid'");
+        $dir = dirname($flag);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        @file_put_contents($flag, (string) time());
+    } catch (Throwable $e) {
+        // ignore; table.php also applies this update
+    }
 }
 
 function panel_user_is_blocked(array $user): bool

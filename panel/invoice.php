@@ -6,11 +6,15 @@ require_once __DIR__ . '/inc/users_lib.php';
 require_once dirname(__DIR__) . '/jdf.php';
 require_auth();
 $pdo = panel_ensure_pdo();
+panel_migrate_unpaid_status_case($pdo);
 
 $search = trim($_GET['q'] ?? '');
 
 $tab = ($_GET['tab'] ?? 'orders') === 'payments' ? 'payments' : 'orders';
 $status = $_GET['status'] ?? '';
+if ($tab === 'orders' && $status === 'Unpaid') {
+  $status = 'unpaid';
+}
 $serviceType = $_GET['service_type'] ?? '';
 $fromDateTime = trim($_GET['from'] ?? '');
 $toDateTime = trim($_GET['to'] ?? '');
@@ -129,9 +133,12 @@ $serviceTypeMap = [
   'change_location' => 'تغییر لوکیشن',
   'extra_user' => 'افزایش حجم',
   'extra_time_user' => 'افزایش زمان',
-  'extends_not_user' => 'تمدید',
   'extend_user' => 'تمدید',
+  'extend_user_by_admin' => 'تمدید توسط ادمین',
   'transfertouser' => 'انتقال سفارش به کاربر دیگر',
+];
+$serviceTypeLabelMap = $serviceTypeMap + [
+  'extends_not_user' => 'تمدید',
 ];
 
 $paymentServiceTypeMap = [
@@ -149,16 +156,17 @@ $orderStatusMap = [
   'sendedwarn' => ['tag-warn', 'ارسال تمامی اعلان ها'],
   'send_on_hold' => ['tag-plain', 'اعلان متصنل نشدن ارسال شده'],
   'unpaid' => ['tag-plain', 'پرداخت نشده'],
-  'Unpaid' => ['tag-plain', 'پرداخت نشده'],
   'Unsuccessful' => ['tag-plain', 'خطا دریافت اطلاعات'],
-  'paid' => ['tag-ok', 'انجام شده'],
+  'paid' => ['tag-ok', 'پرداخت شده'],
   'done' => ['tag-ok', 'انجام شده'],
   'pending' => ['tag-warn', 'در انتظار'],
   'reject' => ['tag-no', 'رد شده'],
   'removebyadmin' => ['tag-no', 'حذف توسط ادمین'],
-  'removedbyadmin' => ['tag-no', 'حذف توسط ادمین'],
+  'removedbyadmin' => ['tag-no', 'حذف با تایید ادمین'],
   'disablebyadmin' => ['tag-no', 'غیرفعال توسط ادمین'],
 ];
+$orderStatusLabelMap = $orderStatusMap;
+$orderStatusLabelMap['Unpaid'] = ['tag-plain', 'پرداخت نشده'];
 
 $paymentStatusMap = [
   'paid' => ['tag-ok', 'پرداخت شده'],
@@ -290,7 +298,9 @@ try {
 $totalPages = max(1, (int) ceil($total / $perPage));
 
 $statusMap = $tab === 'payments' ? $paymentStatusMap : $orderStatusMap;
+$statusLabelMap = $tab === 'payments' ? $paymentStatusMap : $orderStatusLabelMap;
 $activeServiceTypeMap = $tab === 'payments' ? $paymentServiceTypeMap : $serviceTypeMap;
+$activeServiceTypeLabelMap = $tab === 'payments' ? $paymentServiceTypeMap : $serviceTypeLabelMap;
 
 $productOptions = [];
 try {
@@ -444,8 +454,8 @@ include __DIR__ . '/inc/layout_head.php';
           $i = $offset + 1;
           foreach ($invoices as $inv):
             $st = $inv['transaction_status'] ?? '';
-            [$cls, $lbl] = $statusMap[$st] ?? ['tag-plain', $st ?: '—'];
-            $typeLabel = $activeServiceTypeMap[$inv['service_type'] ?? ''] ?? ($inv['service_type'] ?? '—');
+            [$cls, $lbl] = $statusLabelMap[$st] ?? ['tag-plain', $st ?: '—'];
+            $typeLabel = $activeServiceTypeLabelMap[$inv['service_type'] ?? ''] ?? ($inv['service_type'] ?? '—');
             ?>
             <?php if ($tab === 'payments'): ?>
             <?php

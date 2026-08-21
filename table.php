@@ -597,6 +597,7 @@ try {
         if (mysqli_num_rows($Check_filde) != 1) {
             $result = $connect->query("ALTER TABLE invoice ADD Status VARCHAR(100)");
         }
+        $connect->query("UPDATE invoice SET Status = 'unpaid' WHERE BINARY Status = 'Unpaid'");
     }
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());
@@ -1270,6 +1271,7 @@ try {
             $connect->query("ALTER TABLE service_other ADD output TEXT");
             echo "The output field was added ✅";
         }
+        $connect->query("UPDATE service_other SET status = 'unpaid' WHERE BINARY status = 'Unpaid'");
     }
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());

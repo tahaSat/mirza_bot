@@ -170,6 +170,9 @@ if ($broadcast_resolved !== null) {
     }
     $datain = $broadcast_resolved['action'];
 }
+if (handle_broadcast_resend_callback($datain, $from_id, $callback_query_id, $message_id, $admin_ids)) {
+    return;
+}
 if (is_string($text) && preg_match('/^\/start(?:@\w+)?(?:\s+(.+))?$/u', $text, $start_match)) {
     $start_payload = trim($start_match[1] ?? '');
     if ($start_payload !== '') {

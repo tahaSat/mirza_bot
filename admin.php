@@ -1240,6 +1240,7 @@ $textday
             'audience_label' => broadcast_audience_label($userdata),
             'recipient_count' => 1,
             'status' => 'started',
+            'payload' => $userdata,
         ]);
         $btn_type = $userdata['btntypemessage'] ?? 'none';
         $btn_keyboard = null;
@@ -1372,6 +1373,7 @@ $textday
             'audience_label' => broadcast_audience_label($userdata),
             'recipient_count' => $recipient_count,
             'status' => 'started',
+            'payload' => $userdata,
         ]);
         $data = json_encode(array(
             "id_admin" => $from_id,
@@ -1457,6 +1459,7 @@ $textday
             'audience_label' => broadcast_audience_label($userdata),
             'recipient_count' => $recipient_count,
             'status' => 'started',
+            'payload' => $userdata,
         ]);
         $data = json_encode(array(
             "id_admin" => $from_id,
@@ -1584,6 +1587,7 @@ $textday
             'audience_label' => broadcast_audience_label($userdata),
             'recipient_count' => $recipient_count,
             'status' => 'started',
+            'payload' => $userdata,
         ]);
         $data = json_encode(array(
             "id_admin" => $from_id,

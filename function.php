@@ -8927,7 +8927,8 @@ function ensure_broadcast_schema()
         click_count INT NOT NULL DEFAULT 0,
         report_message_id BIGINT NOT NULL DEFAULT 0,
         status VARCHAR(30) NOT NULL DEFAULT 'started',
-        created_at INT NOT NULL
+        created_at INT NOT NULL,
+        payload MEDIUMTEXT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
     $pdo->exec("CREATE TABLE IF NOT EXISTS broadcast_click (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -8937,6 +8938,15 @@ function ensure_broadcast_schema()
         UNIQUE KEY uniq_broadcast_user (broadcast_id, user_id),
         KEY idx_broadcast_id (broadcast_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+    try {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'broadcast_log' AND COLUMN_NAME = 'payload'");
+        $stmt->execute();
+        if ((int) $stmt->fetchColumn() === 0) {
+            $pdo->exec("ALTER TABLE broadcast_log ADD payload MEDIUMTEXT NULL");
+        }
+    } catch (Throwable $e) {
+        error_log('ensure_broadcast_schema payload: ' . $e->getMessage());
+    }
     $ready = true;
 }
 
@@ -9385,22 +9395,48 @@ function log_broadcast_to_report(array $data)
     $recipient_count = intval($data['recipient_count'] ?? 0);
     $status = (string) ($data['status'] ?? 'started');
     $created_at = time();
+    $payload = $data['payload'] ?? null;
+    if (is_array($payload)) {
+        $payload = json_encode($payload, JSON_UNESCAPED_UNICODE);
+    }
+    $payload = is_string($payload) && $payload !== '' ? $payload : null;
 
     $stmt = $pdo->prepare("INSERT INTO broadcast_log
-        (admin_id, type, message_text, media_type, photo_id, btn_type, audience_label, recipient_count, click_count, report_message_id, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)");
-    $stmt->execute([
-        $admin_id,
-        $type,
-        $message_text,
-        $media_type,
-        $photo_id,
-        $btn_type,
-        $audience_label,
-        $recipient_count,
-        $status,
-        $created_at,
-    ]);
+        (admin_id, type, message_text, media_type, photo_id, btn_type, audience_label, recipient_count, click_count, report_message_id, status, created_at, payload)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)");
+    try {
+        $stmt->execute([
+            $admin_id,
+            $type,
+            $message_text,
+            $media_type,
+            $photo_id,
+            $btn_type,
+            $audience_label,
+            $recipient_count,
+            $status,
+            $created_at,
+            $payload,
+        ]);
+    } catch (Throwable $e) {
+        error_log('log_broadcast_to_report payload insert: ' . $e->getMessage());
+        $payload = null;
+        $stmt = $pdo->prepare("INSERT INTO broadcast_log
+            (admin_id, type, message_text, media_type, photo_id, btn_type, audience_label, recipient_count, click_count, report_message_id, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)");
+        $stmt->execute([
+            $admin_id,
+            $type,
+            $message_text,
+            $media_type,
+            $photo_id,
+            $btn_type,
+            $audience_label,
+            $recipient_count,
+            $status,
+            $created_at,
+        ]);
+    }
     $broadcast_id = intval($pdo->lastInsertId());
     $row = [
         'id' => $broadcast_id,
@@ -9415,18 +9451,24 @@ function log_broadcast_to_report(array $data)
         'click_count' => 0,
         'status' => $status,
         'created_at' => $created_at,
+        'payload' => $payload,
     ];
 
     $report_message_id = 0;
     if (!empty($setting['Channel_Report'])) {
         $topic_id = ensure_reportsms_topic();
         $report_text = build_broadcast_report_text($row);
-        $send = telegram('sendmessage', [
+        $send_params = [
             'chat_id' => $setting['Channel_Report'],
             'message_thread_id' => $topic_id,
             'text' => $report_text,
             'parse_mode' => 'HTML',
-        ]);
+        ];
+        $report_keyboard = broadcast_report_keyboard_for_row($row);
+        if ($report_keyboard !== null) {
+            $send_params['reply_markup'] = $report_keyboard;
+        }
+        $send = telegram('sendmessage', $send_params);
         if (!empty($send['ok']) && isset($send['result']['message_id'])) {
             $report_message_id = intval($send['result']['message_id']);
             update("broadcast_log", "report_message_id", $report_message_id, "id", $broadcast_id);
@@ -9467,7 +9509,417 @@ function refresh_broadcast_report_message($broadcast_id)
     if (!empty($topic_id) && $topic_id !== '0') {
         $params['message_thread_id'] = $topic_id;
     }
+    $report_keyboard = broadcast_report_keyboard_for_row($row);
+    if ($report_keyboard !== null) {
+        $params['reply_markup'] = $report_keyboard;
+    }
     telegram('editMessageText', $params);
+    return true;
+}
+
+function broadcast_can_resend_type($type): bool
+{
+    return in_array((string) $type, ['sendmessage', 'forwardmessage', 'xdaynotmessage', 'channelpost'], true);
+}
+
+function broadcast_report_resend_keyboard($broadcast_id)
+{
+    return json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => '🔄 ارسال مجدد', 'callback_data' => 'bresend_' . intval($broadcast_id)],
+            ],
+        ],
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+function broadcast_report_confirm_keyboard($broadcast_id)
+{
+    $id = intval($broadcast_id);
+    return json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => '✅ تایید ارسال مجدد', 'callback_data' => 'bresendok_' . $id],
+            ],
+            [
+                ['text' => '❌ انصراف', 'callback_data' => 'bresendno_' . $id],
+            ],
+        ],
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+function broadcast_report_keyboard_for_row(array $row)
+{
+    $id = intval($row['id'] ?? 0);
+    if ($id <= 0 || !broadcast_can_resend_type($row['type'] ?? '')) {
+        return null;
+    }
+    $payload = $row['payload'] ?? '';
+    $decoded = is_array($payload) ? $payload : json_decode((string) $payload, true);
+    if (!is_array($decoded) || $decoded === []) {
+        return null;
+    }
+    return broadcast_report_resend_keyboard($id);
+}
+
+function broadcast_answer_callback($callback_query_id, $text = '', $show_alert = false)
+{
+    if (empty($callback_query_id)) {
+        return;
+    }
+    $params = [
+        'callback_query_id' => $callback_query_id,
+        'cache_time' => 1,
+    ];
+    if ($text !== '') {
+        $params['text'] = $text;
+        $params['show_alert'] = $show_alert ? true : false;
+    }
+    telegram('answerCallbackQuery', $params);
+}
+
+function broadcast_callback_chat_id()
+{
+    global $update, $setting;
+    $id = $update['callback_query']['message']['chat']['id'] ?? null;
+    if ($id !== null && $id !== '') {
+        return $id;
+    }
+    return $setting['Channel_Report'] ?? 0;
+}
+
+function broadcast_queue_busy(): bool
+{
+    if (is_file(__DIR__ . '/cronbot/gift')) {
+        return true;
+    }
+    $path = __DIR__ . '/cronbot/users.json';
+    if (!is_file($path)) {
+        return false;
+    }
+    $userslist = json_decode((string) @file_get_contents($path), true);
+    return is_array($userslist) && count($userslist) > 0;
+}
+
+function broadcast_decode_payload($raw): array
+{
+    if (is_array($raw)) {
+        return $raw;
+    }
+    $decoded = json_decode((string) $raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function broadcast_merge_userdata_from_log(array $row): array
+{
+    $userdata = broadcast_decode_payload($row['payload'] ?? '');
+    if (!isset($userdata['typeservice'])) {
+        $userdata['typeservice'] = $row['type'] ?? 'sendmessage';
+    }
+    if (!isset($userdata['typeusermessage']) && ($row['type'] ?? '') === 'channelpost') {
+        $userdata['typeusermessage'] = 'channelpost';
+    }
+    if (!isset($userdata['message'])) {
+        $userdata['message'] = $row['message_text'] ?? '';
+    }
+    if (!isset($userdata['messagemediatype'])) {
+        $userdata['messagemediatype'] = $row['media_type'] ?? 'text';
+    }
+    if (!isset($userdata['photoid'])) {
+        $userdata['photoid'] = $row['photo_id'] ?? '';
+    }
+    if (!isset($userdata['btntypemessage'])) {
+        $userdata['btntypemessage'] = $row['btn_type'] ?? 'none';
+    }
+    return $userdata;
+}
+
+function broadcast_query_audience_users(array $userdata, $agent, $typeusermessage): array
+{
+    global $pdo;
+    $agent_filter = ($agent !== 'all' && $agent !== '' && $agent !== null);
+    $panel_name = null;
+    if ($typeusermessage === 'customer' && !empty($userdata['selectpanel']) && $userdata['selectpanel'] !== 'all') {
+        $panel = select("marzban_panel", "*", "code_panel", $userdata['selectpanel'], "select");
+        $panel_name = is_array($panel) ? ($panel['name_panel'] ?? null) : null;
+    }
+
+    if ($typeusermessage === 'all') {
+        if ($agent_filter) {
+            return select("user", "id", "agent", $agent, "fetchAll") ?: [];
+        }
+        return select("user", "id", "User_Status", "Active", "fetchAll") ?: [];
+    }
+
+    $sql = "SELECT u.id FROM user u WHERE u.User_Status = 'Active'";
+    $params = [];
+    if ($agent_filter) {
+        $sql .= " AND u.agent = :agent";
+        $params[':agent'] = $agent;
+    }
+    if ($typeusermessage === 'customer') {
+        if ($panel_name) {
+            $sql .= " AND EXISTS (SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.Service_location = :panel)";
+            $params[':panel'] = $panel_name;
+        } else {
+            $sql .= " AND EXISTS (SELECT 1 FROM invoice i WHERE i.id_user = u.id)";
+        }
+    } elseif ($typeusermessage === 'nonecustomer' || $typeusermessage === 'notestnopurchase') {
+        $sql .= " AND NOT EXISTS (SELECT 1 FROM invoice i WHERE i.id_user = u.id)";
+    } elseif ($typeusermessage === 'testonly') {
+        $sql .= " AND EXISTS (SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product = 'سرویس تست')
+                  AND NOT EXISTS (SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product != 'سرویس تست')";
+    } else {
+        return [];
+    }
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function broadcast_query_inactive_users(array $userdata, $agent, $typeusermessage, $timenouser, array $restrict_ids = null): array
+{
+    global $pdo;
+    if (is_array($restrict_ids)) {
+        if (count($restrict_ids) === 0) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($restrict_ids), '?'));
+        $stmt = $pdo->prepare("SELECT id FROM user WHERE last_message_time < ? AND id IN ($placeholders)");
+        $stmt->execute(array_merge([$timenouser], $restrict_ids));
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    $panel_name = null;
+    if ($typeusermessage === 'customer' && !empty($userdata['selectpanel']) && $userdata['selectpanel'] !== 'all') {
+        $panel = select("marzban_panel", "*", "code_panel", $userdata['selectpanel'], "select");
+        $panel_name = is_array($panel) ? ($panel['name_panel'] ?? null) : null;
+    }
+
+    $sql = "SELECT u.id FROM user u WHERE u.last_message_time < :time";
+    $params = [':time' => $timenouser];
+    $agent_filter = ($agent !== 'all' && $agent !== '' && $agent !== null);
+    if ($agent_filter) {
+        $sql .= " AND u.agent = :agent";
+        $params[':agent'] = $agent;
+    }
+    if ($typeusermessage === 'customer') {
+        if ($panel_name) {
+            $sql .= " AND EXISTS (SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.Service_location = :panel)";
+            $params[':panel'] = $panel_name;
+        } else {
+            $sql .= " AND EXISTS (SELECT 1 FROM invoice i WHERE i.id_user = u.id)";
+        }
+    } elseif ($typeusermessage === 'nonecustomer' || $typeusermessage === 'notestnopurchase') {
+        $sql .= " AND NOT EXISTS (SELECT 1 FROM invoice i WHERE i.id_user = u.id)";
+    } elseif ($typeusermessage === 'testonly') {
+        $sql .= " AND EXISTS (SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product = 'سرویس تست')
+                  AND NOT EXISTS (SELECT 1 FROM invoice i WHERE i.id_user = u.id AND i.name_product != 'سرویس تست')";
+    }
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function broadcast_collect_recipients(array $userdata): array
+{
+    $typeservice = $userdata['typeservice'] ?? 'sendmessage';
+    $typeusermessage = $userdata['typeusermessage'] ?? 'all';
+    $agent = $userdata['agent'] ?? 'all';
+
+    if ($typeservice === 'channelpost' || $typeusermessage === 'channelpost') {
+        return ['ok' => true, 'users' => [], 'channelpost' => true];
+    }
+
+    $highvolume_users = [];
+    if ($typeusermessage === 'highvolume') {
+        $highvolume_panel = 'all';
+        if (!empty($userdata['selectpanel']) && $userdata['selectpanel'] !== 'all') {
+            $panel = select("marzban_panel", "*", "code_panel", $userdata['selectpanel'], "select");
+            $highvolume_panel = is_array($panel) ? ($panel['name_panel'] ?? 'all') : 'all';
+        }
+        @set_time_limit(300);
+        $highvolume_users = getUsersHighVolumeUsage(80, $agent, $highvolume_panel);
+        if (count($highvolume_users) === 0) {
+            return ['ok' => false, 'error' => '❌ کاربری با مصرف بیش از ۸۰٪ حجم سرویس یافت نشد.'];
+        }
+    }
+
+    if ($typeservice === 'xdaynotmessage') {
+        $days = intval($userdata['daynoyuse'] ?? 0);
+        $timenouser = time() - ($days * 86400);
+        if ($typeusermessage === 'highvolume') {
+            $ids = array_column($highvolume_users, 'id');
+            $users = broadcast_query_inactive_users($userdata, $agent, $typeusermessage, $timenouser, $ids);
+        } else {
+            $users = broadcast_query_inactive_users($userdata, $agent, $typeusermessage, $timenouser);
+        }
+        return ['ok' => true, 'users' => $users];
+    }
+
+    if ($typeusermessage === 'highvolume') {
+        return ['ok' => true, 'users' => $highvolume_users];
+    }
+
+    $users = broadcast_query_audience_users($userdata, $agent, $typeusermessage);
+    return ['ok' => true, 'users' => $users];
+}
+
+function execute_broadcast_resend($broadcast_id, $admin_id): array
+{
+    global $pdo, $datatextbot, $usernamebot;
+
+    $stmt = $pdo->prepare("SELECT * FROM broadcast_log WHERE id = ? LIMIT 1");
+    $stmt->execute([intval($broadcast_id)]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        return ['ok' => false, 'error' => 'گزارش پیدا نشد.'];
+    }
+    if (!broadcast_can_resend_type($row['type'] ?? '')) {
+        return ['ok' => false, 'error' => 'این نوع گزارش قابل ارسال مجدد نیست.'];
+    }
+    if ((string) ($row['payload'] ?? '') === '') {
+        return ['ok' => false, 'error' => 'اطلاعات این گزارش برای ارسال مجدد کافی نیست.'];
+    }
+    $userdata = broadcast_merge_userdata_from_log($row);
+
+    $type = (string) ($row['type'] ?? 'sendmessage');
+    if ($type === 'channelpost' || ($userdata['typeusermessage'] ?? '') === 'channelpost') {
+        $channel_id = $userdata['channel_id'] ?? '';
+        if ($channel_id === '') {
+            return ['ok' => false, 'error' => 'کانال این پست مشخص نیست.'];
+        }
+        $broadcast = log_broadcast_to_report([
+            'admin_id' => $admin_id,
+            'type' => 'channelpost',
+            'message_text' => $userdata['message'] ?? '',
+            'media_type' => $userdata['messagemediatype'] ?? 'text',
+            'photo_id' => $userdata['photoid'] ?? '',
+            'btn_type' => $userdata['btntypemessage'] ?? 'none',
+            'audience_label' => broadcast_audience_label($userdata),
+            'recipient_count' => 1,
+            'status' => 'started',
+            'payload' => $userdata,
+        ]);
+        $btn_type = $userdata['btntypemessage'] ?? 'none';
+        $btn_keyboard = null;
+        if ($btn_type != 'none') {
+            $btn_text = broadcast_resolve_btn_text($btn_type, $userdata['btntextmessage'] ?? '', $datatextbot);
+            $start_payload = broadcast_channel_start_payload($btn_type, $broadcast['id']);
+            $btn_keyboard = broadcast_inline_keyboard($btn_type, $btn_text, [
+                'url' => "https://t.me/{$usernamebot}?start={$start_payload}",
+            ]);
+        }
+        $result = publish_channel_post($channel_id, $userdata, $btn_keyboard);
+        if (!isset($result['ok']) || !$result['ok']) {
+            update("broadcast_log", "status", "cancelled", "id", intval($broadcast['id']));
+            refresh_broadcast_report_message(intval($broadcast['id']));
+            $err = $result['description'] ?? 'خطای نامشخص';
+            return ['ok' => false, 'error' => 'ارسال پست به کانال ناموفق بود: ' . $err];
+        }
+        update("broadcast_log", "status", "published", "id", intval($broadcast['id']));
+        refresh_broadcast_report_message(intval($broadcast['id']));
+        return ['ok' => true, 'mode' => 'channel'];
+    }
+
+    if (broadcast_queue_busy()) {
+        return ['ok' => false, 'error' => 'سیستم ارسال پیام در حال انجام است. پس از پایان دوباره تلاش کنید.'];
+    }
+
+    $collected = broadcast_collect_recipients($userdata);
+    if (empty($collected['ok'])) {
+        return $collected;
+    }
+    $users = $collected['users'] ?? [];
+    if (!is_array($users) || count($users) === 0) {
+        return ['ok' => false, 'error' => 'هیچ مخاطبی برای ارسال یافت نشد.'];
+    }
+
+    $cancelmessage = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => 'لغو عملیات', 'callback_data' => 'cancel_sendmessage'],
+            ],
+        ],
+    ]);
+    $progress = sendmessage($admin_id, "✅ عملیات ارسال مجدد آغاز گردید پس از پایان اطلاع رسانی خواهد شد.", $cancelmessage, 'HTML');
+    $progress_mid = intval($progress['result']['message_id'] ?? 0);
+
+    $broadcast = log_broadcast_to_report([
+        'admin_id' => $admin_id,
+        'type' => $type,
+        'message_text' => $userdata['message'] ?? ($row['message_text'] ?? ''),
+        'media_type' => $userdata['messagemediatype'] ?? ($row['media_type'] ?? 'text'),
+        'photo_id' => $userdata['photoid'] ?? ($row['photo_id'] ?? ''),
+        'btn_type' => $userdata['btntypemessage'] ?? ($row['btn_type'] ?? 'none'),
+        'audience_label' => broadcast_audience_label($userdata),
+        'recipient_count' => count($users),
+        'status' => 'started',
+        'payload' => $userdata,
+    ]);
+
+    $queue_type = $type === 'forwardmessage' ? 'forwardmessage' : ($type === 'xdaynotmessage' ? 'xdaynotmessage' : 'sendmessage');
+    $info = [
+        'id_admin' => ($queue_type === 'forwardmessage') ? intval($row['admin_id']) : intval($admin_id),
+        'progress_admin' => intval($admin_id),
+        'type' => $queue_type,
+        'id_message' => $progress_mid,
+        'message' => $userdata['message'] ?? '',
+        'messagemediatype' => $userdata['messagemediatype'] ?? 'text',
+        'photoid' => $userdata['photoid'] ?? '',
+        'pingmessage' => $userdata['typepinmessage'] ?? 'no',
+        'btnmessage' => $userdata['btntypemessage'] ?? 'none',
+        'btntextmessage' => $userdata['btntextmessage'] ?? '',
+        'broadcast_id' => intval($broadcast['id']),
+    ];
+    file_put_contents(__DIR__ . '/cronbot/users.json', json_encode($users));
+    file_put_contents(__DIR__ . '/cronbot/info', json_encode($info));
+    return ['ok' => true, 'mode' => 'queue', 'count' => count($users)];
+}
+
+function handle_broadcast_resend_callback($datain, $from_id, $callback_query_id, $message_id, array $admin_ids): bool
+{
+    $datain = (string) $datain;
+    if (!preg_match('/^bresend(ok|no)?_(\d+)$/', $datain, $match)) {
+        return false;
+    }
+    $action = $match[1];
+    $broadcast_id = intval($match[2]);
+    $is_admin = false;
+    foreach ($admin_ids as $aid) {
+        if ((string) $aid === (string) $from_id) {
+            $is_admin = true;
+            break;
+        }
+    }
+    if (!$is_admin) {
+        broadcast_answer_callback($callback_query_id, '❌ فقط ادمین‌ها می‌توانند ارسال مجدد کنند.', true);
+        return true;
+    }
+
+    $chat_id = broadcast_callback_chat_id();
+    if ($action === 'no') {
+        EditMessageReplyMarkup($chat_id, $message_id, broadcast_report_resend_keyboard($broadcast_id));
+        broadcast_answer_callback($callback_query_id, 'ارسال مجدد لغو شد.');
+        return true;
+    }
+
+    if ($action === '') {
+        EditMessageReplyMarkup($chat_id, $message_id, broadcast_report_confirm_keyboard($broadcast_id));
+        broadcast_answer_callback($callback_query_id, 'برای ارسال مجدد، تایید کنید.');
+        return true;
+    }
+
+    broadcast_answer_callback($callback_query_id, 'در حال ارسال مجدد...');
+    $result = execute_broadcast_resend($broadcast_id, $from_id);
+    EditMessageReplyMarkup($chat_id, $message_id, broadcast_report_resend_keyboard($broadcast_id));
+    if (empty($result['ok'])) {
+        sendmessage($from_id, "❌ ارسال مجدد ناموفق بود:\n" . ((string) ($result['error'] ?? 'خطای نامشخص')), null, 'HTML');
+        return true;
+    }
+    if (($result['mode'] ?? '') === 'channel') {
+        sendmessage($from_id, "✅ پست مجدداً در کانال منتشر شد.", null, 'HTML');
+    }
     return true;
 }
 

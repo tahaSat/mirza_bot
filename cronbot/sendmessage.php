@@ -33,11 +33,15 @@ $userid = json_decode(file_get_contents('users.json'));
 if(is_file('info')){
 $info = json_decode(file_get_contents('info'),true);
 }
+if (!is_array($info)) {
+    $info = [];
+}
 $count = 0;
+$progress_admin = intval($info['progress_admin'] ?? $info['id_admin'] ?? 0);
 if(count($userid) == 0){
-    if(isset($info['id_admin'])){
-    deletemessage($info['id_admin'], $info['id_message']);
-    sendmessage($info['id_admin'], "📌 عملیات برای تمامی کاربران درخواستی انجام شد.", null, 'HTML');
+    if($progress_admin > 0){
+    deletemessage($progress_admin, $info['id_message']);
+    sendmessage($progress_admin, "📌 عملیات برای تمامی کاربران درخواستی انجام شد.", null, 'HTML');
     if (!empty($info['broadcast_id'])) {
         update("broadcast_log", "status", "completed", "id", intval($info['broadcast_id']));
         refresh_broadcast_report_message(intval($info['broadcast_id']));
@@ -59,8 +63,8 @@ $cancelmessage = json_encode([
             ],
         ]
     ]);
-if (!empty($info['id_admin']) && !empty($info['id_message'])) {
-    Editmessagetext($info['id_admin'], $info['id_message'],$textprocces, $cancelmessage);
+if ($progress_admin > 0 && !empty($info['id_message'])) {
+    Editmessagetext($progress_admin, $info['id_message'],$textprocces, $cancelmessage);
 }
 
 $broadcast_id = intval($info['broadcast_id'] ?? 0);

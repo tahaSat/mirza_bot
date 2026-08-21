@@ -1382,8 +1382,17 @@ try {
         click_count INT NOT NULL DEFAULT 0,
         report_message_id BIGINT NOT NULL DEFAULT 0,
         status VARCHAR(30) NOT NULL DEFAULT 'started',
-        created_at INT NOT NULL
+        created_at INT NOT NULL,
+        payload MEDIUMTEXT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+    }
+} catch (Exception $e) {
+    file_put_contents('error_log broadcast_log', $e->getMessage());
+}
+try {
+    $col = $connect->query("SHOW COLUMNS FROM broadcast_log LIKE 'payload'");
+    if ($col && $col->num_rows == 0) {
+        $connect->query("ALTER TABLE broadcast_log ADD payload MEDIUMTEXT NULL");
     }
 } catch (Exception $e) {
     file_put_contents('error_log broadcast_log', $e->getMessage());

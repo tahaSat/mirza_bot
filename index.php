@@ -1020,8 +1020,11 @@ $nameconfig";
                     ['text' => $textbotlang['users']['Extra_volume']['sellextra'], 'callback_data' => 'Extra_volume_' . $username],
                 ],
                 [
-                    ['text' => "❌ حذف سرویس", 'callback_data' => 'removeauto-' . $username],
+                    ['text' => invoice_auto_renew_button_label($nameloc, $textbotlang), 'callback_data' => 'autorenew_' . $username],
                     ['text' => $textbotlang['users']['Extra_time']['title'], 'callback_data' => 'Extra_time_' . $username],
+                ],
+                [
+                    ['text' => "❌ حذف سرویس", 'callback_data' => 'removeauto-' . $username],
                 ],
                 [
                     ['text' => $textbotlang['users']['stateus']['backlist'], 'callback_data' => 'backorder'],
@@ -1031,13 +1034,14 @@ $nameconfig";
         if (!extend_can_proceed($marzban)['ok']) {
             unset($keyboardsetting['inline_keyboard'][0][0]);
             unset($keyboardsetting['inline_keyboard'][0][1]);
+            unset($keyboardsetting['inline_keyboard'][1][0]);
             unset($keyboardsetting['inline_keyboard'][1][1]);
         }
         if ($marzban['type'] == "ibsng" || $marzban['type'] == "mikrotik") {
-            unset($keyboardsetting['inline_keyboard'][1][1]);
+            unset($keyboardsetting['inline_keyboard'][1]);
             unset($keyboardsetting['inline_keyboard'][0]);
         }
-        if ($statustimeextra == "offtimeextraa")
+        if ($statustimeextra == "offtimeextraa" && isset($keyboardsetting['inline_keyboard'][1][1]))
             unset($keyboardsetting['inline_keyboard'][1][1]);
         if ($marzbanstatusextra == "offextra")
             unset($keyboardsetting['inline_keyboard'][0][1]);
@@ -1066,6 +1070,10 @@ $nameconfig";
             'extend' => array(
                 'text' => $textbotlang['users']['extend']['title'],
                 'callback_data' => "extend_"
+            ),
+            'autorenew' => array(
+                'text' => invoice_auto_renew_button_label($nameloc, $textbotlang),
+                'callback_data' => "autorenew_"
             ),
             'changelink' => array(
                 'text' => $textbotlang['users']['changelink']['btntitle'],
@@ -1108,11 +1116,13 @@ $nameconfig";
             unset($keyboarddate['transfor']);
             unset($keyboarddate['Extra_time']);
             unset($keyboarddate['removeservice']);
+            unset($keyboarddate['autorenew']);
         }
         if ($marzban['type'] == "ibsng" || $marzban['type'] == "mikrotik") {
             unset($keyboarddate['linksub']);
             unset($keyboarddate['config']);
             unset($keyboarddate['extend']);
+            unset($keyboarddate['autorenew']);
             unset($keyboarddate['changestatus']);
             unset($keyboarddate['change-location']);
             unset($keyboarddate['changelink']);
@@ -1133,6 +1143,7 @@ $nameconfig";
             unset($keyboarddate['Extra_time']);
             unset($keyboarddate['Extra_volume']);
             unset($keyboarddate['extend']);
+            unset($keyboarddate['autorenew']);
         }
         if ($statusremoveserveice == "off")
             unset($keyboarddate['removeservice']);
@@ -1445,6 +1456,56 @@ $textconnect
     } else {
         Editmessagetext($from_id, $message_id, $textbotlang['users']['stateus']['disabledconfig'], $bakinfos);
     }
+} elseif (preg_match('/autorenew_(\w+)/', $datain, $dataget)) {
+    $id_invoice = $dataget[1];
+    $nameloc = select("invoice", "*", "id_invoice", $id_invoice, "select");
+    if ($nameloc == false || (string) ($nameloc['id_user'] ?? '') !== (string) $from_id) {
+        sendmessage($from_id, $textbotlang['users']['extend']['renewalerror'], null, 'HTML');
+        return;
+    }
+    if (($nameloc['name_product'] ?? '') === 'سرویس تست') {
+        sendmessage($from_id, "❌ تمدید خودکار برای سرویس تست در دسترس نیست.", null, 'HTML');
+        return;
+    }
+    $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
+    $extendGate = extend_can_proceed($marzban_list_get);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], null, 'html');
+        return;
+    }
+    $turningOn = !invoice_auto_renew_is_on($nameloc);
+    if ($turningOn) {
+        $similar = invoice_similar_extend_product($nameloc, $user);
+        if ($similar == false) {
+            sendmessage($from_id, $textbotlang['users']['extend']['autorenew_noproduct'], null, 'HTML');
+            return;
+        }
+        $extendGate = extend_can_proceed($marzban_list_get, $similar);
+        if (!$extendGate['ok']) {
+            sendmessage($from_id, $extendGate['msg'], null, 'HTML');
+            return;
+        }
+    }
+    update("invoice", "auto_renew", $turningOn ? '1' : '0', "id_invoice", $id_invoice);
+    $nameloc['auto_renew'] = $turningOn ? '1' : '0';
+    $confirmText = $turningOn
+        ? ($textbotlang['users']['extend']['autorenew_enabled'] ?? '')
+        : ($textbotlang['users']['extend']['autorenew_disabled'] ?? '');
+    if ($turningOn) {
+        $liveUser = $ManagePanel->DataUser($nameloc['Service_location'], $nameloc['username']);
+        if (is_array($liveUser) && ($liveUser['status'] ?? '') !== 'Unsuccessful'
+            && invoice_auto_renew_volume_low($liveUser, $setting['volumewarn'] ?? 0)) {
+            invoice_try_auto_renew($nameloc, $user, $liveUser, $marzban_list_get, $setting);
+        }
+    }
+    $backKeyboard = json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => $textbotlang['users']['stateus']['backinfo'], 'callback_data' => 'product_' . $nameloc['id_invoice']],
+            ]
+        ]
+    ]);
+    Editmessagetext($from_id, $message_id, $confirmText, $backKeyboard);
 } elseif (preg_match('/extend_(\w+)/', $datain, $dataget)) {
     $id_invoice = $dataget[1];
     $nameloc = select("invoice", "*", "id_invoice", $id_invoice, "select");

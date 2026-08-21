@@ -44,11 +44,26 @@ class ServiceMonitor
             }
             update("invoice", "time_cron", time(), "id_invoice", $invoice['id_invoice']);
             $check_send = json_decode($invoice['notifctions'], true);
+            if (!is_array($check_send)) {
+                $check_send = ['volume' => false, 'time' => false];
+            }
             $data = $this->processInvoice($invoice);
             if (!is_array($data))
                 continue;
+            $autoRenewResult = 'skipped';
+            if (invoice_auto_renew_is_on($data['invoice'])) {
+                if (invoice_auto_renew_volume_low($data['userData'], $this->setting['volumewarn'])) {
+                    $autoRenewResult = invoice_try_auto_renew($data['invoice'], $data['user'], $data['userData'], $data['panel'], $this->setting);
+                    if ($autoRenewResult === 'renewed') {
+                        continue;
+                    }
+                } else {
+                    invoice_auto_renew_clear_insufficient($data['invoice']);
+                }
+            }
             $result = false;
-            if (!$check_send['volume']) {
+            $skipVolumeWarn = in_array($autoRenewResult, ['renewed', 'insufficient', 'cooldown'], true);
+            if (!$skipVolumeWarn && empty($check_send['volume'])) {
                 if ($this->status_cron['volume'])
                     $result = $this->checkVolumeThreshold($data['invoice'], $data['user'], $data['userData'], $invoice['username']);
             }

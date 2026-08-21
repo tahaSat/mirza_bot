@@ -550,6 +550,7 @@ try {
         refral varchar(100) NULL,
         time_cron varchar(100) NULL,
         notifctions TEXT NOT NULL,
+        auto_renew varchar(10) NULL DEFAULT '0',
         Status varchar(200) NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
         if (!$result) {
@@ -597,6 +598,7 @@ try {
         if (mysqli_num_rows($Check_filde) != 1) {
             $result = $connect->query("ALTER TABLE invoice ADD Status VARCHAR(100)");
         }
+        addFieldToTable('invoice', 'auto_renew', '0', 'VARCHAR(10)');
         $connect->query("UPDATE invoice SET Status = 'unpaid' WHERE BINARY Status = 'Unpaid'");
     }
 } catch (Exception $e) {

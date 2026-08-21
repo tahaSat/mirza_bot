@@ -35,6 +35,14 @@ if($data['action'] == "reached_usage_percent"){
             ],
         ]
     ]);
+    $panelUser = $data;
+    if (is_array($user) && invoice_auto_renew_is_on($invoice) && invoice_auto_renew_volume_low($panelUser, $setting['volumewarn'] ?? 0)) {
+        $panelInfo = select("marzban_panel", "*", "name_panel", $invoice['Service_location'], "select");
+        $autoRenewResult = invoice_try_auto_renew($invoice, $user, $panelUser, $panelInfo ?: null, $setting);
+        if (in_array($autoRenewResult, ['renewed', 'insufficient', 'cooldown'], true)) {
+            return;
+        }
+    }
     $text = "با سلام خدمت شما کاربر گرامی 👋
 🚨 از حجم سرویس $line تنها $RemainingVolume باقی مانده است. لطفاً در صورت تمایل برای تمدید سرویستون از طریق بخش «{$textservice}» اقدام بفرمایین";
 if(intval($user['status_cron']) != 0){

@@ -3994,6 +3994,375 @@ function extend_can_proceed($panel, $product = null): array
     return ['ok' => true, 'msg' => ''];
 }
 
+function invoice_auto_renew_is_on($invoice): bool
+{
+    if (!is_array($invoice)) {
+        return false;
+    }
+    if (($invoice['name_product'] ?? '') === 'سرویس تست') {
+        return false;
+    }
+    return (string) ($invoice['auto_renew'] ?? '0') === '1';
+}
+
+function invoice_auto_renew_button_label($invoice, $textbotlang = null): string
+{
+    $on = invoice_auto_renew_is_on($invoice);
+    $onLabel = '✅ تمدید خودکار';
+    $offLabel = '❌ تمدید خودکار';
+    if (is_array($textbotlang)) {
+        $onLabel = $textbotlang['users']['extend']['autorenew_on'] ?? $onLabel;
+        $offLabel = $textbotlang['users']['extend']['autorenew_off'] ?? $offLabel;
+    }
+    return $on ? $onLabel : $offLabel;
+}
+
+function invoice_is_custom_volume_product($invoice, $codeProduct = ''): bool
+{
+    $name = (string) ($invoice['name_product'] ?? '');
+    $code = (string) $codeProduct;
+    return in_array($name, ['🛍 حجم دلخواه', '⚙️ سرویس دلخواه'], true)
+        || in_array($code, ['custom_volume', 'customvolume', 'pre'], true);
+}
+
+function invoice_notifctions_decode($invoice): array
+{
+    $data = json_decode($invoice['notifctions'] ?? '', true);
+    if (!is_array($data)) {
+        $data = [];
+    }
+    if (!array_key_exists('volume', $data)) {
+        $data['volume'] = false;
+    }
+    if (!array_key_exists('time', $data)) {
+        $data['time'] = false;
+    }
+    return $data;
+}
+
+function invoice_notifctions_patch($invoice, array $patch): void
+{
+    if (!is_array($invoice) || empty($invoice['id_invoice'])) {
+        return;
+    }
+    $data = invoice_notifctions_decode($invoice);
+    foreach ($patch as $key => $value) {
+        $data[$key] = $value;
+    }
+    update('invoice', 'notifctions', json_encode($data), 'id_invoice', $invoice['id_invoice']);
+}
+
+function invoice_auto_renew_clear_insufficient($invoice): void
+{
+    $data = invoice_notifctions_decode($invoice);
+    if (empty($data['auto_renew_insufficient'])) {
+        return;
+    }
+    invoice_notifctions_patch($invoice, ['auto_renew_insufficient' => false]);
+}
+
+function invoice_auto_renew_volume_low(array $userData, $volumewarnGb): bool
+{
+    $dataLimit = (float) ($userData['data_limit'] ?? 0);
+    if ($dataLimit <= 0) {
+        return false;
+    }
+    $status = (string) ($userData['status'] ?? '');
+    if (!in_array($status, ['active', 'Unknown', 'limited'], true)) {
+        return false;
+    }
+    if ($status === 'limited') {
+        return true;
+    }
+    $remaining = $dataLimit - (float) ($userData['used_traffic'] ?? 0);
+    $threshold = ((float) $volumewarnGb) * pow(1024, 3);
+    if ($remaining > $threshold) {
+        return false;
+    }
+    if ($remaining <= 0) {
+        return true;
+    }
+    if ($dataLimit <= $threshold) {
+        return $remaining <= (50 * 1024 * 1024);
+    }
+    return true;
+}
+
+function invoice_last_paid_extend_row($username)
+{
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT * FROM service_other WHERE username = :username AND type IN ('extend_user', 'extend_user_by_admin') AND (status = 'paid' OR status IS NULL OR status = '') ORDER BY time DESC, id DESC LIMIT 1");
+    $stmt->execute([':username' => $username]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function invoice_extend_time_to_ts($time): int
+{
+    $time = trim((string) $time);
+    if ($time === '') {
+        return 0;
+    }
+    if (ctype_digit($time) && strlen($time) >= 9) {
+        return (int) $time;
+    }
+    $dt = DateTime::createFromFormat('Y/m/d H:i:s', $time);
+    if ($dt instanceof DateTime) {
+        return $dt->getTimestamp();
+    }
+    $parsed = strtotime(str_replace('/', '-', $time));
+    return $parsed !== false ? (int) $parsed : 0;
+}
+
+function invoice_similar_extend_product(array $invoice, array $user)
+{
+    global $pdo;
+    $panelName = $invoice['Service_location'] ?? '';
+    $lastExtend = invoice_last_paid_extend_row($invoice['username'] ?? '');
+    $lastValue = [];
+    if ($lastExtend && is_string($lastExtend['value'] ?? null)) {
+        $decoded = json_decode($lastExtend['value'], true);
+        if (is_array($decoded)) {
+            $lastValue = $decoded;
+        }
+    }
+    $codeProduct = (string) ($lastValue['code_product'] ?? '');
+    if (invoice_is_custom_volume_product($invoice, $codeProduct)) {
+        $panel = select('marzban_panel', '*', 'name_panel', $panelName, 'select');
+        if ($panel == false) {
+            return false;
+        }
+        $volume = (int) ($lastValue['volumebuy'] ?? $invoice['Volume'] ?? 0);
+        $days = (int) ($lastValue['Service_time'] ?? $invoice['Service_time'] ?? 0);
+        $price = panel_custom_service_price_for_user($panel, $user, $volume, $days);
+        if ($price === null) {
+            $price = (int) ($invoice['price_product'] ?? 0);
+        }
+        return [
+            'code_product' => 'custom_volume',
+            'name_product' => $invoice['name_product'],
+            'Service_time' => $days,
+            'Volume_constraint' => $volume,
+            'price_product' => $price,
+            'note' => '',
+        ];
+    }
+    if ($codeProduct === '') {
+        $named = select('product', '*', 'name_product', $invoice['name_product'] ?? '', 'select');
+        if ($named == false) {
+            return false;
+        }
+        $codeProduct = (string) ($named['code_product'] ?? '');
+    }
+    if ($codeProduct === '') {
+        return false;
+    }
+    $accessSql = agent_product_access_sql($user['agent'] ?? 'f', $user['id'] ?? '');
+    $stmt = $pdo->prepare("SELECT * FROM product WHERE (Location = :service_location OR Location = '/all') AND {$accessSql} AND code_product = :code_product LIMIT 1");
+    $stmt->execute([
+        ':service_location' => $panelName,
+        ':code_product' => $codeProduct,
+    ]);
+    $product = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($product == false) {
+        return false;
+    }
+    if (($user['agent'] ?? '') === 'n') {
+        $product['price_product'] = agent_wholesale_cost($user, (int) ($product['Volume_constraint'] ?? 0));
+    }
+    return $product;
+}
+
+/**
+ * Attempt wallet auto-renew with the similar package.
+ * @return string renewed|insufficient|cooldown|skipped
+ */
+function invoice_try_auto_renew(array $invoice, array $user, array $userData, $panel = null, $setting = null): string
+{
+    global $pdo, $textbotlang;
+    if (!invoice_auto_renew_is_on($invoice)) {
+        return 'skipped';
+    }
+    if (!is_array($setting)) {
+        $setting = select('setting', '*') ?: [];
+    }
+    if (!is_array($panel)) {
+        $panel = select('marzban_panel', '*', 'name_panel', $invoice['Service_location'] ?? '', 'select');
+    }
+    if ($panel == false) {
+        return 'skipped';
+    }
+    if (in_array($panel['type'] ?? '', ['ibsng', 'mikrotik'], true)) {
+        return 'skipped';
+    }
+    $extendGate = extend_can_proceed($panel);
+    if (!$extendGate['ok']) {
+        return 'skipped';
+    }
+    $lastExtend = invoice_last_paid_extend_row($invoice['username'] ?? '');
+    if ($lastExtend) {
+        $lastTs = invoice_extend_time_to_ts($lastExtend['time'] ?? '');
+        if ($lastTs > 0 && (time() - $lastTs) < 7200) {
+            return 'cooldown';
+        }
+    }
+    $freshUser = select('user', '*', 'id', $invoice['id_user'], 'select');
+    if ($freshUser == false) {
+        return 'skipped';
+    }
+    $user = $freshUser;
+    $product = invoice_similar_extend_product($invoice, $user);
+    if ($product == false) {
+        return 'skipped';
+    }
+    $extendGate = extend_can_proceed($panel, $product);
+    if (!$extendGate['ok']) {
+        return 'skipped';
+    }
+    $price = (int) round((float) ($product['price_product'] ?? 0));
+    if (intval($user['pricediscount'] ?? 0) != 0) {
+        $price = (int) round($price - (($price * $user['pricediscount']) / 100));
+    }
+    if ($price < 0) {
+        $price = 0;
+    }
+    $agent = (string) ($user['agent'] ?? 'f');
+    $balance = (int) ($user['Balance'] ?? 0);
+    $notEnough = $balance < $price && $agent !== 'n2' && $price != 0;
+    if ($agent === 'n2' && intval($user['maxbuyagent'] ?? 0) != 0) {
+        if (($balance - $price) < intval('-' . $user['maxbuyagent'])) {
+            $notEnough = true;
+        }
+    }
+    if (!is_array($textbotlang)) {
+        $textbotlang = languagechange(__DIR__ . '/text.json');
+    }
+    $insufficientText = $textbotlang['users']['extend']['autorenew_insufficient'] ?? 'موجودی کیف پول شما برای تمدید خودکار کافی نیست';
+    $botToken = (!empty($invoice['bottype']) && $invoice['bottype'] !== '0') ? $invoice['bottype'] : null;
+    if ($notEnough) {
+        $notif = invoice_notifctions_decode($invoice);
+        if (empty($notif['auto_renew_insufficient'])) {
+            sendmessage($invoice['id_user'], $insufficientText, null, 'HTML', $botToken);
+            invoice_notifctions_patch($invoice, ['auto_renew_insufficient' => true]);
+        }
+        return 'insufficient';
+    }
+    $ManagePanel = invoice_panel_manager();
+    $extend = $ManagePanel->extend(
+        $panel['Methodextend'],
+        $product['Volume_constraint'],
+        $product['Service_time'],
+        $invoice['username'],
+        $product['code_product'],
+        $panel['code_panel']
+    );
+    if (($extend['status'] ?? false) == false) {
+        $extendMsg = json_encode($extend['msg'] ?? $extend, JSON_UNESCAPED_UNICODE);
+        $textreports = "خطای تمدید خودکار سرویس
+نام پنل : {$panel['name_panel']}
+نام کاربری سرویس : {$invoice['username']}
+دلیل خطا : {$extendMsg}";
+        $errorreportRow = select('topicid', 'idreport', 'report', 'errorreport', 'select');
+        $errorreport = is_array($errorreportRow) ? ($errorreportRow['idreport'] ?? null) : null;
+        if (strlen($setting['Channel_Report'] ?? '') > 0) {
+            telegram('sendmessage', [
+                'chat_id' => $setting['Channel_Report'],
+                'message_thread_id' => $errorreport,
+                'text' => $textreports,
+                'parse_mode' => 'HTML',
+            ]);
+        }
+        return 'skipped';
+    }
+    if ($agent === 'f') {
+        $cashbackRow = select('shopSetting', '*', 'Namevalue', 'chashbackextend', 'select');
+        $cashback = is_array($cashbackRow) ? ($cashbackRow['value'] ?? 0) : 0;
+    } else {
+        $cashbackRow = select('shopSetting', '*', 'Namevalue', 'chashbackextend_agent', 'select');
+        $cashbackJson = is_array($cashbackRow) ? ($cashbackRow['value'] ?? '') : '';
+        $cashbackMap = json_decode($cashbackJson, true);
+        $cashback = is_array($cashbackMap) ? ($cashbackMap[$agent] ?? 0) : 0;
+    }
+    if (intval($cashback) != 0 && $price != 0) {
+        $gift = ((int) ($product['price_product'] ?? 0) * intval($cashback)) / 100;
+        $price = (int) round($price - $gift);
+        if ($price < 0) {
+            $price = 0;
+        }
+    }
+    update('user', 'Balance', $balance - $price, 'id', $user['id']);
+    $randomString = bin2hex(random_bytes(2));
+    $value = json_encode([
+        'volumebuy' => $product['Volume_constraint'],
+        'Service_time' => $product['Service_time'],
+        'oldvolume' => $userData['data_limit'] ?? null,
+        'oldtime' => $userData['expire'] ?? null,
+        'code_product' => $product['code_product'],
+        'id_order' => $randomString,
+        'auto_renew' => true,
+    ], JSON_UNESCAPED_UNICODE);
+    $dateacc = date('Y/m/d H:i:s');
+    $extendJson = json_encode($extend);
+    $type = 'extend_user';
+    $status = 'paid';
+    $stmt = $pdo->prepare('INSERT IGNORE INTO service_other (id_user, username, value, type, time, price, output, status) VALUES (:id_user, :username, :value, :type, :time, :price, :output, :status)');
+    $stmt->execute([
+        ':id_user' => $user['id'],
+        ':username' => $invoice['username'],
+        ':value' => $value,
+        ':type' => $type,
+        ':time' => $dateacc,
+        ':price' => $price,
+        ':output' => $extendJson,
+        ':status' => $status,
+    ]);
+    update('invoice', 'Status', 'active', 'id_invoice', $invoice['id_invoice']);
+    $priceFormat = number_format($price);
+    $success = sprintf(
+        $textbotlang['users']['extend']['autorenew_success'] ?? "✅ سرویس %s به‌صورت خودکار تمدید شد.\n\n🛍 بسته: %s\n💸 مبلغ کسر شده: %s تومان",
+        $invoice['username'],
+        $product['name_product'],
+        $priceFormat
+    );
+    sendmessage($invoice['id_user'], $success, null, 'HTML', $botToken);
+    $balanceAfterRow = select('user', 'Balance', 'id', $user['id'], 'select');
+    $balanceAfter = number_format((int) (is_array($balanceAfterRow) ? ($balanceAfterRow['Balance'] ?? 0) : 0));
+    $balanceBefore = number_format($balance);
+    $timeText = function_exists('jdate') ? jdate('Y/m/d H:i:s') : $dateacc;
+    $text_report = "📣 تمدید خودکار سرویس ثبت شد.
+
+▫️آیدی عددی کاربر : <code>{$user['id']}</code>
+▫️نام کاربری کانفیگ : {$invoice['username']}
+▫️موقعیت سرویس : {$invoice['Service_location']}
+▫️نام محصول : {$product['name_product']}
+▫️حجم محصول : {$product['Volume_constraint']}
+▫️زمان محصول : {$product['Service_time']}
+▫️مبلغ تمدید : {$priceFormat} تومان
+▫️موجودی قبل : {$balanceBefore} تومان
+▫️موجودی بعد : {$balanceAfter} تومان
+▫️زمان : {$timeText}";
+    $otherserviceRow = select('topicid', 'idreport', 'report', 'otherservice', 'select');
+    $otherservice = is_array($otherserviceRow) ? ($otherserviceRow['idreport'] ?? null) : null;
+    if (strlen($setting['Channel_Report'] ?? '') > 0) {
+        telegram('sendmessage', [
+            'chat_id' => $setting['Channel_Report'],
+            'message_thread_id' => $otherservice,
+            'text' => $text_report,
+            'parse_mode' => 'HTML',
+        ]);
+    }
+    return 'renewed';
+}
+
+function invoice_panel_manager(): ManagePanel
+{
+    global $ManagePanel;
+    if (isset($ManagePanel) && $ManagePanel instanceof ManagePanel) {
+        return $ManagePanel;
+    }
+    return new ManagePanel();
+}
+
 /** Load category saved during buy flow (categorynames_*). */
 function category_from_processing($userdate)
 {

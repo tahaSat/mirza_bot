@@ -1033,7 +1033,7 @@ function bot_is_first_product_purchase(PDO $pdo, $userId, $includeInvoiceId = nu
 }
 
 /**
- * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,users:int,avg_join:string,total_count:int,total_sum:float,sold_volume:array,first_purchase:array}
+ * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,users:int,avg_join:string,total_count:int,total_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
  */
 function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
 {
@@ -1102,6 +1102,9 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
         'total_sum' => $orderSum + $extendSum + $walletSum,
         'sold_volume' => bot_sold_volume_stats($pdo, $startTs, $endTs),
         'first_purchase' => bot_first_purchase_stats($pdo, $startTs, $endTs),
+        'forecast_sold_volume' => ($endTs - $startTs) >= (7 * 86400)
+            ? forecast_monthly_sold_volume($pdo, $startTs, $endTs)
+            : null,
     ];
 }
 
@@ -1119,6 +1122,10 @@ function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = 
     $sumWallet = number_format((float) ($s['wallet_sum'] ?? 0), 0);
     $sumTotal = number_format($s['total_sum'], 0);
     $soldVolumeBlock = bot_format_sold_volume_block($s['sold_volume'] ?? []);
+    $forecastVolume = $s['forecast_sold_volume'] ?? null;
+    if ($forecastVolume !== null) {
+        $soldVolumeBlock .= "\n📅 حجم فروخته‌شده پیش‌بینی‌شده ماهانه : " . bot_format_gb($forecastVolume) . " گیگابایت";
+    }
     $firstPurchaseBlock = bot_format_first_purchase_block(
         $s['first_purchase'] ?? [],
         (int) ($s['orders'] ?? 0),
@@ -1252,44 +1259,194 @@ function avg_join_to_first_purchase_label(PDO $pdo, ?int $joinStart = null, ?int
     return avg_join_to_first_purchase($pdo, $joinStart, $joinEnd)['formatted'];
 }
 
-function forecast_monthly_paid_income(PDO $pdo): float
+/**
+ * Complete-day window used by monthly forecasts.
+ * Default is the last 28 days ending yesterday (same as paid-income forecast).
+ * Optional range clamps the window to a period (e.g. a Jalali month) and still uses at most $days days.
+ *
+ * @return array{start:int,end:int,days:int}|null
+ */
+function forecast_monthly_complete_day_window(?int $rangeStart = null, ?int $rangeEnd = null, int $days = 28): ?array
 {
-    $days = 28;
-    $monthLength = 365.25 / 12;
-    $windowStart = strtotime('today -' . $days . ' days');
-    $windowEnd = strtotime('today') - 1;
-    if ($windowStart === false || $windowEnd === false) {
+    if ($days < 1) {
+        return null;
+    }
+    $todayStart = strtotime('today');
+    if ($todayStart === false) {
+        return null;
+    }
+    $latestEnd = $todayStart - 1;
+
+    if ($rangeStart === null || $rangeEnd === null) {
+        $windowStart = strtotime('today -' . $days . ' days');
+        if ($windowStart === false) {
+            return null;
+        }
+        return [
+            'start' => (int) $windowStart,
+            'end' => $latestEnd,
+            'days' => $days,
+        ];
+    }
+
+    $windowEnd = min($rangeEnd, $latestEnd);
+    if ($windowEnd < $rangeStart) {
+        return null;
+    }
+
+    $endDayStart = strtotime('today', $windowEnd);
+    if ($endDayStart === false) {
+        return null;
+    }
+    $windowStart = strtotime('-' . ($days - 1) . ' days', $endDayStart);
+    if ($windowStart === false) {
+        return null;
+    }
+    $windowStart = max((int) $rangeStart, (int) $windowStart);
+    $span = (int) round(($windowEnd + 1 - $windowStart) / 86400);
+    if ($span < 1) {
+        return null;
+    }
+
+    return [
+        'start' => $windowStart,
+        'end' => $windowEnd,
+        'days' => $span,
+    ];
+}
+
+/**
+ * 50% last-7-day run-rate + 25% mean + 25% median, scaled to an average month.
+ *
+ * @param list<float> $daily
+ */
+function forecast_monthly_from_daily(array $daily): float
+{
+    $days = count($daily);
+    if ($days < 1) {
         return 0.0;
     }
-    $windowStart = (int) $windowStart;
-    $windowEnd = (int) $windowEnd;
+    $sum = array_sum($daily);
+    if ($sum <= 0) {
+        return 0.0;
+    }
 
-    $unixExpr = "CASE
-        WHEN time REGEXP '^[0-9]{9,}$' THEN CAST(time AS UNSIGNED)
-        ELSE COALESCE(
-            UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s')),
-            UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
-        )
-    END";
+    $monthLength = 365.25 / 12;
+    $sorted = $daily;
+    sort($sorted, SORT_NUMERIC);
+    $mid = intdiv($days, 2);
+    $median = ($days % 2 === 1)
+        ? (float) $sorted[$mid]
+        : ((float) $sorted[$mid - 1] + (float) $sorted[$mid]) / 2.0;
+
+    $runDays = min(7, $days);
+    $runrate = (array_sum(array_slice($daily, -$runDays)) / $runDays) * $monthLength;
+    $meanMonth = ($sum / $days) * $monthLength;
+    $medianMonth = $median * $monthLength;
+
+    return (0.5 * $runrate) + (0.25 * $meanMonth) + (0.25 * $medianMonth);
+}
+
+/**
+ * Daily sold volume (GB) from paid non-test invoices plus extra-volume purchases.
+ *
+ * @return list<float>
+ */
+function bot_daily_sold_volume(PDO $pdo, int $windowStart, int $windowEnd, int $days): array
+{
+    $daily = array_fill(0, $days, 0.0);
+    if ($days < 1 || $windowEnd < $windowStart) {
+        return $daily;
+    }
+
+    $addRows = static function (array &$daily, array $rows, int $days): void {
+        foreach ($rows as $row) {
+            $idx = (int) ($row['day_index'] ?? -1);
+            if ($idx < 0 || $idx >= $days) {
+                continue;
+            }
+            $daily[$idx] += (float) ($row['volume'] ?? 0);
+        }
+    };
+
+    $invoiceUnix = unix_column_epoch_sql('time_sell');
+    $paidSql = invoice_paid_status_sql('Status');
+    try {
+        $stmt = $pdo->prepare("SELECT FLOOR(($invoiceUnix - :window_start) / 86400) AS day_index,
+                COALESCE(SUM(CAST(Volume AS DECIMAL(20,2))), 0) AS volume
+            FROM invoice
+            WHERE $paidSql
+              AND name_product != 'سرویس تست'
+              AND ($invoiceUnix) BETWEEN :start AND :end
+            GROUP BY day_index
+            HAVING day_index IS NOT NULL AND day_index >= 0 AND day_index < :days");
+        $stmt->bindValue(':window_start', $windowStart, PDO::PARAM_INT);
+        $stmt->bindValue(':start', $windowStart, PDO::PARAM_INT);
+        $stmt->bindValue(':end', $windowEnd, PDO::PARAM_INT);
+        $stmt->bindValue(':days', $days, PDO::PARAM_INT);
+        $stmt->execute();
+        $addRows($daily, $stmt->fetchAll(PDO::FETCH_ASSOC), $days);
+    } catch (Throwable $e) {
+        error_log('bot_daily_sold_volume invoice: ' . $e->getMessage());
+    }
+
+    try {
+        $extraUnix = unix_column_epoch_sql('so.time');
+        $extraGbSql = bot_sql_extra_volume_gb('so.value');
+        $stmt = $pdo->prepare("SELECT FLOOR(($extraUnix - :window_start) / 86400) AS day_index,
+                COALESCE(SUM($extraGbSql), 0) AS volume
+            FROM service_other so
+            WHERE so.type = 'extra_user'
+              AND COALESCE(so.status,'') NOT IN ('unpaid','Unpaid','reject')
+              AND ($extraUnix) BETWEEN :start AND :end
+            GROUP BY day_index
+            HAVING day_index IS NOT NULL AND day_index >= 0 AND day_index < :days");
+        $stmt->bindValue(':window_start', $windowStart, PDO::PARAM_INT);
+        $stmt->bindValue(':start', $windowStart, PDO::PARAM_INT);
+        $stmt->bindValue(':end', $windowEnd, PDO::PARAM_INT);
+        $stmt->bindValue(':days', $days, PDO::PARAM_INT);
+        $stmt->execute();
+        $addRows($daily, $stmt->fetchAll(PDO::FETCH_ASSOC), $days);
+    } catch (Throwable $e) {
+        error_log('bot_daily_sold_volume extra: ' . $e->getMessage());
+    }
+
+    return $daily;
+}
+
+function forecast_monthly_sold_volume(PDO $pdo, ?int $startTs = null, ?int $endTs = null): ?float
+{
+    $window = forecast_monthly_complete_day_window($startTs, $endTs);
+    if ($window === null) {
+        return null;
+    }
+    return forecast_monthly_from_daily(
+        bot_daily_sold_volume($pdo, $window['start'], $window['end'], $window['days'])
+    );
+}
+
+function forecast_monthly_paid_income(PDO $pdo): float
+{
+    $window = forecast_monthly_complete_day_window();
+    if ($window === null) {
+        return 0.0;
+    }
+    $windowStart = $window['start'];
+    $windowEnd = $window['end'];
+    $days = $window['days'];
+
+    $unixExpr = unix_column_epoch_sql('time');
     $sql = "SELECT FLOOR(($unixExpr - :window_start) / 86400) AS day_index,
                    COALESCE(SUM(CAST(price AS DECIMAL(20,0))), 0) AS total
             FROM Payment_report
             WHERE " . paid_real_income_sql() . "
-              AND (
-                (time REGEXP '^[0-9]{9,}$' AND CAST(time AS UNSIGNED) BETWEEN :start AND :end)
-                OR (time NOT REGEXP '^[0-9]{9,}$' AND COALESCE(
-                      UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s')),
-                      UNIX_TIMESTAMP(STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s'))
-                    ) BETWEEN :start2 AND :end2)
-              )
+              AND ($unixExpr) BETWEEN :start AND :end
             GROUP BY day_index
             HAVING day_index IS NOT NULL AND day_index >= 0 AND day_index < :days";
     $stmt = $pdo->prepare($sql);
     $stmt->bindValue(':window_start', $windowStart, PDO::PARAM_INT);
     $stmt->bindValue(':start', $windowStart, PDO::PARAM_INT);
     $stmt->bindValue(':end', $windowEnd, PDO::PARAM_INT);
-    $stmt->bindValue(':start2', $windowStart, PDO::PARAM_INT);
-    $stmt->bindValue(':end2', $windowEnd, PDO::PARAM_INT);
     $stmt->bindValue(':days', $days, PDO::PARAM_INT);
     $stmt->execute();
 
@@ -1302,23 +1459,7 @@ function forecast_monthly_paid_income(PDO $pdo): float
         $daily[$idx] = (float) $row['total'];
     }
 
-    $sum28 = array_sum($daily);
-    if ($sum28 <= 0) {
-        return 0.0;
-    }
-
-    $sorted = $daily;
-    sort($sorted, SORT_NUMERIC);
-    $mid = intdiv($days, 2);
-    $median28 = ($days % 2 === 1)
-        ? (float) $sorted[$mid]
-        : ((float) $sorted[$mid - 1] + (float) $sorted[$mid]) / 2.0;
-
-    $runrate7 = (array_sum(array_slice($daily, -7)) / 7.0) * $monthLength;
-    $meanMonth = ($sum28 / $days) * $monthLength;
-    $medianMonth = $median28 * $monthLength;
-
-    return (0.5 * $runrate7) + (0.25 * $meanMonth) + (0.25 * $medianMonth);
+    return forecast_monthly_from_daily($daily);
 }
 
 function panel_is_hidden_from_user($panel, $user_id): bool

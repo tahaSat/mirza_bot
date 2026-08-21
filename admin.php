@@ -281,6 +281,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $ratetest = $statistics > 0 ? round(($count_users_test / $statistics) * 100, 2) : 0;
     $avgbuy_customer = $statisticsorder > 0 ? number_format($invoiceTotal / $statisticsorder) : '0';
     $monthe_buy = number_format(forecast_monthly_paid_income($pdo));
+    $monthe_volume = bot_format_gb(forecast_monthly_sold_volume($pdo) ?? 0);
     $percent_of_extend = $invoiceTotal > 0 ? round(($extendsum / $invoiceTotal) * 100, 2) : 0;
     $percent_of_extend = $percent_of_extend > 100 ? 100 : $percent_of_extend;
     $firstPurchaseStats = bot_first_purchase_stats($pdo);
@@ -340,6 +341,7 @@ $soldVolumeText
 💳 <b>میانگین خرید هر مشتری:</b> <code>$avgbuy_customer</code> تومان  
 ⏱ <b>میانگین زمان عضویت تا اولین خرید:</b> <code>$avgJoinBuy</code>  
 📅 <b>درآمد پیش‌بینی‌شده ماهانه:</b> <code>$monthe_buy</code> تومان  
+🔋 <b>حجم فروخته‌شده پیش‌بینی‌شده ماهانه:</b> <code>$monthe_volume</code> گیگابایت  
 📊 <b>درصد تمدید از فروش:</b> <code>$percent_of_extend</code>٪  
 💚 <b>درصد وفاداری:</b> <code>$percent_of_loyalty</code>٪  
 

@@ -606,14 +606,182 @@ function panel_add_user_service(PDO $pdo, $userId, string $username, string $pan
 {
     panel_service_bootstrap();
     panel_usage_bootstrap();
-    return admin_provision_user_service($userId, [
+    $opts = [
         'panel' => $panelName,
         'product' => $productName,
         'username' => $username,
         'gb' => (int) ($extra['gb'] ?? 0),
         'months' => (int) ($extra['months'] ?? 0),
         'custom' => is_custom_service_product_choice(null, $productName),
-    ]);
+    ];
+    if (array_key_exists('record_payment', $extra)) {
+        $opts['record_payment'] = !empty($extra['record_payment']);
+    }
+    return admin_provision_user_service($userId, $opts);
+}
+
+/**
+ * Extend an existing service using a catalog/custom product, same Methodextend as the user bot.
+ *
+ * @param array{gb?:int,months?:int,custom?:bool,record_payment?:bool} $extra
+ * @return array{ok:bool,msg:string}
+ */
+function panel_extend_user_service(PDO $pdo, $userId, string $idInvoice, string $productName, array $extra = []): array
+{
+    panel_service_bootstrap();
+    panel_usage_bootstrap();
+    global $ManagePanel;
+
+    $userId = (string) $userId;
+    $idInvoice = trim($idInvoice);
+    if ($idInvoice === '') {
+        return ['ok' => false, 'msg' => 'شناسه سرویس نامعتبر است.'];
+    }
+
+    $invoice = db_fetch($pdo, 'SELECT * FROM invoice WHERE id_invoice = ? AND id_user = ?', [$idInvoice, $userId]);
+    if (!$invoice) {
+        return ['ok' => false, 'msg' => 'سرویس یافت نشد یا متعلق به این کاربر نیست.'];
+    }
+    if (!in_array(panel_invoice_get_status($invoice), panel_invoice_active_statuses(), true)) {
+        return ['ok' => false, 'msg' => 'این سرویس قابل تمدید نیست.'];
+    }
+
+    $panelName = trim((string) ($invoice['Service_location'] ?? ''));
+    $panel = db_fetch($pdo, 'SELECT * FROM marzban_panel WHERE name_panel = ?', [$panelName]);
+    if (!$panel) {
+        return ['ok' => false, 'msg' => 'پنل سرویس یافت نشد.'];
+    }
+
+    $user = db_fetch($pdo, 'SELECT * FROM user WHERE id = ?', [$userId]);
+    if (!$user) {
+        return ['ok' => false, 'msg' => 'کاربر یافت نشد.'];
+    }
+
+    $productName = trim($productName);
+    $gb = (int) ($extra['gb'] ?? 0);
+    $months = (int) ($extra['months'] ?? 0);
+    $recordPayment = !array_key_exists('record_payment', $extra) || !empty($extra['record_payment']);
+    $isCustom = !empty($extra['custom']) || is_custom_service_product_choice($panel, $productName);
+
+    if ($isCustom) {
+        if (($panel['type'] ?? '') === 'Manualsale') {
+            return ['ok' => false, 'msg' => 'سرویس دلخواه برای فروش دستی در دسترس نیست.'];
+        }
+        $minVol = (int) panel_agent_field($panel, 'mainvolume', (string) ($user['agent'] ?? 'f'), '1');
+        $maxVol = (int) panel_agent_field($panel, 'maxvolume', (string) ($user['agent'] ?? 'f'), '1000');
+        if ($gb < $minVol || $gb > $maxVol) {
+            return ['ok' => false, 'msg' => "حجم باید بین {$minVol} تا {$maxVol} گیگابایت باشد."];
+        }
+        if (!panel_custom_month_option($panel, $months)) {
+            return ['ok' => false, 'msg' => 'مدت انتخاب‌شده نامعتبر است.'];
+        }
+        $days = panel_custom_months_to_days($months);
+        $price = panel_custom_service_price_for_user($panel, $user, $gb, $days);
+        if ($price === null) {
+            return ['ok' => false, 'msg' => 'قیمت سرویس دلخواه قابل محاسبه نیست.'];
+        }
+        $infoProduct = [
+            'Volume_constraint' => $gb,
+            'name_product' => panel_custom_button_text($panel),
+            'code_product' => 'custom_volume',
+            'Service_time' => $days,
+            'price_product' => $price,
+        ];
+    } else {
+        if ($productName === '') {
+            return ['ok' => false, 'msg' => 'محصول را انتخاب کنید.'];
+        }
+        $stmt = $pdo->prepare("SELECT * FROM product WHERE name_product = ? AND (Location = ? OR Location = '/all') LIMIT 1");
+        $stmt->execute([$productName, $panelName]);
+        $infoProduct = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$infoProduct) {
+            return ['ok' => false, 'msg' => 'محصول انتخاب‌شده برای این پنل یافت نشد.'];
+        }
+    }
+
+    $gate = extend_can_proceed($panel, $infoProduct);
+    if (!$gate['ok']) {
+        return ['ok' => false, 'msg' => $gate['msg']];
+    }
+
+    if (!class_exists('ManagePanel', false)) {
+        require_once dirname(__DIR__, 2) . '/panels.php';
+    }
+    if (!isset($ManagePanel) || !is_object($ManagePanel)) {
+        $ManagePanel = new ManagePanel();
+    }
+
+    $username = (string) ($invoice['username'] ?? '');
+    $liveUser = $ManagePanel->DataUser($panelName, $username);
+    if (!is_array($liveUser)) {
+        $liveUser = [];
+    }
+    $extend = $ManagePanel->extend(
+        (string) ($panel['Methodextend'] ?? 'ریست حجم و زمان'),
+        $infoProduct['Volume_constraint'],
+        $infoProduct['Service_time'],
+        $username,
+        (string) $infoProduct['code_product'],
+        (string) ($panel['code_panel'] ?? '')
+    );
+    if (($extend['status'] ?? false) == false) {
+        $err = $extend['msg'] ?? 'unknown';
+        if (!is_string($err)) {
+            $err = json_encode($err);
+        }
+        return ['ok' => false, 'msg' => 'خطا در تمدید سرویس: ' . $err];
+    }
+
+    if (($invoice['name_product'] ?? '') === 'سرویس تست') {
+        db_query(
+            $pdo,
+            'UPDATE invoice SET name_product = ?, price_product = ? WHERE id_invoice = ?',
+            [$infoProduct['name_product'], $infoProduct['price_product'], $idInvoice]
+        );
+    }
+
+    $orderId = bin2hex(random_bytes(5));
+    $value = json_encode([
+        'volumebuy' => $infoProduct['Volume_constraint'],
+        'Service_time' => $infoProduct['Service_time'],
+        'oldvolume' => $liveUser['data_limit'] ?? null,
+        'oldtime' => $liveUser['expire'] ?? null,
+        'code_product' => $infoProduct['code_product'],
+        'name_product' => $infoProduct['name_product'],
+        'id_order' => $orderId,
+    ], JSON_UNESCAPED_UNICODE);
+    $output = json_encode($extend);
+    $dateacc = date('Y/m/d H:i:s');
+    $price = (string) max(0, (int) ($infoProduct['price_product'] ?? 0));
+    $type = 'extend_user_by_admin';
+    $status = 'paid';
+
+    db_query(
+        $pdo,
+        'INSERT INTO service_other (id_user, username, value, type, time, price, output, status) VALUES (?,?,?,?,?,?,?,?)',
+        [$userId, $username, $value, $type, $dateacc, $price, $output, $status]
+    );
+
+    if ($recordPayment) {
+        record_admin_extend_payment(
+            $pdo,
+            $userId,
+            $infoProduct['price_product'] ?? 0,
+            $username,
+            (string) ($infoProduct['name_product'] ?? ''),
+            $orderId
+        );
+    }
+
+    db_query($pdo, "UPDATE invoice SET Status = 'active' WHERE id_invoice = ?", [$idInvoice]);
+
+    $priceFmt = number_format((int) ($infoProduct['price_product'] ?? 0));
+    panel_notify_user(
+        $userId,
+        "✅ سرویس شما توسط ادمین تمدید شد.\n\n▫️نام سرویس : {$username}\n▫️نام محصول : {$infoProduct['name_product']}\n▫️مبلغ تمدید {$priceFmt} تومان"
+    );
+
+    return ['ok' => true, 'msg' => 'سرویس «' . $username . '» با موفقیت تمدید شد.'];
 }
 
 /**

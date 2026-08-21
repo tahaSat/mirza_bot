@@ -144,6 +144,7 @@ $serviceTypeLabelMap = $serviceTypeMap + [
 $paymentServiceTypeMap = [
   'order' => 'خرید سرویس',
   'extend_user' => 'تمدید',
+  'extend_user_by_admin' => 'تمدید توسط ادمین',
   'extra_user' => 'افزایش حجم',
   'extra_time_user' => 'افزایش زمان',
   'wallet' => 'شارژ کیف پول',
@@ -189,6 +190,7 @@ if ($tab === 'payments') {
            END AS transaction_epoch,
            payment_Status AS transaction_status,
            CASE
+             WHEN Payment_Method = 'extend by admin' THEN 'extend_user_by_admin'
              WHEN id_invoice LIKE 'getconfigafterpay|%' THEN 'order'
              WHEN id_invoice LIKE 'getextenduser|%' THEN 'extend_user'
              WHEN id_invoice LIKE 'getextravolumeuser|%' THEN 'extra_user'

@@ -310,6 +310,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
                 'Star Telegram' => $datatextbot['text_star_telegram'],
                 'tetraminator' => $datatextbot['tetraminator'] ?? 'Tetraminator',
                 'add order by admin' => 'سفارش توسط ادمین',
+                'extend by admin' => 'تمدید توسط ادمین',
 
             ][$tracepay['Payment_Method']] ?? ($tracepay['Payment_Method'] ?: 'سایر');
             $paycount .= "

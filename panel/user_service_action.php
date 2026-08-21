@@ -49,9 +49,31 @@ switch ($action) {
             [
                 'gb' => (int) ($_POST['custom_gb'] ?? 0),
                 'months' => (int) ($_POST['custom_months'] ?? 0),
+                'record_payment' => !empty($_POST['record_payment']),
             ]
         );
         flash($result['ok'] ? 'success' : 'error', $result['msg']);
+        break;
+
+    case 'extend_service':
+        $idInvoice = trim((string) ($_POST['id_invoice'] ?? ''));
+        $result = panel_extend_user_service(
+            $pdo,
+            $userId,
+            $idInvoice,
+            (string) ($_POST['product'] ?? ''),
+            [
+                'gb' => (int) ($_POST['custom_gb'] ?? 0),
+                'months' => (int) ($_POST['custom_months'] ?? 0),
+                'record_payment' => !empty($_POST['record_payment']),
+            ]
+        );
+        flash($result['ok'] ? 'success' : 'error', $result['msg']);
+        error_log(
+            "Admin {$_SESSION['admin_user']} extended service $idInvoice for user $userId"
+            . ' product=' . (string) ($_POST['product'] ?? '')
+            . ' payment=' . (!empty($_POST['record_payment']) ? '1' : '0')
+        );
         break;
 
     case 'remove_service':

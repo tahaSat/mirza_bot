@@ -438,6 +438,47 @@ function record_admin_order_payment(PDO $pdo, $userId, $price, string $username,
     }
 }
 
+/**
+ * Record a paid extend payment created by admin (web panel).
+ * Linked as getextenduser|{username}%{orderId} so reports treat it as an extend.
+ */
+function record_admin_extend_payment(PDO $pdo, $userId, $price, string $username, string $productName = '', string $orderId = ''): ?string
+{
+    if ($userId === null || $userId === '' || trim($username) === '') {
+        return null;
+    }
+    $dateacc = date('Y/m/d H:i:s');
+    if ($orderId === '' || strlen($orderId) < 4) {
+        $orderId = bin2hex(random_bytes(5));
+    }
+    $invoiceRef = 'getextenduser|' . $username . '%' . $orderId;
+    $noteParts = ['تمدید توسط ادمین'];
+    if ($productName !== '') {
+        $noteParts[] = $productName;
+    }
+    $note = implode(' | ', $noteParts);
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            (string) $userId,
+            $orderId,
+            $dateacc,
+            (string) max(0, (int) $price),
+            'paid',
+            'extend by admin',
+            $invoiceRef,
+            $note,
+        ]);
+        return $orderId;
+    } catch (Throwable $e) {
+        error_log('record_admin_extend_payment: ' . $e->getMessage());
+        return null;
+    }
+}
+
 function unix_column_epoch_sql(string $column): string
 {
     return "CASE
@@ -2517,7 +2558,7 @@ function is_custom_service_product_choice($panel, string $productName): bool
 /**
  * Create a catalog or custom service for a user from admin (web panel / Telegram).
  *
- * @param array{panel:string,product?:string,username?:string,gb?:int,months?:int,custom?:bool} $opts
+ * @param array{panel:string,product?:string,username?:string,gb?:int,months?:int,custom?:bool,record_payment?:bool} $opts
  * @return array{ok:bool,msg:string,username?:string}
  */
 function admin_provision_user_service($userId, array $opts): array
@@ -2635,14 +2676,17 @@ function admin_provision_user_service($userId, array $opts): array
         $notifctions,
     ]);
 
-    record_admin_order_payment(
-        $pdo,
-        $userId,
-        $info_product['price_product'] ?? 0,
-        $username,
-        $idInvoice,
-        (string) ($info_product['name_product'] ?? '')
-    );
+    $recordPayment = !array_key_exists('record_payment', $opts) || !empty($opts['record_payment']);
+    if ($recordPayment) {
+        record_admin_order_payment(
+            $pdo,
+            $userId,
+            $info_product['price_product'] ?? 0,
+            $username,
+            $idInvoice,
+            (string) ($info_product['name_product'] ?? '')
+        );
+    }
 
     bump_username_sequence_counters($panel, $userId);
 

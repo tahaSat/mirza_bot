@@ -826,6 +826,7 @@ function panel_payment_method_map(): array
         'tetraminator' => 'Tetraminator',
         'manual invoice' => 'فاکتور دستی',
         'add order by admin' => 'سفارش توسط ادمین',
+        'extend by admin' => 'تمدید توسط ادمین',
         'refund to wallet' => 'مرجوعی به کیف پول',
     ];
 }
@@ -1130,7 +1131,7 @@ function panel_payment_set_status(
     $leavingPaid = $wasPaid && $newStatus !== 'paid';
     $method = (string) ($payment['Payment_Method'] ?? '');
     $idInvoice = (string) ($payment['id_invoice'] ?? '');
-    $skipWalletClawback = in_array($method, ['add balance by admin', 'low balance by admin', 'add order by admin', 'refund to wallet', 'cost'], true)
+    $skipWalletClawback = in_array($method, ['add balance by admin', 'low balance by admin', 'add order by admin', 'extend by admin', 'refund to wallet', 'cost'], true)
         || $idInvoice === 'manual'
         || $idInvoice === 'cost';
 
@@ -1197,12 +1198,16 @@ function panel_payment_reject_linked_order(PDO $pdo, array $payment): string
     ];
     if (isset($map[$type]) && $payload !== '') {
         $username = explode('%', $payload, 2)[0];
+        $serviceType = $map[$type];
+        if ($type === 'getextenduser' && ($payment['Payment_Method'] ?? '') === 'extend by admin') {
+            $serviceType = 'extend_user_by_admin';
+        }
         $row = db_fetch(
             $pdo,
             "SELECT id FROM service_other
              WHERE id_user = ? AND username = ? AND type = ?
              ORDER BY id DESC LIMIT 1",
-            [$payment['id_user'], $username, $map[$type]]
+            [$payment['id_user'], $username, $serviceType]
         );
         if ($row) {
             db_query($pdo, "UPDATE service_other SET status = 'reject' WHERE id = ?", [$row['id']]);

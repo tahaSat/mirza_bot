@@ -34,9 +34,12 @@ try {
         return ($row['status'] ?? '') === 'active';
     }));
     $panels = $activePanels ?: $panelRows;
-    $products = db_fetchAll($pdo, "SELECT name_product, Location FROM product ORDER BY name_product");
+    $products = db_fetchAll(
+        $pdo,
+        "SELECT name_product, Location, price_product, Volume_constraint, Service_time FROM product ORDER BY name_product"
+    );
     $userAgent = (string) ($user['agent'] ?? 'f');
-    foreach ($panels as $pr) {
+    foreach ($panelRows as $pr) {
         $name = (string) ($pr['name_panel'] ?? '');
         if ($name === '') {
             continue;
@@ -100,7 +103,7 @@ include __DIR__ . '/inc/layout_head.php';
                     <th>باقیمانده زمان</th>
                     <th>تاریخ خرید</th>
                     <th>وضعیت</th>
-                    <th style="width:120px"></th>
+                    <th style="width:156px"></th>
                 </tr>
             </thead>
             <tbody>
@@ -140,6 +143,13 @@ include __DIR__ . '/inc/layout_head.php';
                                         title="جستجو در سفارشات">
                                         <?= icon('search', 13) ?>
                                     </a>
+                                    <button type="button" class="btn btn-ghost btn-sm btn-icon btn-extend-service"
+                                        title="تمدید سرویس"
+                                        data-invoice="<?= htmlspecialchars($svc['id_invoice'] ?? '') ?>"
+                                        data-username="<?= htmlspecialchars($svc['username'] ?? '') ?>"
+                                        data-panel="<?= htmlspecialchars($svc['Service_location'] ?? '') ?>">
+                                        <?= icon('refresh', 13) ?>
+                                    </button>
                                     <button type="button" class="btn btn-ghost btn-sm btn-icon btn-refund-service"
                                         title="مرجوعی"
                                         data-invoice="<?= htmlspecialchars($svc['id_invoice'] ?? '') ?>"
@@ -222,10 +232,60 @@ include __DIR__ . '/inc/layout_head.php';
                         placeholder="مثلاً user_5016" autocomplete="off">
                     <span class="field-hint">فقط برای روش «نام کاربری دلخواه» روی این پنل</span>
                 </div>
+                <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
+                    <input type="checkbox" name="record_payment" value="1" checked style="width:16px;height:16px;margin-top:3px">
+                    <span>پرداخت جدید ثبت شود؟ <span class="cf">(سفارش توسط ادمین)</span></span>
+                </label>
             </div>
             <div class="modal-foot">
                 <button type="submit" class="btn btn-primary"><?= icon('plus', 13) ?> ایجاد سرویس</button>
                 <button type="button" class="btn btn-ghost" onclick="closeModal('addServiceModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="extendServiceModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h3>تمدید سرویس</h3>
+            <button type="button" class="modal-x" onclick="closeModal('extendServiceModal')"><?= icon('close', 14) ?></button>
+        </div>
+        <form method="POST" action="user_service_action.php" id="extendServiceForm">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="extend_service">
+                <input type="hidden" name="user_id" value="<?= $id ?>">
+                <input type="hidden" name="id_invoice" id="extendInvoiceId" value="">
+                <p id="extendServiceText" style="font-size:.88rem;color:var(--mute);line-height:1.7;margin-bottom:14px"></p>
+                <div class="field">
+                    <label>محصول تمدید</label>
+                    <select name="product" id="extendProduct" class="select" required>
+                        <option value="">انتخاب محصول...</option>
+                    </select>
+                    <span class="field-hint" id="extendProductHint"></span>
+                </div>
+                <div id="extendCustomFields" hidden>
+                    <div class="field">
+                        <label>حجم (گیگابایت)</label>
+                        <input type="number" name="custom_gb" id="extendCustomGb" class="input" min="1" step="1">
+                        <span class="field-hint" id="extendCustomGbHint"></span>
+                    </div>
+                    <div class="field">
+                        <label>مدت سرویس</label>
+                        <select name="custom_months" id="extendCustomMonths" class="select">
+                            <option value="">انتخاب مدت...</option>
+                        </select>
+                    </div>
+                </div>
+                <label style="display:flex;align-items:flex-start;gap:8px;font-size:.85rem;cursor:pointer;line-height:1.6">
+                    <input type="checkbox" name="record_payment" value="1" checked style="width:16px;height:16px;margin-top:3px">
+                    <span>پرداخت جدید ثبت شود؟ <span class="cf">(تمدید توسط ادمین)</span></span>
+                </label>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-primary"><?= icon('refresh', 13) ?> تمدید سرویس</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('extendServiceModal')">انصراف</button>
             </div>
         </form>
     </div>

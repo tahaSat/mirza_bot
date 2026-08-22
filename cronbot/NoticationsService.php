@@ -131,12 +131,15 @@ class ServiceMonitor
             $message = "با سلام خدمت شما کاربر گرامی 👋\n" .
                 "🚨 از حجم سرویس {$username} تنها {$formattedVolume} باقی مانده است. " .
                 "لطفاً در صورت تمایل برای خرید حجم اضافه و یا تمدید سرویستون از طریق بخش «{$this->text_Purchased_services}» اقدام بفرمایین";
+            $notice = invoice_volume_cron_auto_renew_notice($invoice, $this->textBotLang);
+            $message .= $notice['text'];
             $reportMessage = "📌 اطلاعیه کرون حجم\n\n" .
                 "نام کاربری سرویس :‌ <code>{$username}</code>\n" .
                 "آیدی عددی کاربر :‌ <code>{$invoice['id_user']}</code>\n" .
                 "وضعیت سرویس : {$userData['status']}\n" .
                 "حجم باقی مانده : {$formattedVolume}";
-            $this->send_notifactions($invoice, $user, $message, true, $invoice['bottype']);
+            $keyboard = invoice_volume_cron_keyboard($invoice, $this->textBotLang);
+            $this->send_notifactions($invoice, $user, $message, true, $invoice['bottype'], $keyboard);
             $this->sendReportNotification($reportMessage);
             $this->updateInvoiceStatus("volume", $invoice);
             return true;
@@ -257,11 +260,12 @@ class ServiceMonitor
         }
     }
 
-    private function send_notifactions($invoice, $status_cron_user, $message, $keyboard_active, $bot_token)
+    private function send_notifactions($invoice, $status_cron_user, $message, $keyboard_active, $bot_token, $customKeyboard = null)
     {
-        if (intval($status_cron_user) == 0)
+        $statusCron = is_array($status_cron_user) ? ($status_cron_user['status_cron'] ?? 1) : $status_cron_user;
+        if (intval($statusCron) == 0)
             return;
-        $keyboard = $this->createExtendServiceKeyboard($invoice['id_invoice']);
+        $keyboard = $customKeyboard ?: $this->createExtendServiceKeyboard($invoice['id_invoice']);
         $keyboard = $keyboard_active ? $keyboard : null;
         sendmessage($invoice['id_user'], $message, $keyboard, 'HTML', $bot_token);
     }

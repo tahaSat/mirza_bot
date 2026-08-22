@@ -28,13 +28,6 @@ if($data['action'] == "reached_usage_percent"){
     $output =  $data['data_limit'] - $data['used_traffic'];
     $RemainingVolume = formatBytes($output);
     $data_limit = formatBytes($data['data_limit']);
-    $Response = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => "💊 تمدید سرویس", 'callback_data' => 'extend_' . $invoice['id_invoice']],
-            ],
-        ]
-    ]);
     $panelUser = $data;
     if (is_array($user) && invoice_auto_renew_is_on($invoice) && invoice_auto_renew_volume_low($panelUser, $setting['volumewarn'] ?? 0)) {
         $panelInfo = select("marzban_panel", "*", "name_panel", $invoice['Service_location'], "select");
@@ -43,9 +36,11 @@ if($data['action'] == "reached_usage_percent"){
             return;
         }
     }
+    $notice = invoice_volume_cron_auto_renew_notice($invoice);
     $text = "با سلام خدمت شما کاربر گرامی 👋
-🚨 از حجم سرویس $line تنها $RemainingVolume باقی مانده است. لطفاً در صورت تمایل برای تمدید سرویستون از طریق بخش «{$textservice}» اقدام بفرمایین";
-if(intval($user['status_cron']) != 0){
+🚨 از حجم سرویس $line تنها $RemainingVolume باقی مانده است. لطفاً در صورت تمایل برای تمدید سرویستون از طریق بخش «{$textservice}» اقدام بفرمایین" . $notice['text'];
+    $Response = invoice_volume_cron_keyboard($invoice);
+if(is_array($user) && intval($user['status_cron'] ?? 1) != 0){
     sendmessage($invoice['id_user'], $text, $Response, 'HTML');
 }
     $text_report = "📌 اطلاعیه کرون حجم

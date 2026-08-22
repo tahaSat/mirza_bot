@@ -4017,6 +4017,47 @@ function invoice_auto_renew_button_label($invoice, $textbotlang = null): string
     return $on ? $onLabel : $offLabel;
 }
 
+function invoice_volume_cron_auto_renew_notice($invoice, $textbotlang = null): array
+{
+    $offText = '💡 با روشن کردن تمدید خودکار برای این سرویس و شارژ کیف پول، این اشتراک خود را همیشه متصل نگه دارید';
+    $onText = '✅ تمدید خودکار برای این سرویس روشن است.';
+    $enableLabel = '✅ روشن کردن تمدید خودکار';
+    if (is_array($textbotlang)) {
+        $offText = $textbotlang['users']['extend']['autorenew_cron_off'] ?? $offText;
+        $onText = $textbotlang['users']['extend']['autorenew_cron_on'] ?? $onText;
+        $enableLabel = $textbotlang['users']['extend']['autorenew_cron_enable'] ?? $enableLabel;
+    }
+    if (invoice_auto_renew_is_on($invoice)) {
+        return [
+            'text' => "\n\n" . $onText,
+            'button' => null,
+        ];
+    }
+    $invoiceId = (string) ($invoice['id_invoice'] ?? '');
+    return [
+        'text' => "\n\n" . $offText,
+        'button' => $invoiceId === '' ? null : [
+            'text' => $enableLabel,
+            'callback_data' => 'autorenew_' . $invoiceId,
+        ],
+    ];
+}
+
+function invoice_volume_cron_keyboard($invoice, $textbotlang = null): string
+{
+    $invoiceId = (string) ($invoice['id_invoice'] ?? '');
+    $rows = [
+        [
+            ['text' => '💊 تمدید سرویس', 'callback_data' => 'extend_' . $invoiceId],
+        ],
+    ];
+    $notice = invoice_volume_cron_auto_renew_notice($invoice, $textbotlang);
+    if (!empty($notice['button'])) {
+        $rows[] = [$notice['button']];
+    }
+    return json_encode(['inline_keyboard' => $rows]);
+}
+
 function invoice_is_custom_volume_product($invoice, $codeProduct = ''): bool
 {
     $name = (string) ($invoice['name_product'] ?? '');

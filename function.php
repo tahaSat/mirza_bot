@@ -10625,6 +10625,10 @@ function channel_post_attach_reply_markup($chat_id, $send_result, $btn_keyboard)
     if ($message_id <= 0) {
         return $send_result;
     }
+    $existing = $send_result['result']['reply_markup'] ?? null;
+    if (is_array($existing) && !empty($existing['inline_keyboard'])) {
+        return $send_result;
+    }
     $edit = telegram('editMessageReplyMarkup', [
         'chat_id' => $chat_id,
         'message_id' => $message_id,
@@ -10644,54 +10648,68 @@ function channel_post_attach_reply_markup($chat_id, $send_result, $btn_keyboard)
     return $send_result;
 }
 
-function channel_post_delete_message($chat_id, $send_result)
+function channel_post_entities_without_custom_emoji(array $entities): array
 {
-    $message_id = intval($send_result['result']['message_id'] ?? 0);
-    if ($message_id <= 0) {
-        return;
+    $out = [];
+    foreach ($entities as $entity) {
+        if (!is_array($entity)) {
+            continue;
+        }
+        if (($entity['type'] ?? '') === 'custom_emoji') {
+            continue;
+        }
+        $out[] = $entity;
     }
-    telegram('deletemessage', [
-        'chat_id' => $chat_id,
-        'message_id' => $message_id,
-    ]);
+    return $out;
 }
 
 /**
- * Compose a post from stored original text + Telegram entities (no parse_mode).
- * Keyboard is attached afterwards so custom emoji are not stripped.
+ * Compose a native channel post from stored text + Telegram entities (no parse_mode).
+ * The inline keyboard is sent with the message so it is not dropped.
  */
-function compose_channel_post($chat_id, array $userdata)
+function compose_channel_post($chat_id, array $userdata, $btn_keyboard = null)
 {
     $is_photo = (($userdata['messagemediatype'] ?? 'text') == 'photo') && !empty($userdata['photoid']);
     $raw = channel_post_source_text($userdata);
     $entities = channel_post_source_entities($userdata);
-    $entities_json = $entities === [] ? '' : json_encode($entities, JSON_UNESCAPED_UNICODE);
+    $attempts = [$entities];
+    if (telegram_entities_have_custom_emoji($entities)) {
+        $attempts[] = channel_post_entities_without_custom_emoji($entities);
+    }
 
-    if ($is_photo) {
-        $params = [
-            'chat_id' => $chat_id,
-            'photo' => $userdata['photoid'],
-        ];
-        if ($raw !== '') {
-            $params['caption'] = $raw;
-            if ($entities_json !== '') {
-                $params['caption_entities'] = $entities_json;
+    $last = ['ok' => false, 'description' => 'message text is empty'];
+    foreach ($attempts as $use_entities) {
+        $entities_json = $use_entities === [] ? '' : json_encode($use_entities, JSON_UNESCAPED_UNICODE);
+        if ($is_photo) {
+            $params = [
+                'chat_id' => $chat_id,
+                'photo' => $userdata['photoid'],
+            ];
+            if ($raw !== '') {
+                $params['caption'] = $raw;
+                if ($entities_json !== '') {
+                    $params['caption_entities'] = $entities_json;
+                }
             }
+            $last = telegram_with_optional_premium_markup('sendphoto', $params, $btn_keyboard);
+        } else {
+            if ($raw === '') {
+                return $last;
+            }
+            $params = [
+                'chat_id' => $chat_id,
+                'text' => $raw,
+            ];
+            if ($entities_json !== '') {
+                $params['entities'] = $entities_json;
+            }
+            $last = telegram_with_optional_premium_markup('sendmessage', $params, $btn_keyboard);
         }
-        return telegram('sendphoto', $params);
+        if (is_array($last) && !empty($last['ok'])) {
+            return $last;
+        }
     }
-
-    if ($raw === '') {
-        return ['ok' => false, 'description' => 'message text is empty'];
-    }
-    $params = [
-        'chat_id' => $chat_id,
-        'text' => $raw,
-    ];
-    if ($entities_json !== '') {
-        $params['entities'] = $entities_json;
-    }
-    return telegram('sendmessage', $params);
+    return $last;
 }
 
 function telegram_with_optional_premium_markup($method, array $params, $btn_keyboard = null)
@@ -10707,12 +10725,16 @@ function telegram_with_optional_premium_markup($method, array $params, $btn_keyb
         return $result;
     }
     $stripped = broadcast_keyboard_without_premium_fields($btn_keyboard);
-    if ($stripped === $btn_keyboard) {
-        return $result;
+    if ($stripped !== $btn_keyboard) {
+        $params['reply_markup'] = $stripped;
+        $retry = telegram($method, $params);
+        if (is_array($retry) && !empty($retry['ok'])) {
+            return $retry;
+        }
     }
-    $params['reply_markup'] = $stripped;
-    $retry = telegram($method, $params);
-    return (is_array($retry) && !empty($retry['ok'])) ? $retry : $result;
+    unset($params['reply_markup']);
+    $plain = telegram($method, $params);
+    return (is_array($plain) && !empty($plain['ok'])) ? $plain : $result;
 }
 
 function compose_channel_post_html($chat_id, array $userdata, $btn_keyboard = null)
@@ -10739,43 +10761,27 @@ function compose_channel_post_html($chat_id, array $userdata, $btn_keyboard = nu
 }
 
 /**
- * Publish an admin-authored post to a channel, keeping Premium custom emoji when possible.
+ * Publish an admin-authored post to a channel as an original post (never forwarded).
+ * Forwarding kept Premium emoji but Telegram does not allow inline buttons on forwarded
+ * channel posts, so buttons are sent with the native message instead.
  */
 function publish_channel_post($channel_id, array $userdata, $btn_keyboard = null)
 {
     $source_message_id = intval($userdata['source_message_id'] ?? 0);
     $source_chat_id = $userdata['source_chat_id'] ?? '';
     $has_source = $source_message_id > 0 && $source_chat_id !== '' && $source_chat_id !== null;
-    $has_custom = telegram_entities_have_custom_emoji(channel_post_source_entities($userdata));
 
-    $composed = compose_channel_post($channel_id, $userdata);
+    $composed = compose_channel_post($channel_id, $userdata, $btn_keyboard);
     if (is_array($composed) && !empty($composed['ok'])) {
-        $kept_custom = telegram_message_has_custom_emoji($composed['result'] ?? []);
-        if (!$has_custom || $kept_custom) {
-            return channel_post_attach_reply_markup($channel_id, $composed, $btn_keyboard);
-        }
-        channel_post_delete_message($channel_id, $composed);
-    }
-
-    // Channels do not get custom emoji from bot-composed/copied messages unless
-    // the bot has a Fragment username. Forwarding the original keeps them.
-    if ($has_custom && $has_source) {
-        $forwarded = telegram('forwardMessage', [
-            'chat_id' => $channel_id,
-            'from_chat_id' => $source_chat_id,
-            'message_id' => $source_message_id,
-        ]);
-        if (is_array($forwarded) && !empty($forwarded['ok'])) {
-            return channel_post_attach_reply_markup($channel_id, $forwarded, $btn_keyboard);
-        }
+        return channel_post_attach_reply_markup($channel_id, $composed, $btn_keyboard);
     }
 
     if ($has_source) {
-        $copied = telegram('copyMessage', [
+        $copied = telegram_with_optional_premium_markup('copyMessage', [
             'chat_id' => $channel_id,
             'from_chat_id' => $source_chat_id,
             'message_id' => $source_message_id,
-        ]);
+        ], $btn_keyboard);
         if (is_array($copied) && !empty($copied['ok'])) {
             return channel_post_attach_reply_markup($channel_id, $copied, $btn_keyboard);
         }
@@ -10790,17 +10796,17 @@ function send_channel_post_preview($admin_id, array $userdata, $btn_keyboard = n
     $source_chat_id = $userdata['source_chat_id'] ?? $admin_id;
     $preview = null;
     if ($source_message_id > 0) {
-        $preview = telegram('copyMessage', [
+        $preview = telegram_with_optional_premium_markup('copyMessage', [
             'chat_id' => $admin_id,
             'from_chat_id' => $source_chat_id,
             'message_id' => $source_message_id,
-        ]);
+        ], $btn_keyboard);
     }
     if (!is_array($preview) || empty($preview['ok'])) {
-        $preview = compose_channel_post($admin_id, $userdata);
+        $preview = compose_channel_post($admin_id, $userdata, $btn_keyboard);
     }
     if (!is_array($preview) || empty($preview['ok'])) {
-        $preview = compose_channel_post_html($admin_id, $userdata, null);
+        $preview = compose_channel_post_html($admin_id, $userdata, $btn_keyboard);
     }
     return channel_post_attach_reply_markup($admin_id, $preview, $btn_keyboard);
 }

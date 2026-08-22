@@ -4334,6 +4334,37 @@ function invoice_auto_renew_clear_insufficient($invoice): void
     invoice_notifctions_patch($invoice, ['auto_renew_insufficient' => false]);
 }
 
+function invoice_auto_renew_clear_prewarn($invoice): void
+{
+    $data = invoice_notifctions_decode($invoice);
+    if (empty($data['auto_renew_prewarn'])) {
+        return;
+    }
+    invoice_notifctions_patch($invoice, ['auto_renew_prewarn' => false]);
+}
+
+function invoice_auto_renew_final_price(array $product, array $user): int
+{
+    $price = (int) round((float) ($product['price_product'] ?? 0));
+    if (intval($user['pricediscount'] ?? 0) != 0) {
+        $price = (int) round($price - (($price * $user['pricediscount']) / 100));
+    }
+    return max(0, $price);
+}
+
+function invoice_auto_renew_balance_short(array $user, int $price): bool
+{
+    $agent = (string) ($user['agent'] ?? 'f');
+    $balance = (int) ($user['Balance'] ?? 0);
+    $notEnough = $balance < $price && $agent !== 'n2' && $price != 0;
+    if ($agent === 'n2' && intval($user['maxbuyagent'] ?? 0) != 0) {
+        if (($balance - $price) < intval('-' . $user['maxbuyagent'])) {
+            $notEnough = true;
+        }
+    }
+    return $notEnough;
+}
+
 function invoice_auto_renew_volume_low(array $userData, $volumewarnGb): bool
 {
     $dataLimit = (float) ($userData['data_limit'] ?? 0);
@@ -4399,6 +4430,101 @@ function invoice_auto_renew_should_run(array $invoice, array $userData, $setting
     }
     return invoice_auto_renew_volume_low($userData, $setting['volumewarn'] ?? 0)
         || invoice_auto_renew_time_low($userData, $setting['daywarn'] ?? 0, $invoice);
+}
+
+function invoice_auto_renew_volume_early(array $userData, $volumewarnGb): bool
+{
+    $dataLimit = (float) ($userData['data_limit'] ?? 0);
+    if ($dataLimit <= 0) {
+        return false;
+    }
+    $status = (string) ($userData['status'] ?? '');
+    if (!in_array($status, ['active', 'Unknown'], true)) {
+        return false;
+    }
+    $remaining = $dataLimit - (float) ($userData['used_traffic'] ?? 0);
+    $oneX = ((float) $volumewarnGb) * pow(1024, 3);
+    if ($oneX <= 0) {
+        return false;
+    }
+    return $remaining <= ($oneX * 2) && $remaining > $oneX;
+}
+
+function invoice_auto_renew_time_early(array $userData, $daywarn): bool
+{
+    $expire = (float) ($userData['expire'] ?? 0);
+    if ($expire <= 0) {
+        return false;
+    }
+    $status = (string) ($userData['status'] ?? '');
+    if (!in_array($status, ['active', 'Unknown'], true)) {
+        return false;
+    }
+    $remaining = $expire - time();
+    $oneX = ((int) $daywarn) * 86400;
+    if ($oneX <= 0) {
+        return false;
+    }
+    return $remaining <= ($oneX * 2) && $remaining > $oneX;
+}
+
+function invoice_auto_renew_in_early_window(array $invoice, array $userData, $setting = null): bool
+{
+    if (!invoice_auto_renew_is_on($invoice)) {
+        return false;
+    }
+    if (invoice_auto_renew_should_run($invoice, $userData, $setting)) {
+        return false;
+    }
+    if (!is_array($setting)) {
+        $setting = select('setting', '*') ?: [];
+    }
+    return invoice_auto_renew_volume_early($userData, $setting['volumewarn'] ?? 0)
+        || invoice_auto_renew_time_early($userData, $setting['daywarn'] ?? 0);
+}
+
+function invoice_auto_renew_wallet_prewarn(array $invoice, array $user, array $userData, $panel = null, $setting = null): void
+{
+    global $textbotlang;
+    if (!invoice_auto_renew_in_early_window($invoice, $userData, $setting)) {
+        invoice_auto_renew_clear_prewarn($invoice);
+        return;
+    }
+    $notif = invoice_notifctions_decode($invoice);
+    if (!empty($notif['auto_renew_prewarn'])) {
+        return;
+    }
+    $freshUser = select('user', '*', 'id', $invoice['id_user'], 'select');
+    if ($freshUser == false) {
+        return;
+    }
+    $user = $freshUser;
+    if (!is_array($panel)) {
+        $panel = select('marzban_panel', '*', 'name_panel', $invoice['Service_location'] ?? '', 'select');
+    }
+    if ($panel == false || in_array($panel['type'] ?? '', ['ibsng', 'mikrotik'], true)) {
+        return;
+    }
+    if (!extend_can_proceed($panel)['ok']) {
+        return;
+    }
+    $product = invoice_similar_extend_product($invoice, $user);
+    if ($product == false || !extend_can_proceed($panel, $product)['ok']) {
+        return;
+    }
+    $price = invoice_auto_renew_final_price($product, $user);
+    if (!invoice_auto_renew_balance_short($user, $price)) {
+        return;
+    }
+    if (!is_array($textbotlang)) {
+        $textbotlang = languagechange(__DIR__ . '/text.json');
+    }
+    $template = $textbotlang['users']['extend']['autorenew_prewarn']
+        ?? 'سرویس %s دارای تمدید خودکار می باشد اما اعتبار کیف پول شما کافی نیست. برای تمدید موفق، لطفا کیف پول خود را به مقدار حداقل %s شارژ نمایید.';
+    $message = sprintf($template, $invoice['username'] ?? '', number_format($price));
+    $botToken = (!empty($invoice['bottype']) && $invoice['bottype'] !== '0') ? $invoice['bottype'] : null;
+    sendmessage($invoice['id_user'], $message, null, 'HTML', $botToken);
+    invoice_notifctions_patch($invoice, ['auto_renew_prewarn' => true]);
 }
 
 function invoice_last_paid_extend_row($username)
@@ -4532,21 +4658,10 @@ function invoice_try_auto_renew(array $invoice, array $user, array $userData, $p
     if (!$extendGate['ok']) {
         return 'skipped';
     }
-    $price = (int) round((float) ($product['price_product'] ?? 0));
-    if (intval($user['pricediscount'] ?? 0) != 0) {
-        $price = (int) round($price - (($price * $user['pricediscount']) / 100));
-    }
-    if ($price < 0) {
-        $price = 0;
-    }
+    $price = invoice_auto_renew_final_price($product, $user);
     $agent = (string) ($user['agent'] ?? 'f');
     $balance = (int) ($user['Balance'] ?? 0);
-    $notEnough = $balance < $price && $agent !== 'n2' && $price != 0;
-    if ($agent === 'n2' && intval($user['maxbuyagent'] ?? 0) != 0) {
-        if (($balance - $price) < intval('-' . $user['maxbuyagent'])) {
-            $notEnough = true;
-        }
-    }
+    $notEnough = invoice_auto_renew_balance_short($user, $price);
     if (!is_array($textbotlang)) {
         $textbotlang = languagechange(__DIR__ . '/text.json');
     }

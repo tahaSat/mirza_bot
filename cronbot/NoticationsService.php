@@ -59,6 +59,7 @@ class ServiceMonitor
                     }
                 } else {
                     invoice_auto_renew_clear_insufficient($data['invoice']);
+                    invoice_auto_renew_wallet_prewarn($data['invoice'], $data['user'], $data['userData'], $data['panel'], $this->setting);
                 }
             }
             $result = false;

@@ -29,7 +29,7 @@ if($data['action'] == "reached_usage_percent"){
     $RemainingVolume = formatBytes($output);
     $data_limit = formatBytes($data['data_limit']);
     $panelUser = $data;
-    if (is_array($user) && invoice_auto_renew_is_on($invoice) && invoice_auto_renew_volume_low($panelUser, $setting['volumewarn'] ?? 0)) {
+    if (is_array($user) && invoice_auto_renew_should_run($invoice, $panelUser, $setting)) {
         $panelInfo = select("marzban_panel", "*", "name_panel", $invoice['Service_location'], "select");
         $autoRenewResult = invoice_try_auto_renew($invoice, $user, $panelUser, $panelInfo ?: null, $setting);
         if (in_array($autoRenewResult, ['renewed', 'insufficient', 'cooldown'], true)) {
@@ -78,16 +78,19 @@ elseif ($data['action'] == "reached_days_left"){
     }else{
         $day = $day. "روز";
     }
-    $Response = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => "💊 تمدید سرویس", 'callback_data' => 'extend_' . $invoice['id_invoice']],
-            ],
-        ]
-    ]);
+    $panelUser = $data;
+    if (is_array($user) && invoice_auto_renew_should_run($invoice, $panelUser, $setting)) {
+        $panelInfo = select("marzban_panel", "*", "name_panel", $invoice['Service_location'], "select");
+        $autoRenewResult = invoice_try_auto_renew($invoice, $user, $panelUser, $panelInfo ?: null, $setting);
+        if (in_array($autoRenewResult, ['renewed', 'insufficient', 'cooldown'], true)) {
+            return;
+        }
+    }
+    $notice = invoice_volume_cron_auto_renew_notice($invoice);
     $text = "با سلام خدمت شما کاربر گرامی 👋
-📌 از مهلت زمانی استفاده از سرویس {$invoice['username']} فقط $day باقی مانده است. لطفاً در صورت تمایل برای تمدید این سرویس، از طریق بخش «{$textservice}» اقدام بفرمایین. با تشکر از همراهی شما";
-if(intval($user['status_cron']) != 0){
+📌 از مهلت زمانی استفاده از سرویس {$invoice['username']} فقط $day باقی مانده است. لطفاً در صورت تمایل برای تمدید این سرویس، از طریق بخش «{$textservice}» اقدام بفرمایین. با تشکر از همراهی شما" . $notice['text'];
+    $Response = invoice_volume_cron_keyboard($invoice);
+if(is_array($user) && intval($user['status_cron'] ?? 1) != 0){
     sendmessage($invoice['id_user'], $text, $Response, 'HTML');
 }
     $text_report = "📌 اطلاعیه کرون زمان

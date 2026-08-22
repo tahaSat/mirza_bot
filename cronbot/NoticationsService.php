@@ -52,7 +52,7 @@ class ServiceMonitor
                 continue;
             $autoRenewResult = 'skipped';
             if (invoice_auto_renew_is_on($data['invoice'])) {
-                if (invoice_auto_renew_volume_low($data['userData'], $this->setting['volumewarn'])) {
+                if (invoice_auto_renew_should_run($data['invoice'], $data['userData'], $this->setting)) {
                     $autoRenewResult = invoice_try_auto_renew($data['invoice'], $data['user'], $data['userData'], $data['panel'], $this->setting);
                     if ($autoRenewResult === 'renewed') {
                         continue;
@@ -62,14 +62,14 @@ class ServiceMonitor
                 }
             }
             $result = false;
-            $skipVolumeWarn = in_array($autoRenewResult, ['renewed', 'insufficient', 'cooldown'], true);
-            if (!$skipVolumeWarn && empty($check_send['volume'])) {
+            $skipCronWarn = in_array($autoRenewResult, ['renewed', 'insufficient', 'cooldown'], true);
+            if (!$skipCronWarn && empty($check_send['volume'])) {
                 if ($this->status_cron['volume'])
                     $result = $this->checkVolumeThreshold($data['invoice'], $data['user'], $data['userData'], $invoice['username']);
             }
             if ($result)
                 $data['invoice'] = select("invoice", "*", "id_invoice", $invoice['id_invoice']);
-            if (!$check_send['time']) {
+            if (!$skipCronWarn && empty($check_send['time'])) {
                 if ($this->status_cron['day'])
                     $this->checkTimeExpiration($data['invoice'], $data['user'], $data['userData'], $invoice['username']);
             }
@@ -248,12 +248,15 @@ class ServiceMonitor
                 "📌 از مهلت زمانی استفاده از سرویس {$username} فقط {$daysRemaining} روز باقی مانده است. " .
                 "لطفاً در صورت تمایل برای تمدید این سرویس، از طریق بخش «{$this->text_Purchased_services}» اقدام بفرمایین. " .
                 "با تشکر از همراهی شما";
+            $notice = invoice_volume_cron_auto_renew_notice($invoice, $this->textBotLang);
+            $message .= $notice['text'];
             $reportMessage = "📌 اطلاعیه کرون زمان\n\n" .
                 "نام کاربری سرویس :‌ <code>{$invoice['username']}</code>\n" .
                 "آیدی عددی کاربر :‌ <code>{$invoice['id_user']}</code>\n" .
                 "وضعیت سرویس : {$userData['status']}\n" .
                 "تعداد روز باقی مانده ‌:‌{$daysRemaining}";
-            $this->send_notifactions($invoice, $user, $message, true, $invoice['bottype']);
+            $keyboard = invoice_volume_cron_keyboard($invoice, $this->textBotLang);
+            $this->send_notifactions($invoice, $user, $message, true, $invoice['bottype'], $keyboard);
             $this->sendReportNotification($reportMessage);
             $this->updateInvoiceStatus("time", $invoice);
             return true;

@@ -295,6 +295,9 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $avgJoinBuy = avg_join_to_first_purchase_label($pdo);
     $soldVolumeText = bot_format_sold_volume_block(bot_sold_volume_stats($pdo), true);
     $firstPurchaseText = bot_format_first_purchase_block($firstPurchaseStats, (int) $invoice, $invoicePaidSum, true);
+    $autoRenewStats = invoice_auto_renew_stats($pdo);
+    $autoRenewUsers = $autoRenewStats['users'];
+    $autoRenewServices = $autoRenewStats['services'];
     if (count($statispay) != 0) {
         foreach ($statispay as $tracepay) {
             $status_var = [
@@ -335,6 +338,8 @@ $firstPurchaseText
 💵 <b>جمع کل درآمد (پرداخت‌های موفق):</b> <code>$invoicesumall</code> تومان  
 💵 <b>جمع کل فروش سرویس های فعال:</b> <code>$invoicesum</code> تومان  
 🔄 <b>جمع کل تمدید:</b> <code>$extendsum</code> تومان  
+♻️ <b>کاربران با تمدید خودکار:</b> <code>$autoRenewUsers</code> نفر  
+♻️ <b>سرویس‌های تمدید خودکار:</b> <code>$autoRenewServices</code> عدد  
 $soldVolumeText
 
 📈 <b>نرخ تبدیل به مشتری:</b> <code>$ratecustomer</code>٪  

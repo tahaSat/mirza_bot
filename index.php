@@ -1495,9 +1495,10 @@ $textconnect
         ? ($textbotlang['users']['extend']['autorenew_enabled'] ?? '')
         : ($textbotlang['users']['extend']['autorenew_disabled'] ?? '');
     if ($turningOn) {
+        invoice_auto_renew_notify_enabled($nameloc, $from_id, $username ?? '', $first_name ?? '');
         $liveUser = $ManagePanel->DataUser($nameloc['Service_location'], $nameloc['username']);
         if (is_array($liveUser) && ($liveUser['status'] ?? '') !== 'Unsuccessful'
-            && invoice_auto_renew_volume_low($liveUser, $setting['volumewarn'] ?? 0)) {
+            && invoice_auto_renew_should_run($nameloc, $liveUser, $setting)) {
             invoice_try_auto_renew($nameloc, $user, $liveUser, $marzban_list_get, $setting);
         }
     }

@@ -4058,6 +4058,60 @@ function invoice_volume_cron_keyboard($invoice, $textbotlang = null): string
     return json_encode(['inline_keyboard' => $rows]);
 }
 
+function invoice_auto_renew_stats($db = null): array
+{
+    if (!($db instanceof PDO)) {
+        global $pdo;
+        $db = $pdo ?? null;
+    }
+    if (!($db instanceof PDO)) {
+        return ['users' => 0, 'services' => 0];
+    }
+    try {
+        $stmt = $db->query("SELECT COUNT(*) AS services, COUNT(DISTINCT id_user) AS users
+            FROM invoice
+            WHERE auto_renew = '1'
+              AND name_product != 'سرویس تست'
+              AND Status IN ('active','end_of_time','end_of_volume','sendedwarn','send_on_hold')");
+        $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : [];
+        return [
+            'users' => (int) ($row['users'] ?? 0),
+            'services' => (int) ($row['services'] ?? 0),
+        ];
+    } catch (PDOException $e) {
+        return ['users' => 0, 'services' => 0];
+    }
+}
+
+function invoice_auto_renew_notify_enabled(array $invoice, $fromId, $telegramUsername = '', $firstName = ''): void
+{
+    $setting = select('setting', '*');
+    if (!is_array($setting) || strlen($setting['Channel_Report'] ?? '') <= 0) {
+        return;
+    }
+    $otherreportRow = select('topicid', 'idreport', 'report', 'otherreport', 'select');
+    $otherreport = is_array($otherreportRow) ? ($otherreportRow['idreport'] ?? null) : null;
+    $tgUser = ltrim((string) $telegramUsername, '@');
+    $tgUser = $tgUser !== '' ? '@' . $tgUser : 'ندارد';
+    $firstName = $firstName !== '' ? $firstName : 'نامشخص';
+    $timeText = function_exists('jdate') ? jdate('Y/m/d H:i:s') : date('Y/m/d H:i:s');
+    $text_report = "♻️ یک کاربر تمدید خودکار را روشن کرد.
+
+▫️آیدی عددی کاربر : <code>{$fromId}</code>
+▫️نام کاربر : {$firstName}
+▫️نام کاربری تلگرام : {$tgUser}
+▫️نام کاربری سرویس : <code>{$invoice['username']}</code>
+▫️نام محصول : {$invoice['name_product']}
+▫️موقعیت سرویس : {$invoice['Service_location']}
+▫️زمان : {$timeText}";
+    telegram('sendmessage', [
+        'chat_id' => $setting['Channel_Report'],
+        'message_thread_id' => $otherreport,
+        'text' => $text_report,
+        'parse_mode' => 'HTML',
+    ]);
+}
+
 function invoice_is_custom_volume_product($invoice, $codeProduct = ''): bool
 {
     $name = (string) ($invoice['name_product'] ?? '');
@@ -4127,6 +4181,46 @@ function invoice_auto_renew_volume_low(array $userData, $volumewarnGb): bool
         return $remaining <= (50 * 1024 * 1024);
     }
     return true;
+}
+
+function invoice_auto_renew_time_low(array $userData, $daywarn, $invoice = null): bool
+{
+    $expire = (float) ($userData['expire'] ?? 0);
+    if ($expire <= 0) {
+        return false;
+    }
+    $status = (string) ($userData['status'] ?? '');
+    if (!in_array($status, ['active', 'Unknown', 'expired'], true)) {
+        return false;
+    }
+    if ($status === 'expired') {
+        return true;
+    }
+    $remaining = $expire - time();
+    $threshold = ((int) $daywarn) * 86400;
+    if ($remaining > $threshold) {
+        return false;
+    }
+    if ($remaining <= 0) {
+        return true;
+    }
+    $packageDays = is_array($invoice) ? (int) ($invoice['Service_time'] ?? 0) : 0;
+    if ($packageDays > 0 && ($packageDays * 86400) <= $threshold) {
+        return $remaining <= (6 * 3600);
+    }
+    return true;
+}
+
+function invoice_auto_renew_should_run(array $invoice, array $userData, $setting = null): bool
+{
+    if (!invoice_auto_renew_is_on($invoice)) {
+        return false;
+    }
+    if (!is_array($setting)) {
+        $setting = select('setting', '*') ?: [];
+    }
+    return invoice_auto_renew_volume_low($userData, $setting['volumewarn'] ?? 0)
+        || invoice_auto_renew_time_low($userData, $setting['daywarn'] ?? 0, $invoice);
 }
 
 function invoice_last_paid_extend_row($username)

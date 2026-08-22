@@ -8,16 +8,18 @@ $pdo = panel_ensure_pdo();
 date_default_timezone_set('Asia/Tehran');
 
 $metricDefs = [
-    'sales' => 'فروش روزانه',
+    'sales' => 'درآمد روزانه',
     'users' => 'کاربران جدید',
     'status' => 'وضعیت سفارش',
     'payments' => 'روش پرداخت',
 ];
 
 $saleTypeDefs = [
-    'all' => 'خرید و تمدید',
+    'all' => 'همه درآمدها',
     'buy' => 'فقط خرید',
     'extend' => 'فقط تمدید',
+    'extra' => 'حجم و زمان اضافه',
+    'wallet' => 'شارژ کیف پول',
 ];
 $saleType = (string) ($_GET['sale_type'] ?? 'all');
 if (!isset($saleTypeDefs[$saleType])) {
@@ -98,7 +100,9 @@ $userPerPage = 25;
 $userOffset = ($userPage - 1) * $userPerPage;
 
 $paidInvoiceSql = panel_invoice_paid_sql('Status');
-$extendPaidSql = panel_extend_paid_sql();
+$incomeSql = bot_payment_paid_income_sql();
+$purposeCaseSql = bot_payment_purpose_case_sql();
+$purposeWhereSql = bot_payment_purpose_filter_sql($saleType);
 
 $summary = [
     'orders' => 0,
@@ -107,10 +111,13 @@ $summary = [
     'buy_revenue' => 0,
     'extends' => 0,
     'extend_revenue' => 0,
+    'extras' => 0,
+    'extra_revenue' => 0,
+    'wallets' => 0,
+    'wallet_revenue' => 0,
     'users' => 0,
     'payments' => 0,
     'payment_sum' => 0,
-    'admin_credit_revenue' => 0,
     'avg_join_buy' => 'داده کافی نیست',
     'avg_join_buyers' => 0,
     'paying_users' => 0,
@@ -118,52 +125,25 @@ $summary = [
 ];
 
 $idUserCol = "CONVERT(id_user USING utf8mb4) COLLATE utf8mb4_unicode_ci";
-$purchaseUserParts = [];
-$purchaseUserParams = [];
-if ($saleType !== 'extend') {
-    $purchaseUserParts[] = "SELECT $invoiceDaySql AS day, $idUserCol AS id_user
-        FROM invoice
-        WHERE name_product != 'سرویس تست'
-          AND $paidInvoiceSql
-          AND time_sell BETWEEN ? AND ?";
-    $purchaseUserParams[] = $monthStart;
-    $purchaseUserParams[] = $monthEnd;
-}
-if ($saleType !== 'buy') {
-    $purchaseUserParts[] = "SELECT $unixTimeDaySql AS day, $idUserCol AS id_user
-        FROM service_other
-        WHERE $extendPaidSql
-          AND time REGEXP '^[0-9]{9,}$'
-          AND CAST(time AS UNSIGNED) BETWEEN ? AND ?";
-    $purchaseUserParts[] = "SELECT $datetimeDaySql AS day, $idUserCol AS id_user
-        FROM service_other
-        WHERE $extendPaidSql
-          AND time NOT REGEXP '^[0-9]{9,}$'
-          AND COALESCE(
-                STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
-                STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
-              ) BETWEEN ? AND ?";
-    $purchaseUserParams = array_merge($purchaseUserParams, $mixedTimeParams);
-}
-if ($saleType === 'all') {
-    $purchaseUserParts[] = "SELECT $unixTimeDaySql AS day, $idUserCol AS id_user
-        FROM Payment_report
-        WHERE payment_Status = 'paid'
-          AND Payment_Method = 'add balance by admin'
-          AND time REGEXP '^[0-9]{9,}$'
-          AND CAST(time AS UNSIGNED) BETWEEN ? AND ?";
-    $purchaseUserParts[] = "SELECT $datetimeDaySql AS day, $idUserCol AS id_user
-        FROM Payment_report
-        WHERE payment_Status = 'paid'
-          AND Payment_Method = 'add balance by admin'
-          AND time NOT REGEXP '^[0-9]{9,}$'
-          AND COALESCE(
-                STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
-                STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
-              ) BETWEEN ? AND ?";
-    $purchaseUserParams = array_merge($purchaseUserParams, $mixedTimeParams);
-}
-$purchaseUserUnion = implode(' UNION ALL ', $purchaseUserParts);
+$purchaseUserUnion = "
+    SELECT $unixTimeDaySql AS day, $idUserCol AS id_user
+    FROM Payment_report
+    WHERE $incomeSql
+      AND $purposeWhereSql
+      AND time REGEXP '^[0-9]{9,}$'
+      AND CAST(time AS UNSIGNED) BETWEEN ? AND ?
+    UNION ALL
+    SELECT $datetimeDaySql AS day, $idUserCol AS id_user
+    FROM Payment_report
+    WHERE $incomeSql
+      AND $purposeWhereSql
+      AND time NOT REGEXP '^[0-9]{9,}$'
+      AND COALESCE(
+            STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
+            STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
+          ) BETWEEN ? AND ?
+";
+$purchaseUserParams = $mixedTimeParams;
 
 $chartPayload = [
     'labels' => $dayLabels,
@@ -179,34 +159,36 @@ $filteredUserTotal = 0;
 $filteredUserPages = 1;
 
 try {
-    $summary['buys'] = db_count(
+    $purposeRows = db_fetchAll(
         $pdo,
-        "SELECT COUNT(*) FROM invoice
-         WHERE name_product != 'سرویس تست'
-           AND $paidInvoiceSql
-           AND time_sell BETWEEN ? AND ?",
-        [$monthStart, $monthEnd]
-    );
-    $summary['buy_revenue'] = (int) db_query(
-        $pdo,
-        "SELECT COALESCE(SUM(CAST(price_product AS DECIMAL(20,0))),0) FROM invoice
-         WHERE name_product != 'سرویس تست'
-           AND $paidInvoiceSql
-           AND time_sell BETWEEN ? AND ?",
-        [$monthStart, $monthEnd]
-    )->fetchColumn();
-    $summary['extends'] = db_count(
-        $pdo,
-        "SELECT COUNT(*) FROM service_other
-         WHERE $extendPaidSql AND $mixedTimeSql",
+        "SELECT purpose, COUNT(*) AS cnt, COALESCE(SUM(revenue),0) AS revenue FROM (
+            SELECT $purposeCaseSql AS purpose, CAST(price AS DECIMAL(20,0)) AS revenue
+            FROM Payment_report
+            WHERE $incomeSql AND $mixedTimeSql
+         ) t
+         GROUP BY purpose",
         $mixedTimeParams
     );
-    $summary['extend_revenue'] = (int) db_query(
-        $pdo,
-        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM service_other
-         WHERE $extendPaidSql AND $mixedTimeSql",
-        $mixedTimeParams
-    )->fetchColumn();
+    foreach ($purposeRows as $row) {
+        $purpose = (string) ($row['purpose'] ?? '');
+        $cnt = (int) ($row['cnt'] ?? 0);
+        $rev = (int) ($row['revenue'] ?? 0);
+        if ($purpose === 'buy') {
+            $summary['buys'] = $cnt;
+            $summary['buy_revenue'] = $rev;
+        } elseif ($purpose === 'extend') {
+            $summary['extends'] = $cnt;
+            $summary['extend_revenue'] = $rev;
+        } elseif ($purpose === 'extra') {
+            $summary['extras'] = $cnt;
+            $summary['extra_revenue'] = $rev;
+        } elseif ($purpose === 'wallet') {
+            $summary['wallets'] = $cnt;
+            $summary['wallet_revenue'] = $rev;
+        }
+    }
+    $summary['payments'] = $summary['buys'] + $summary['extends'] + $summary['extras'] + $summary['wallets'];
+    $summary['payment_sum'] = $summary['buy_revenue'] + $summary['extend_revenue'] + $summary['extra_revenue'] + $summary['wallet_revenue'];
     $summary['users'] = db_count(
         $pdo,
         "SELECT COUNT(*) FROM user
@@ -214,41 +196,17 @@ try {
            AND CAST(register AS UNSIGNED) BETWEEN ? AND ?",
         [$monthStart, $monthEnd]
     );
-    $summary['payments'] = db_count(
-        $pdo,
-        "SELECT COUNT(*) FROM Payment_report
-         WHERE payment_Status = 'paid'
-           AND $mixedTimeSql",
-        $mixedTimeParams
-    );
-    $summary['payment_sum'] = (int) db_query(
-        $pdo,
-        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report
-         WHERE payment_Status = 'paid'
-           AND $mixedTimeSql",
-        $mixedTimeParams
-    )->fetchColumn();
-    $summary['admin_credit_revenue'] = (int) db_query(
-        $pdo,
-        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report
-         WHERE payment_Status = 'paid'
-           AND Payment_Method = 'add balance by admin'
-           AND $mixedTimeSql",
-        $mixedTimeParams
-    )->fetchColumn();
     $joinBuy = avg_join_to_first_purchase($pdo, $monthStart, $monthEnd);
     $summary['avg_join_buy'] = $joinBuy['buyers'] > 0
         ? format_duration_fa($joinBuy['avg_seconds'])
         : '—';
     $summary['avg_join_buyers'] = $joinBuy['buyers'];
-    if ($purchaseUserUnion !== '') {
-        $summary['paying_users'] = db_count(
-            $pdo,
-            "SELECT COUNT(DISTINCT id_user) FROM ($purchaseUserUnion) t
-             WHERE id_user IS NOT NULL AND id_user != ''",
-            $purchaseUserParams
-        );
-    }
+    $summary['paying_users'] = db_count(
+        $pdo,
+        "SELECT COUNT(DISTINCT id_user) FROM ($purchaseUserUnion) t
+         WHERE id_user IS NOT NULL AND id_user != ''",
+        $purchaseUserParams
+    );
 } catch (Exception $e) {
 }
 
@@ -258,9 +216,15 @@ if ($saleType === 'buy') {
 } elseif ($saleType === 'extend') {
     $summary['orders'] = $summary['extends'];
     $summary['revenue'] = $summary['extend_revenue'];
+} elseif ($saleType === 'extra') {
+    $summary['orders'] = $summary['extras'];
+    $summary['revenue'] = $summary['extra_revenue'];
+} elseif ($saleType === 'wallet') {
+    $summary['orders'] = $summary['wallets'];
+    $summary['revenue'] = $summary['wallet_revenue'];
 } else {
-    $summary['orders'] = $summary['buys'] + $summary['extends'];
-    $summary['revenue'] = $summary['buy_revenue'] + $summary['extend_revenue'] + $summary['admin_credit_revenue'];
+    $summary['orders'] = $summary['payments'];
+    $summary['revenue'] = $summary['payment_sum'];
 }
 $summary['avg_per_user'] = $summary['paying_users'] > 0
     ? (int) round($summary['revenue'] / $summary['paying_users'])
@@ -282,161 +246,119 @@ $palette = [
 $multi = count($selected) > 1;
 
 if (in_array('sales', $selected, true)) {
-    $buyByDay = array_fill_keys($dayKeys, ['count' => 0, 'revenue' => 0]);
-    $extendByDay = array_fill_keys($dayKeys, ['count' => 0, 'revenue' => 0]);
-
-    if ($saleType !== 'extend') {
-        try {
-            $rows = db_fetchAll(
-                $pdo,
-                "SELECT $invoiceDaySql AS day,
-                        COUNT(*) AS cnt,
-                        COALESCE(SUM(CAST(price_product AS DECIMAL(20,0))),0) AS revenue
-                 FROM invoice
-                 WHERE name_product != 'سرویس تست'
-                   AND $paidInvoiceSql
-                   AND time_sell BETWEEN ? AND ?
-                 GROUP BY day
-                 ORDER BY day",
-                [$monthStart, $monthEnd]
-            );
-            foreach ($rows as $row) {
-                $day = $toJalaliDay($row['day'] ?? '');
-                if ($day !== null) {
-                    $buyByDay[$day] = [
-                        'count' => (int) $row['cnt'],
-                        'revenue' => (int) $row['revenue'],
-                    ];
-                }
-            }
-        } catch (Exception $e) {
+    $byPurposeDay = [];
+    foreach (['buy', 'extend', 'extra', 'wallet'] as $purposeKey) {
+        $byPurposeDay[$purposeKey] = [];
+        foreach ($dayKeys as $dayKey) {
+            $byPurposeDay[$purposeKey][$dayKey] = ['count' => 0, 'revenue' => 0];
         }
     }
-
-    if ($saleType !== 'buy') {
-        try {
-            $rows = db_fetchAll(
-                $pdo,
-                "SELECT day, SUM(cnt) AS cnt, SUM(revenue) AS revenue FROM (
-                    SELECT $unixTimeDaySql AS day,
-                           COUNT(*) AS cnt,
-                           COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS revenue
-                    FROM service_other
-                    WHERE $extendPaidSql
-                      AND time REGEXP '^[0-9]{9,}$'
-                      AND CAST(time AS UNSIGNED) BETWEEN ? AND ?
-                    GROUP BY day
-                    UNION ALL
-                    SELECT $datetimeDaySql AS day,
-                           COUNT(*) AS cnt,
-                           COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS revenue
-                    FROM service_other
-                    WHERE $extendPaidSql
-                      AND time NOT REGEXP '^[0-9]{9,}$'
-                      AND COALESCE(
-                            STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
-                            STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
-                          ) BETWEEN ? AND ?
-                    GROUP BY day
-                 ) t
-                 WHERE day IS NOT NULL
-                 GROUP BY day
-                 ORDER BY day",
-                $mixedTimeParams
-            );
-            foreach ($rows as $row) {
-                $day = $toJalaliDay($row['day'] ?? '');
-                if ($day !== null) {
-                    $extendByDay[$day] = [
-                        'count' => (int) $row['cnt'],
-                        'revenue' => (int) $row['revenue'],
-                    ];
-                }
+    try {
+        $rows = db_fetchAll(
+            $pdo,
+            "SELECT day, purpose, SUM(cnt) AS cnt, SUM(revenue) AS revenue FROM (
+                SELECT $unixTimeDaySql AS day,
+                       $purposeCaseSql AS purpose,
+                       COUNT(*) AS cnt,
+                       COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS revenue
+                FROM Payment_report
+                WHERE $incomeSql
+                  AND $purposeWhereSql
+                  AND time REGEXP '^[0-9]{9,}$'
+                  AND CAST(time AS UNSIGNED) BETWEEN ? AND ?
+                GROUP BY day, purpose
+                UNION ALL
+                SELECT $datetimeDaySql AS day,
+                       $purposeCaseSql AS purpose,
+                       COUNT(*) AS cnt,
+                       COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS revenue
+                FROM Payment_report
+                WHERE $incomeSql
+                  AND $purposeWhereSql
+                  AND time NOT REGEXP '^[0-9]{9,}$'
+                  AND COALESCE(
+                        STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
+                        STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
+                      ) BETWEEN ? AND ?
+                GROUP BY day, purpose
+             ) t
+             WHERE day IS NOT NULL
+             GROUP BY day, purpose
+             ORDER BY day",
+            $mixedTimeParams
+        );
+        foreach ($rows as $row) {
+            $day = $toJalaliDay($row['day'] ?? '');
+            $purpose = (string) ($row['purpose'] ?? '');
+            if ($day !== null && isset($byPurposeDay[$purpose])) {
+                $byPurposeDay[$purpose][$day] = [
+                    'count' => (int) $row['cnt'],
+                    'revenue' => (int) $row['revenue'],
+                ];
             }
-        } catch (Exception $e) {
         }
-    }
-
-    $adminByDay = array_fill_keys($dayKeys, 0);
-    if ($saleType === 'all' && $summary['admin_credit_revenue'] > 0) {
-        try {
-            $adminRows = db_fetchAll(
-                $pdo,
-                "SELECT day, SUM(total) AS total FROM (
-                    SELECT $unixTimeDaySql AS day,
-                           COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total
-                    FROM Payment_report
-                    WHERE payment_Status = 'paid'
-                      AND Payment_Method = 'add balance by admin'
-                      AND time REGEXP '^[0-9]{9,}$'
-                      AND CAST(time AS UNSIGNED) BETWEEN ? AND ?
-                    GROUP BY day
-                    UNION ALL
-                    SELECT $datetimeDaySql AS day,
-                           COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total
-                    FROM Payment_report
-                    WHERE payment_Status = 'paid'
-                      AND Payment_Method = 'add balance by admin'
-                      AND time NOT REGEXP '^[0-9]{9,}$'
-                      AND COALESCE(
-                            STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
-                            STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')
-                          ) BETWEEN ? AND ?
-                    GROUP BY day
-                 ) t
-                 WHERE day IS NOT NULL
-                 GROUP BY day",
-                $mixedTimeParams
-            );
-            foreach ($adminRows as $row) {
-                $day = $toJalaliDay($row['day'] ?? '');
-                if ($day !== null) {
-                    $adminByDay[$day] = (int) $row['total'];
-                }
-            }
-        } catch (Exception $e) {
-        }
+    } catch (Exception $e) {
     }
 
     $usersByDay = array_fill_keys($dayKeys, 0);
-    if ($purchaseUserUnion !== '') {
-        try {
-            $userRows = db_fetchAll(
-                $pdo,
-                "SELECT day, COUNT(DISTINCT id_user) AS users
-                 FROM ($purchaseUserUnion) t
-                 WHERE day IS NOT NULL
-                   AND id_user IS NOT NULL
-                   AND id_user != ''
-                 GROUP BY day",
-                $purchaseUserParams
-            );
-            foreach ($userRows as $row) {
-                $day = $toJalaliDay($row['day'] ?? '');
-                if ($day !== null) {
-                    $usersByDay[$day] = (int) $row['users'];
-                }
+    try {
+        $userRows = db_fetchAll(
+            $pdo,
+            "SELECT day, COUNT(DISTINCT id_user) AS users
+             FROM ($purchaseUserUnion) t
+             WHERE day IS NOT NULL
+               AND id_user IS NOT NULL
+               AND id_user != ''
+             GROUP BY day",
+            $purchaseUserParams
+        );
+        foreach ($userRows as $row) {
+            $day = $toJalaliDay($row['day'] ?? '');
+            if ($day !== null) {
+                $usersByDay[$day] = (int) $row['users'];
             }
-        } catch (Exception $e) {
         }
+    } catch (Exception $e) {
     }
 
-    $buyCounts = [];
-    $extendCounts = [];
+    $purposeChart = [
+        'buy' => ['label' => 'تعداد خرید', 'color' => 'rgba(6,182,212,0.75)'],
+        'extend' => ['label' => 'تعداد تمدید', 'color' => 'rgba(251,146,60,0.8)'],
+        'extra' => ['label' => 'حجم و زمان اضافه', 'color' => 'rgba(163,230,53,0.8)'],
+        'wallet' => ['label' => 'شارژ کیف پول', 'color' => 'rgba(167,139,250,0.8)'],
+    ];
+    if ($saleType !== 'all' && isset($purposeChart[$saleType])) {
+        $purposeChart[$saleType]['label'] = 'تعداد پرداخت';
+        $purposeChart = [$saleType => $purposeChart[$saleType]];
+    }
+
+    $seriesCounts = [];
+    foreach (array_keys($purposeChart) as $purpose) {
+        $seriesCounts[$purpose] = [];
+    }
     $revenues = [];
     $averages = [];
     foreach ($dayKeys as $key) {
-        $buyCounts[] = $buyByDay[$key]['count'];
-        $extendCounts[] = $extendByDay[$key]['count'];
-        $dayRevenue = $buyByDay[$key]['revenue'] + $extendByDay[$key]['revenue'] + ($adminByDay[$key] ?? 0);
+        $dayRevenue = 0;
+        $dayCount = 0;
+        foreach (array_keys($purposeChart) as $purpose) {
+            $cnt = $byPurposeDay[$purpose][$key]['count'];
+            $rev = $byPurposeDay[$purpose][$key]['revenue'];
+            $seriesCounts[$purpose][] = $cnt;
+            $dayCount += $cnt;
+            $dayRevenue += $rev;
+        }
         $revenues[] = $dayRevenue;
         $dayUsers = $usersByDay[$key] ?? 0;
         $dayAvg = $dayUsers > 0 ? (int) round($dayRevenue / $dayUsers) : 0;
         $averages[] = $dayAvg;
-        $dayCount = $buyByDay[$key]['count'] + $extendByDay[$key]['count'];
         if ($dayCount > 0 || $dayRevenue > 0) {
             if ($saleType === 'all') {
-                $extra = $buyByDay[$key]['count'] . ' خرید · ' . $extendByDay[$key]['count'] . ' تمدید · ' . number_format($dayRevenue) . ' ت';
+                $extra = $byPurposeDay['buy'][$key]['count'] . ' خرید · '
+                    . $byPurposeDay['extend'][$key]['count'] . ' تمدید · '
+                    . $byPurposeDay['extra'][$key]['count'] . ' اضافه · '
+                    . $byPurposeDay['wallet'][$key]['count'] . ' کیف پول · '
+                    . number_format($dayRevenue) . ' ت';
             } else {
                 $extra = number_format($dayRevenue) . ' ت';
             }
@@ -451,22 +373,11 @@ if (in_array('sales', $selected, true)) {
         }
     }
 
-    if ($saleType !== 'extend') {
+    foreach ($purposeChart as $purpose => $meta) {
         $chartPayload['datasets'][] = [
-            'label' => $saleType === 'all' ? 'تعداد خرید' : 'تعداد فروش',
-            'data' => $buyCounts,
-            'backgroundColor' => 'rgba(6,182,212,0.75)',
-            'borderRadius' => 6,
-            'stack' => 'sales',
-            'yAxisID' => 'y',
-            'order' => 2,
-        ];
-    }
-    if ($saleType !== 'buy') {
-        $chartPayload['datasets'][] = [
-            'label' => $saleType === 'all' ? 'تعداد تمدید' : 'تعداد تمدید',
-            'data' => $extendCounts,
-            'backgroundColor' => 'rgba(251,146,60,0.8)',
+            'label' => $meta['label'],
+            'data' => $seriesCounts[$purpose],
+            'backgroundColor' => $meta['color'],
             'borderRadius' => 6,
             'stack' => 'sales',
             'yAxisID' => 'y',
@@ -627,7 +538,8 @@ if (in_array('payments', $selected, true)) {
                        COUNT(*) AS cnt,
                        COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total
                 FROM Payment_report
-                WHERE payment_Status = 'paid'
+                WHERE $incomeSql
+                  AND $purposeWhereSql
                   AND time REGEXP '^[0-9]{9,}$'
                   AND CAST(time AS UNSIGNED) BETWEEN ? AND ?
                 GROUP BY day, method
@@ -637,7 +549,8 @@ if (in_array('payments', $selected, true)) {
                        COUNT(*) AS cnt,
                        COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total
                 FROM Payment_report
-                WHERE payment_Status = 'paid'
+                WHERE $incomeSql
+                  AND $purposeWhereSql
                   AND time NOT REGEXP '^[0-9]{9,}$'
                   AND COALESCE(
                         STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'),
@@ -780,7 +693,7 @@ $statsUrl = static function (array $overrides = []) use ($selected, $monthParam,
 };
 
 $pageTitle = 'آمار';
-$pageLede = 'فروش پرداخت‌شده (خرید و تمدید)، کاربران و روش پرداخت بر اساس ماه شمسی و ساعت تهران.';
+$pageLede = 'درآمد از پرداخت‌های موفق (خرید، تمدید، حجم و زمان اضافه، شارژ کیف پول) بر اساس ماه شمسی و ساعت تهران.';
 $activeNav = 'stats';
 include __DIR__ . '/inc/layout_head.php';
 
@@ -805,14 +718,18 @@ $toggleMetricUrl = static function (string $key) use ($selected, $metricDefs, $s
     return $statsUrl(['views' => implode(',', $next), 'user_page' => 1]);
 };
 
-$saleMeta = number_format($summary['buys']) . ' خرید · ' . number_format($summary['extends']) . ' تمدید';
-if ($summary['admin_credit_revenue'] > 0) {
-    $saleMeta .= ' · ' . number_format($summary['admin_credit_revenue']) . ' ت افزایش ادمین';
-}
+$saleMeta = number_format($summary['buys']) . ' خرید · '
+    . number_format($summary['extends']) . ' تمدید · '
+    . number_format($summary['extras']) . ' اضافه · '
+    . number_format($summary['wallets']) . ' کیف پول';
 if ($saleType === 'buy') {
-    $saleMeta = 'فقط خریدهای پرداخت‌شده';
+    $saleMeta = 'پرداخت خرید سرویس (شامل فاکتور دستی)';
 } elseif ($saleType === 'extend') {
-    $saleMeta = 'فقط تمدیدهای پرداخت‌شده';
+    $saleMeta = 'پرداخت تمدید';
+} elseif ($saleType === 'extra') {
+    $saleMeta = 'پرداخت حجم و زمان اضافه';
+} elseif ($saleType === 'wallet') {
+    $saleMeta = 'شارژ کیف پول کاربر';
 }
 
 $userFilterLabels = [];
@@ -842,7 +759,7 @@ if ($userFilters['min_extends'] !== null) {
 
 <div class="stats fade-up" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:18px">
   <div class="stat ok">
-    <div class="stat-label">فروش ماه</div>
+    <div class="stat-label">درآمد ماه</div>
     <div class="stat-num">
       <?= $summary['revenue'] >= 1_000_000
           ? number_format($summary['revenue'] / 1_000_000, 1) . '<small>M ت</small>'
@@ -851,15 +768,15 @@ if ($userFilters['min_extends'] !== null) {
     <div class="stat-meta"><?= htmlspecialchars($saleMeta) ?></div>
   </div>
   <div class="stat">
-    <div class="stat-label">تعداد سفارش</div>
+    <div class="stat-label">تعداد پرداخت</div>
     <div class="stat-num"><?= number_format($summary['orders']) ?></div>
-    <div class="stat-meta">پرداخت‌شده در ماه</div>
+    <div class="stat-meta">پرداخت موفق در ماه</div>
   </div>
   <div class="stat">
     <div class="stat-label">میانگین خرید هر کاربر</div>
     <div class="stat-num"><?= number_format($summary['avg_per_user']) ?><small>ت</small></div>
     <div class="stat-meta"><?= $summary['paying_users'] > 0
-        ? number_format($summary['paying_users']) . ' خریدار در ماه'
+        ? number_format($summary['paying_users']) . ' پرداخت‌کننده در ماه'
         : 'درآمد ماه ÷ کاربران پرداخت‌کننده' ?></div>
   </div>
   <div class="stat">
@@ -877,7 +794,7 @@ if ($userFilters['min_extends'] !== null) {
   <div class="stat warn">
     <div class="stat-label">پرداخت موفق</div>
     <div class="stat-num"><?= number_format($summary['payments']) ?></div>
-    <div class="stat-meta"><?= number_format($summary['payment_sum']) ?> ت</div>
+    <div class="stat-meta"><?= number_format($summary['payment_sum']) ?> ت · همه درآمدها</div>
   </div>
 </div>
 
@@ -901,7 +818,7 @@ if ($userFilters['min_extends'] !== null) {
         </a>
       <?php endforeach; ?>
     </div>
-    <div class="stats-hint">یک یا دو معیار را انتخاب کنید. فروش شامل همه فاکتورهای پرداخت‌شده است و با فیلتر خرید/تمدید جدا می‌شود.</div>
+    <div class="stats-hint">یک یا دو معیار را انتخاب کنید. مبلغ‌ها از پرداخت‌های موفق هستند؛ فاکتور دستی، تمدید، حجم/زمان اضافه و شارژ کیف پول همه داخل درآمدند.</div>
   </div>
   <form method="GET" class="toolbar-end" style="display:flex;gap:8px;align-items:center">
     <input type="hidden" name="views" value="<?= htmlspecialchars($viewsQuery) ?>">

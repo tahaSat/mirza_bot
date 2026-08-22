@@ -738,10 +738,39 @@ function bot_payment_wallet_recharge_sql(): string
         )";
 }
 
+function bot_payment_purpose_case_sql(string $column = 'id_invoice'): string
+{
+    $prefix = bot_payment_id_invoice_prefix_sql($column);
+    return "CASE
+        WHEN $prefix = 'getconfigafterpay' THEN 'buy'
+        WHEN $prefix = 'getextenduser' THEN 'extend'
+        WHEN $prefix IN ('getextravolumeuser','getextratimeuser') THEN 'extra'
+        ELSE 'wallet'
+    END";
+}
+
+function bot_payment_purpose_filter_sql(string $purpose, string $column = 'id_invoice'): string
+{
+    $prefix = bot_payment_id_invoice_prefix_sql($column);
+    if ($purpose === 'buy') {
+        return "$prefix = 'getconfigafterpay'";
+    }
+    if ($purpose === 'extend') {
+        return "$prefix = 'getextenduser'";
+    }
+    if ($purpose === 'extra') {
+        return "$prefix IN ('getextravolumeuser','getextratimeuser')";
+    }
+    if ($purpose === 'wallet') {
+        return "$prefix NOT IN ('getconfigafterpay','getextenduser','getextravolumeuser','getextratimeuser')";
+    }
+    return '1=1';
+}
+
 /**
  * Successful customer payments in a window, split by checkout purpose.
  *
- * @return array{purchase_count:int,purchase_sum:float,extend_count:int,extend_sum:float,wallet_count:int,wallet_sum:float}
+ * @return array{purchase_count:int,purchase_sum:float,extend_count:int,extend_sum:float,extra_volume_count:int,extra_volume_sum:float,extra_time_count:int,extra_time_sum:float,wallet_count:int,wallet_sum:float}
  */
 function bot_period_payment_purpose_stats(PDO $pdo, int $startTs, int $endTs): array
 {
@@ -750,6 +779,10 @@ function bot_period_payment_purpose_stats(PDO $pdo, int $startTs, int $endTs): a
         'purchase_sum' => 0.0,
         'extend_count' => 0,
         'extend_sum' => 0.0,
+        'extra_volume_count' => 0,
+        'extra_volume_sum' => 0.0,
+        'extra_time_count' => 0,
+        'extra_time_sum' => 0.0,
         'wallet_count' => 0,
         'wallet_sum' => 0.0,
     ];
@@ -761,6 +794,10 @@ function bot_period_payment_purpose_stats(PDO $pdo, int $startTs, int $endTs): a
             COALESCE(SUM(CASE WHEN $prefix = 'getconfigafterpay' THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS purchase_sum,
             COALESCE(SUM(CASE WHEN $prefix = 'getextenduser' THEN 1 ELSE 0 END), 0) AS extend_count,
             COALESCE(SUM(CASE WHEN $prefix = 'getextenduser' THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS extend_sum,
+            COALESCE(SUM(CASE WHEN $prefix = 'getextravolumeuser' THEN 1 ELSE 0 END), 0) AS extra_volume_count,
+            COALESCE(SUM(CASE WHEN $prefix = 'getextravolumeuser' THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS extra_volume_sum,
+            COALESCE(SUM(CASE WHEN $prefix = 'getextratimeuser' THEN 1 ELSE 0 END), 0) AS extra_time_count,
+            COALESCE(SUM(CASE WHEN $prefix = 'getextratimeuser' THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS extra_time_sum,
             COALESCE(SUM(CASE WHEN $prefix NOT IN (
                 'getconfigafterpay','getextenduser','getextravolumeuser','getextratimeuser'
             ) THEN 1 ELSE 0 END), 0) AS wallet_count,
@@ -784,6 +821,10 @@ function bot_period_payment_purpose_stats(PDO $pdo, int $startTs, int $endTs): a
             'purchase_sum' => (float) ($row['purchase_sum'] ?? 0),
             'extend_count' => (int) ($row['extend_count'] ?? 0),
             'extend_sum' => (float) ($row['extend_sum'] ?? 0),
+            'extra_volume_count' => (int) ($row['extra_volume_count'] ?? 0),
+            'extra_volume_sum' => (float) ($row['extra_volume_sum'] ?? 0),
+            'extra_time_count' => (int) ($row['extra_time_count'] ?? 0),
+            'extra_time_sum' => (float) ($row['extra_time_sum'] ?? 0),
             'wallet_count' => (int) ($row['wallet_count'] ?? 0),
             'wallet_sum' => (float) ($row['wallet_sum'] ?? 0),
         ];
@@ -1097,14 +1138,6 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
     $stmt->execute($mixedParams);
     $extends = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'extra_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')");
-    $stmt->execute($mixedParams);
-    $extraVolume = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
-
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'extra_time_user' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')");
-    $stmt->execute($mixedParams);
-    $extraTime = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
-
     $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')");
     $stmt->execute($mixedParams);
     $changeLocation = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
@@ -1116,8 +1149,10 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
     $orderInvoiceSum = (float) ($orders['sum'] ?? 0);
     $orderSum = (float) ($payments['purchase_sum'] ?? 0);
     $extendSum = (float) ($payments['extend_sum'] ?? 0);
-    $extraVolumeSum = (float) ($extraVolume['sum'] ?? 0);
-    $extraTimeSum = (float) ($extraTime['sum'] ?? 0);
+    $extraVolumeCount = (int) ($payments['extra_volume_count'] ?? 0);
+    $extraVolumeSum = (float) ($payments['extra_volume_sum'] ?? 0);
+    $extraTimeCount = (int) ($payments['extra_time_count'] ?? 0);
+    $extraTimeSum = (float) ($payments['extra_time_sum'] ?? 0);
     $changeLocationSum = (float) ($changeLocation['sum'] ?? 0);
     $walletSum = (float) ($payments['wallet_sum'] ?? 0);
     $walletCount = (int) ($payments['wallet_count'] ?? 0);
@@ -1129,9 +1164,9 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
         'tests' => $tests,
         'extends' => (int) ($extends['count'] ?? 0),
         'extends_sum' => $extendSum,
-        'extra_volume' => (int) ($extraVolume['count'] ?? 0),
+        'extra_volume' => $extraVolumeCount,
         'extra_volume_sum' => $extraVolumeSum,
-        'extra_time' => (int) ($extraTime['count'] ?? 0),
+        'extra_time' => $extraTimeCount,
         'extra_time_sum' => $extraTimeSum,
         'change_location' => (int) ($changeLocation['count'] ?? 0),
         'change_location_sum' => $changeLocationSum,
@@ -1139,8 +1174,12 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
         'wallet_sum' => $walletSum,
         'users' => $users,
         'avg_join' => avg_join_to_first_purchase_label($pdo, $startTs, $endTs),
-        'total_count' => (int) ($payments['purchase_count'] ?? 0) + (int) ($payments['extend_count'] ?? 0) + $walletCount,
-        'total_sum' => $orderSum + $extendSum + $walletSum,
+        'total_count' => (int) ($payments['purchase_count'] ?? 0)
+            + (int) ($payments['extend_count'] ?? 0)
+            + $extraVolumeCount
+            + $extraTimeCount
+            + $walletCount,
+        'total_sum' => $orderSum + $extendSum + $extraVolumeSum + $extraTimeSum + $walletSum,
         'sold_volume' => bot_sold_volume_stats($pdo, $startTs, $endTs),
         'first_purchase' => bot_first_purchase_stats($pdo, $startTs, $endTs),
         'forecast_sold_volume' => ($endTs - $startTs) >= (7 * 86400)
@@ -3992,6 +4031,145 @@ function extend_can_proceed($panel, $product = null): array
         return ['ok' => false, 'msg' => '❌ این محصول غیرفعال است و امکان تمدید آن وجود ندارد'];
     }
     return ['ok' => true, 'msg' => ''];
+}
+
+function keyboard_insert_rows_before_last(string $keyboardJson, array $rows): string
+{
+    if ($rows === []) {
+        return $keyboardJson;
+    }
+    $decoded = json_decode($keyboardJson, true);
+    if (!is_array($decoded) || !isset($decoded['inline_keyboard']) || !is_array($decoded['inline_keyboard'])) {
+        return $keyboardJson;
+    }
+    $keyboard = $decoded['inline_keyboard'];
+    $last = array_pop($keyboard);
+    foreach ($rows as $row) {
+        $keyboard[] = $row;
+    }
+    if ($last !== null) {
+        $keyboard[] = $last;
+    }
+    $decoded['inline_keyboard'] = $keyboard;
+    return json_encode($decoded);
+}
+
+function extend_categories_enabled(): bool
+{
+    global $setting;
+    return ($setting['statuscategorygenral'] ?? '') === 'oncategorys';
+}
+
+function extend_current_plan_row($invoice): ?array
+{
+    if (!is_array($invoice)) {
+        return null;
+    }
+    $currentProd = select("product", "*", "name_product", $invoice['name_product'] ?? '', "select");
+    if (!$currentProd || product_category_is_active($currentProd)) {
+        return [['text' => "♻️ تمدید پلن فعلی", 'callback_data' => "exntedagei"]];
+    }
+    return null;
+}
+
+function extend_category_select_text($panel): string
+{
+    return purchase_description_or_fallback(
+        is_array($panel) ? ($panel['description'] ?? '') : '',
+        'text_category_select',
+        '📌 دسته بندی خود را انتخاب نمایید!'
+    );
+}
+
+function extend_products_message($category = null): string
+{
+    global $textbotlang;
+    $fallback = $textbotlang['users']['extend']['selectservice'] ?? '🛍 محصول خود را برای تمدید انتخاب نمایید';
+    if (!is_array($category)) {
+        return $fallback;
+    }
+    $defaultCategoryMessage = textbot_get(
+        'text_service_select_first',
+        $textbotlang['users']['sell']['Service-select-first'] ?? $fallback
+    );
+    return purchase_description_or_fallback(
+        $category['description'] ?? '',
+        'text_service_select_first',
+        $defaultCategoryMessage
+    );
+}
+
+function extend_product_query(string $location, array $user, $from_id, $categoryRemark = null, $month = null): string
+{
+    $accessSql = agent_product_access_sql($user['agent'] ?? '', $from_id);
+    $locEsc = addslashes($location);
+    $query = "SELECT * FROM product WHERE (Location = '{$locEsc}' OR Location = '/all') AND {$accessSql} AND one_buy_status = '0'";
+    if (is_string($categoryRemark) && $categoryRemark !== '') {
+        $query .= " AND category = '" . addslashes($categoryRemark) . "'";
+    }
+    if ($month !== null && $month !== '' && preg_match('/^\d+$/', (string) $month)) {
+        $query .= " AND Service_time = '" . $month . "'";
+    }
+    return $query;
+}
+
+function extend_category_keyboard($location, $agent, $backCb, $invoice = null, $month = null): string
+{
+    $extraSql = "AND one_buy_status = '0'";
+    if ($month !== null && $month !== '' && preg_match('/^\d+$/', (string) $month)) {
+        $extraSql .= " AND Service_time = '" . $month . "'";
+    }
+    $json = KeyboardCategory($location, $agent, $backCb, null, [
+        'callback_prefix' => 'categoryextend_',
+        'custom_volume' => false,
+        'product_extra_sql' => $extraSql,
+    ]);
+    $plan = extend_current_plan_row($invoice);
+    return $plan ? keyboard_insert_rows_before_last($json, [$plan]) : $json;
+}
+
+function extend_product_keyboard($location, $query, array $user, $backCb, $invoice = null, array $extraRows = []): string
+{
+    $json = KeyboardProduct(
+        $location,
+        $query,
+        $user['pricediscount'] ?? 0,
+        'serviceextendselect_',
+        false,
+        $backCb
+    );
+    $insert = [];
+    $plan = extend_current_plan_row($invoice);
+    if ($plan) {
+        $insert[] = $plan;
+    }
+    foreach ($extraRows as $row) {
+        $insert[] = $row;
+    }
+    return $insert === [] ? $json : keyboard_insert_rows_before_last($json, $insert);
+}
+
+function extend_edit_categories($from_id, $message_id, array $invoice, array $user, $panel, $backCb, $month = null): void
+{
+    $location = $invoice['Service_location'] ?? '';
+    Editmessagetext(
+        $from_id,
+        $message_id,
+        extend_category_select_text($panel),
+        extend_category_keyboard($location, $user['agent'] ?? '', $backCb, $invoice, $month),
+        'HTML'
+    );
+}
+
+function extend_edit_products($from_id, $message_id, array $invoice, array $user, $query, $backCb, $category = null, array $extraRows = []): void
+{
+    Editmessagetext(
+        $from_id,
+        $message_id,
+        extend_products_message($category),
+        extend_product_keyboard($invoice['Service_location'] ?? '', $query, $user, $backCb, $invoice, $extraRows),
+        'HTML'
+    );
 }
 
 function invoice_auto_renew_is_on($invoice): bool

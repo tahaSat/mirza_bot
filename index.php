@@ -1510,7 +1510,7 @@ $textconnect
         ]
     ]);
     Editmessagetext($from_id, $message_id, $confirmText, $backKeyboard);
-} elseif (preg_match('/extend_(\w+)/', $datain, $dataget)) {
+} elseif (preg_match('/^extend_(\w+)/', $datain, $dataget)) {
     $id_invoice = $dataget[1];
     $nameloc = select("invoice", "*", "id_invoice", $id_invoice, "select");
     if ($nameloc == false) {
@@ -1563,57 +1563,20 @@ $textconnect
         step('gettimecustomvolomforextend', $from_id);
         return;
     }
+    $invoiceBack = "product_" . $nameloc['id_invoice'];
     if ($setting['statuscategory'] == "offcategory") {
-        $accessSql = agent_product_access_sql($user['agent'], $from_id);
-        $stmt = $pdo->prepare("SELECT * FROM product WHERE (Location = :service_location OR Location = '/all') AND {$accessSql} AND one_buy_status = '0'");
-        $stmt->execute([
-            ':service_location' => $nameloc['Service_location'],
-        ]);
-        $productextend = ['inline_keyboard' => []];
-        $statusshowprice = select("shopSetting", "*", "Namevalue", "statusshowprice", "select")['value'];
-        foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
-            $hide_panel = json_decode($result['hide_panel'] ?? '[]', true);
-            if (!is_array($hide_panel)) {
-                $hide_panel = [];
-            }
-            if (in_array($nameloc['Service_location'], $hide_panel, true))
-                continue;
-            if (!product_category_is_active($result)) {
-                continue;
-            }
-            if (($user['agent'] ?? '') === 'n') {
-                $result['price_product'] = agent_wholesale_cost($user, (int) ($result['Volume_constraint'] ?? 0));
-            } elseif (intval($user['pricediscount']) != 0) {
-                $resultper = ($result['price_product'] * $user['pricediscount']) / 100;
-                $result['price_product'] = $result['price_product'] - $resultper;
-            }
-            if ($statusshowprice == "offshowprice") {
-                $namekeyboard = $result['name_product'];
-            } else {
-                $result['price_product'] = number_format($result['price_product']);
-                $namekeyboard = $result['name_product'] . " - " . $result['price_product'] . "تومان";
-            }
-            $productextend['inline_keyboard'][] = [
-                ['text' => $namekeyboard, 'callback_data' => "serviceextendselect_" . $result['code_product']]
-            ];
+        if (extend_categories_enabled()) {
+            extend_edit_categories($from_id, $message_id, $nameloc, $user, $marzban_list_get, $invoiceBack);
+        } else {
+            $query = extend_product_query($nameloc['Service_location'], $user, $from_id);
+            extend_edit_products($from_id, $message_id, $nameloc, $user, $query, $invoiceBack);
         }
-        $currentProd = select("product", "*", "name_product", $nameloc['name_product'], "select");
-        if (!$currentProd || product_category_is_active($currentProd)) {
-            $productextend['inline_keyboard'][] = [
-                ['text' => "♻️ تمدید پلن فعلی", 'callback_data' => "exntedagei"]
-            ];
-        }
-        $productextend['inline_keyboard'][] = [
-            ['text' => "🏠 بازگشت به اطلاعات سرویس", 'callback_data' => "product_" . $nameloc['id_invoice']]
-        ];
-
-        $json_list_product_lists = json_encode($productextend);
-        Editmessagetext($from_id, $message_id, $textbotlang['users']['extend']['selectservice'], $json_list_product_lists);
     } else {
         $currentProd = select("product", "*", "name_product", $nameloc['name_product'], "select");
         $showCurrentPlan = !$currentProd || product_category_is_active($currentProd);
-        $monthkeyboard = keyboardTimeCategory($nameloc['Service_location'], $user['agent'], "productextendmonths_", "product_$id_invoice", false, $showCurrentPlan);
-        Editmessagetext($from_id, $message_id, $textbotlang['Admin']['month']['title'], $monthkeyboard);
+        $monthkeyboard = keyboardTimeCategory($nameloc['Service_location'], $user['agent'], "productextendmonths_", $invoiceBack, false, $showCurrentPlan);
+        $monthSelectText = textbot_get('text_month_select', $textbotlang['Admin']['month']['title']);
+        Editmessagetext($from_id, $message_id, $monthSelectText, $monthkeyboard);
     }
 } elseif ($user['step'] == "gettimecustomvolomforextend") {
     $userdate = json_decode($user['Processing_value'], true);
@@ -1701,53 +1664,85 @@ $textconnect
 ✅ برای تایید و تمدید سرویس روی دکمه زیر کلیک کنید";
     deletemessage($from_id, $message_id);
     sendmessage($from_id, $textextend, $keyboardextend, 'HTML');
-} elseif (preg_match('/productextendmonths_(\w+)/', $datain, $dataget)) {
+} elseif (preg_match('/^productextendmonths_(\w+)/', $datain, $dataget)) {
     $monthenumber = $dataget[1];
     $userdate = json_decode($user['Processing_value'], true);
+    if (!is_array($userdate) || empty($userdate['id_invoice'])) {
+        sendmessage($from_id, $textbotlang['users']['extend']['renewalerror'], $keyboard, 'HTML');
+        return;
+    }
     $nameloc = select("invoice", "*", "id_invoice", $userdate['id_invoice'], "select");
-    $accessSql = agent_product_access_sql($user['agent'], $from_id);
-    $stmt = $pdo->prepare("SELECT * FROM product WHERE (Location = :service_location OR Location = '/all') AND {$accessSql} AND Service_time = :monthe AND one_buy_status = '0'");
-    $stmt->execute([
-        ':service_location' => $nameloc['Service_location'],
-        'monthe' => $monthenumber
-    ]);
-    $productextend = ['inline_keyboard' => []];
+    if ($nameloc == false) {
+        sendmessage($from_id, $textbotlang['users']['extend']['renewalerror'], $keyboard, 'HTML');
+        return;
+    }
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
     $extendGate = extend_can_proceed($marzban_list_get);
     if (!$extendGate['ok']) {
         sendmessage($from_id, $extendGate['msg'], null, 'html');
         return;
     }
-    $statusshowprice = select("shopSetting", "*", "Namevalue", "statusshowprice", "select")['value'];
-    foreach (sortProductsByOrder($stmt->fetchAll(PDO::FETCH_ASSOC)) as $result) {
-        if (!product_category_is_active($result)) {
-            continue;
+    savedata("save", "monthproduct", $monthenumber);
+    $extendRestart = "extend_" . $nameloc['id_invoice'];
+    if (extend_categories_enabled()) {
+        extend_edit_categories($from_id, $message_id, $nameloc, $user, $marzban_list_get, $extendRestart, $monthenumber);
+    } else {
+        $query = extend_product_query($nameloc['Service_location'], $user, $from_id, null, $monthenumber);
+        $extraRows = [];
+        if ($nameloc['name_product'] == "🛍 حجم دلخواه" || $nameloc['name_product'] == "⚙️ سرویس دلخواه") {
+            $extraRows[] = [
+                ['text' => "📍 انتخاب سرویس فعلی", 'callback_data' => "serviceextendselect_pre"]
+            ];
         }
-        if (intval($user['pricediscount']) != 0) {
-            $resultper = ($result['price_product'] * $user['pricediscount']) / 100;
-            $result['price_product'] = $result['price_product'] - $resultper;
-        }
-        if ($statusshowprice == "offshowprice") {
-            $namekeyboard = $result['name_product'];
-        } else {
-            $result['price_product'] = number_format($result['price_product']);
-            $namekeyboard = $result['name_product'] . " - " . $result['price_product'] . "تومان";
-        }
-        $productextend['inline_keyboard'][] = [
-            ['text' => $namekeyboard, 'callback_data' => "serviceextendselect_" . $result['code_product']]
-        ];
+        extend_edit_products($from_id, $message_id, $nameloc, $user, $query, $extendRestart, null, $extraRows);
     }
-    if ($nameloc['name_product'] == "🛍 حجم دلخواه" || $nameloc['name_product'] == "⚙️ سرویس دلخواه") {
-        $productextend['inline_keyboard'][] = [
-            ['text' => "📍 انتخاب سرویس فعلی", 'callback_data' => "serviceextendselect_pre"]
-        ];
+} elseif (preg_match('/^categoryextend_(\d+)/', $datain, $dataget)) {
+    $category = select("category", "*", "id", $dataget[1], "select");
+    if (!$category || empty($category['remark']) || !category_is_active($category)) {
+        return;
     }
-    $productextend['inline_keyboard'][] = [
-        ['text' => "🏠 بازگشت به اطلاعات سرویس", 'callback_data' => "product_" . $nameloc['id_invoice']]
-    ];
-
-    $json_list_product_lists = json_encode($productextend);
-    Editmessagetext($from_id, $message_id, $textbotlang['users']['extend']['selectservice'], $json_list_product_lists);
+    $userdate = json_decode($user['Processing_value'], true);
+    if (!is_array($userdate) || empty($userdate['id_invoice'])) {
+        sendmessage($from_id, $textbotlang['users']['extend']['renewalerror'], $keyboard, 'HTML');
+        return;
+    }
+    $nameloc = select("invoice", "*", "id_invoice", $userdate['id_invoice'], "select");
+    if ($nameloc == false) {
+        sendmessage($from_id, $textbotlang['users']['extend']['renewalerror'], $keyboard, 'HTML');
+        return;
+    }
+    $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
+    $extendGate = extend_can_proceed($marzban_list_get);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], null, 'html');
+        return;
+    }
+    savedata("save", "category_id", $category['id']);
+    $month = $userdate['monthproduct'] ?? null;
+    $query = extend_product_query($nameloc['Service_location'], $user, $from_id, $category['remark'], $month);
+    extend_edit_products($from_id, $message_id, $nameloc, $user, $query, 'extendbackcats', $category);
+} elseif ($datain == "extendbackcats") {
+    $userdate = json_decode($user['Processing_value'], true);
+    if (!is_array($userdate) || empty($userdate['id_invoice'])) {
+        sendmessage($from_id, $textbotlang['users']['extend']['renewalerror'], $keyboard, 'HTML');
+        return;
+    }
+    $nameloc = select("invoice", "*", "id_invoice", $userdate['id_invoice'], "select");
+    if ($nameloc == false) {
+        sendmessage($from_id, $textbotlang['users']['extend']['renewalerror'], $keyboard, 'HTML');
+        return;
+    }
+    $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
+    $extendGate = extend_can_proceed($marzban_list_get);
+    if (!$extendGate['ok']) {
+        sendmessage($from_id, $extendGate['msg'], null, 'html');
+        return;
+    }
+    $month = $userdate['monthproduct'] ?? null;
+    $backCb = ($month !== null && $month !== '')
+        ? ("extend_" . $nameloc['id_invoice'])
+        : ("product_" . $nameloc['id_invoice']);
+    extend_edit_categories($from_id, $message_id, $nameloc, $user, $marzban_list_get, $backCb, $month);
 } elseif (preg_match('/^serviceextendselect_(.*)/', $datain, $dataget) || $user['step'] == "getvolumecustomuserforextend" || $datain == "exntedagei") {
     $userdate = json_decode($user['Processing_value'], true);
     $nameloc = select("invoice", "*", "id_invoice", $userdate['id_invoice'], "select");

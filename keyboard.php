@@ -1573,10 +1573,16 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
     ];
     return json_encode($product);
 }
-function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserId = null)
+function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserId = null, $options = [])
 {
     global $pdo, $textbotlang, $from_id;
     ensure_shop_button_emoji_columns();
+    if (!is_array($options)) {
+        $options = [];
+    }
+    $callback_prefix = (string) ($options['callback_prefix'] ?? 'categorynames_');
+    $includeCustomVolume = array_key_exists('custom_volume', $options) ? (bool) $options['custom_volume'] : true;
+    $productExtraSql = trim((string) ($options['product_extra_sql'] ?? ''));
     $uid = $agentUserId !== null ? $agentUserId : $from_id;
     $accessSql = agent_product_access_sql($agent, $uid);
     $stmt = $pdo->prepare("SELECT * FROM category");
@@ -1586,7 +1592,11 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
         if (!category_is_active($row)) {
             continue;
         }
-        $stmts = $pdo->prepare("SELECT * FROM product WHERE (Location = :location OR Location = '/all') AND category = :category AND {$accessSql}");
+        $productSql = "SELECT * FROM product WHERE (Location = :location OR Location = '/all') AND category = :category AND {$accessSql}";
+        if ($productExtraSql !== '') {
+            $productSql .= ' ' . $productExtraSql;
+        }
+        $stmts = $pdo->prepare($productSql);
         $stmts->bindParam(':location', $location, PDO::PARAM_STR);
         $stmts->bindParam(':category', $row['remark'], PDO::PARAM_STR);
         $stmts->execute();
@@ -1606,12 +1616,12 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
             continue;
         }
         $list_category['inline_keyboard'][] = [telegram_button_with_icon(
-            ['text' => $row['remark'], 'callback_data' => "categorynames_" . $row['id']],
+            ['text' => $row['remark'], 'callback_data' => $callback_prefix . $row['id']],
             $row['emoji_id'] ?? ''
         )];
     }
     $panel = select("marzban_panel", "*", "name_panel", $location, "select");
-    if (is_array($panel) && panel_custom_enabled($panel, (string) $agent)) {
+    if ($includeCustomVolume && is_array($panel) && panel_custom_enabled($panel, (string) $agent)) {
         $list_category['inline_keyboard'][] = [
             panel_custom_service_inline_button($panel, 'customsellvolume'),
         ];

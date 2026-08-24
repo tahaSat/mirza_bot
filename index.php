@@ -4450,10 +4450,19 @@ $textinvite
     $info_product_price_product = (is_array($priceInfo) && !empty($priceInfo['applied']))
         ? product_discount_format_html((int) $priceInfo['original'], (int) $priceInfo['payable'], true)
         : number_format($info_product['price_product']);
+    $displayName = (string) ($info_product['name_product'] ?? '');
+    if (is_array($priceInfo) && !empty($priceInfo['applied'])) {
+        $displayName = product_discount_rewrite_name(
+            $displayName,
+            (int) $priceInfo['original'],
+            (int) $priceInfo['payable'],
+            true
+        );
+    }
     $userBalance = number_format($user['Balance']);
     $replacements = [
         '{username}' => $username_ac,
-        '{name_product}' => $info_product['name_product'],
+        '{name_product}' => $displayName,
         '{Service_time}' => $info_product['Service_time'],
         '{note}' => $info_product['note'] ?? '',
         '{price}' => $info_product_price_product,
@@ -4467,7 +4476,7 @@ $textinvite
     $edited = null;
     $invoiceKeyboard = KeyboardPayment(purchase_invoice_back_callback($userdate, (string) $user['agent']));
     if ($clickedProduct !== '' || ($user['step'] != "getvolumecustomuser" && !in_array($marzban_list_get['MethodUsername'], ["نام کاربری دلخواه", "نام کاربری دلخواه + عدد رندوم"], true))) {
-        $edited = Editmessagetext($from_id, $message_id, $textin, $invoiceKeyboard);
+        $edited = Editmessagetext($from_id, $message_id, $textin, $invoiceKeyboard, 'HTML');
     }
     if (!is_array($edited) || empty($edited['ok'])) {
         sendmessage($from_id, $textin, $invoiceKeyboard, 'HTML');

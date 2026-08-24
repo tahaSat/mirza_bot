@@ -9512,7 +9512,8 @@ function product_discount_strikethrough_text(string $text): string
 function product_discount_format_html(int $original, int $sale, bool $applied): string
 {
     if ($applied && $original !== $sale) {
-        return '<del>' . number_format($original) . '</del> ' . number_format($sale);
+        // Telegram HTML: <s> draws one continuous line across the whole original price.
+        return '<s>' . number_format($original) . '</s> ' . number_format($sale);
     }
     return number_format($sale);
 }
@@ -9523,6 +9524,71 @@ function product_discount_format_button(int $original, int $sale, bool $applied)
         return product_discount_strikethrough_text(number_format($original)) . ' ' . number_format($sale);
     }
     return number_format($sale);
+}
+
+function product_discount_to_latin_digits(string $text): string
+{
+    return str_replace(
+        ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹', '٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'],
+        ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+        $text
+    );
+}
+
+function product_discount_to_persian_digits(string $text): string
+{
+    return str_replace(
+        ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+        ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'],
+        $text
+    );
+}
+
+function product_discount_format_like(string $sample, int $amount): string
+{
+    $hasPersianDigits = (bool) preg_match('/[۰-۹٠-٩]/u', $sample);
+    $latin = product_discount_to_latin_digits($sample);
+    if (strpos($sample, '٬') !== false) {
+        $formatted = str_replace(',', '٬', number_format($amount));
+    } elseif (strpos($latin, ',') !== false) {
+        $formatted = number_format($amount);
+    } elseif (preg_match('/\d\.\d{3}/', $latin)) {
+        $formatted = str_replace(',', '.', number_format($amount));
+    } else {
+        $formatted = (string) $amount;
+    }
+    if ($hasPersianDigits) {
+        $formatted = product_discount_to_persian_digits($formatted);
+    }
+    return $formatted;
+}
+
+/**
+ * Temporarily rewrite the catalog price inside a product title (display-only).
+ * Matches 50000 / 50,000 / 50.000 / ۵۰٬۰۰۰ without touching other numbers like volume.
+ */
+function product_discount_rewrite_name(string $name, int $original, int $sale, bool $html = false): string
+{
+    if ($name === '' || $original <= 0 || $sale === $original) {
+        return $name;
+    }
+    $replaced = preg_replace_callback(
+        '/(?<![\d۰-۹٠-٩])([۰-۹٠-٩\d]{1,3}(?:[,.٬][۰-۹٠-٩\d]{3})+|[۰-۹٠-٩\d]+)(?![\d۰-۹٠-٩])/u',
+        static function (array $m) use ($original, $sale, $html): string {
+            $token = $m[1];
+            $digits = preg_replace('/\D+/', '', product_discount_to_latin_digits($token));
+            if ($digits === '' || (int) $digits !== $original) {
+                return $m[0];
+            }
+            $new = product_discount_format_like($token, $sale);
+            if ($html) {
+                return '<s>' . $token . '</s> ' . $new;
+            }
+            return $new;
+        },
+        $name
+    );
+    return is_string($replaced) ? $replaced : $name;
 }
 
 function broadcast_audience_label(array $userdata)

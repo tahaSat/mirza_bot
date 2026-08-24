@@ -640,16 +640,26 @@ switch ($data['actions']) {
                 $countorder = $stmts2->rowCount();
                 if ($result['one_buy_status'] == "1" && $countorder != 0)
                     continue;
+                $catalogPrice = (int) round((float) ($result['price_product'] ?? 0));
+                $displayName = (string) ($result['name_product'] ?? '');
                 if (($user_info['agent'] ?? '') !== 'n') {
-                    $result['price_product'] = product_discount_apply($result['price_product'], $result['code_product'] ?? '')['sale'];
-                }
-                if (intval($user_info['pricediscount']) != 0) {
+                    $priceInfo = product_discount_payable($catalogPrice, $result['code_product'] ?? '', $user_info['pricediscount'] ?? 0, $user_info);
+                    $result['price_product'] = $priceInfo['payable'];
+                    if (!empty($priceInfo['applied'])) {
+                        $displayName = product_discount_rewrite_name(
+                            $displayName,
+                            (int) $priceInfo['original'],
+                            (int) $priceInfo['payable'],
+                            false
+                        );
+                    }
+                } elseif (intval($user_info['pricediscount']) != 0) {
                     $resultper = ($result['price_product'] * $user_info['pricediscount']) / 100;
                     $result['price_product'] = $result['price_product'] - $resultper;
                 }
                 $product_list[] = [
                     'id' => $result['code_product'],
-                    'name' => $result['name_product'],
+                    'name' => $displayName,
                     'description' => $result['note'],
                     'price' => $result['price_product'],
                     'traffic_gb' => $result['Volume_constraint'],

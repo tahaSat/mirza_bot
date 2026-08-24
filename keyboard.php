@@ -1552,7 +1552,17 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
         } else {
             $priceInfo = product_discount_payable($result['price_product'], $result['code_product'] ?? '', $pricediscount, $user);
             $result['price_product'] = $priceInfo['payable'];
-            $namekeyboard = $result['name_product'] . " - " . product_discount_format_button((int) $priceInfo['original'], (int) $priceInfo['payable'], (bool) $priceInfo['applied']) . "تومان";
+            $displayName = (string) ($result['name_product'] ?? '');
+            if (!empty($priceInfo['applied'])) {
+                $displayName = product_discount_rewrite_name(
+                    $displayName,
+                    (int) $priceInfo['original'],
+                    (int) $priceInfo['payable'],
+                    false
+                );
+            }
+            $result['name_product'] = $displayName;
+            $namekeyboard = $displayName . " - " . product_discount_format_button((int) $priceInfo['original'], (int) $priceInfo['payable'], (bool) $priceInfo['applied']) . "تومان";
         }
         if ($statusshowprice == "onshowprice") {
             $result['name_product'] = $namekeyboard;

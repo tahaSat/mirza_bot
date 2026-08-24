@@ -4722,6 +4722,7 @@ $textinvite
         step('home', $from_id);
         return;
     }
+    product_discount_consume($info_product['code_product'] ?? '', $user);
     update("invoice", "Status", "active", "username", $username_ac);
     $output_config_link = "";
     $config = "";
@@ -5393,6 +5394,7 @@ $textonebuy
             step('home', $from_id);
             return;
         }
+        product_discount_consume($info_product['code_product'] ?? '', $user);
         $stmt = $connect->prepare("INSERT IGNORE INTO invoice (id_user, id_invoice, username,time_sell, Service_location, name_product, price_product, Volume, Service_time,Status,notifctions) VALUES (?, ?, ?, ?, ?, ?, ?,?,?,?,?)");
         $Status = "active";
         $invoicePrice = $info_product['price_product'];

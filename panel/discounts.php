@@ -263,7 +263,8 @@ function product_discount_collect_fields(): array
     $products = [$products];
   }
   $products = product_discount_decode_products($products);
-  return compact('status', 'valueRaw', 'percentRaw', 'products');
+  $useLimitRaw = trim((string) ($_POST['pd_use_limit'] ?? ''));
+  return compact('status', 'valueRaw', 'percentRaw', 'products', 'useLimitRaw');
 }
 
 function product_discount_validate_fields(array $f): ?string
@@ -291,6 +292,11 @@ function product_discount_validate_fields(array $f): ?string
   if ($f['products'] === []) {
     return 'حداقل یک محصول را انتخاب کنید.';
   }
+  if ($f['useLimitRaw'] !== '') {
+    if (!ctype_digit($f['useLimitRaw']) || (int) $f['useLimitRaw'] < 1) {
+      return 'محدودیت تعداد استفاده باید عدد بزرگ‌تر از صفر باشد یا خالی بماند.';
+    }
+  }
   return null;
 }
 
@@ -313,12 +319,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(($_POST['action'] ?? ''), 
   $type = $f['valueRaw'] !== '' ? 'value' : 'percent';
   $amount = (int) ($type === 'value' ? $f['valueRaw'] : $f['percentRaw']);
   $productsJson = product_discount_encode_products($f['products']);
+  $useLimit = $f['useLimitRaw'] === '' ? null : (int) $f['useLimitRaw'];
   try {
     if ($action === 'product_add') {
       db_query(
         $pdo,
-        'INSERT INTO ProductDiscount (status, type, amount, products, created_at) VALUES (?, ?, ?, ?, ?)',
-        [$f['status'], $type, $amount, $productsJson, time()]
+        'INSERT INTO ProductDiscount (status, type, amount, products, use_limit, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [$f['status'], $type, $amount, $productsJson, $useLimit, time()]
       );
       flash('success', 'تخفیف روی محصول ثبت شد.');
     } else {
@@ -330,8 +337,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(($_POST['action'] ?? ''), 
       }
       db_query(
         $pdo,
-        'UPDATE ProductDiscount SET status = ?, type = ?, amount = ?, products = ? WHERE id = ?',
-        [$f['status'], $type, $amount, $productsJson, $id]
+        'UPDATE ProductDiscount SET status = ?, type = ?, amount = ?, products = ?, use_limit = ? WHERE id = ?',
+        [$f['status'], $type, $amount, $productsJson, $useLimit, $id]
       );
       flash('success', 'تخفیف روی محصول ویرایش شد.');
     }
@@ -553,6 +560,7 @@ include __DIR__ . '/inc/layout_head.php';
             <th>وضعیت</th>
             <th>نوع</th>
             <th>مقدار</th>
+            <th>باقی‌مانده</th>
             <th>محصولات</th>
             <th>عملیات</th>
           </tr>
@@ -563,12 +571,15 @@ include __DIR__ . '/inc/layout_head.php';
             $pdType = (string) ($pd['type'] ?? 'value');
             $pdAmount = (int) ($pd['amount'] ?? 0);
             $pdStatus = (string) ($pd['status'] ?? 'inactive');
+            $pdUseLimit = $pd['use_limit'] ?? null;
+            $pdUseLabel = ($pdUseLimit === null || $pdUseLimit === '') ? 'نامحدود' : (string) (int) $pdUseLimit;
             $editPayload = [
               'id' => (int) ($pd['id'] ?? 0),
               'status' => $pdStatus,
               'type' => $pdType,
               'amount' => $pdAmount,
               'products' => $pdProducts,
+              'use_limit' => ($pdUseLimit === null || $pdUseLimit === '') ? '' : (int) $pdUseLimit,
             ];
           ?>
             <tr>
@@ -578,6 +589,7 @@ include __DIR__ . '/inc/layout_head.php';
               </td>
               <td class="cn"><?= $pdType === 'percent' ? 'درصد' : 'مبلغ' ?></td>
               <td class="cn"><?= $pdType === 'percent' ? ($pdAmount . '٪') : (number_format($pdAmount) . ' ت') ?></td>
+              <td class="cn"><?= htmlspecialchars($pdUseLabel) ?></td>
               <td class="cn" style="font-size:.78rem;max-width:280px;line-height:1.45">
                 <?= htmlspecialchars(discount_scope_label($pdProducts, $productNames, '—', 3)) ?>
                 <div style="color:var(--mute)"><?= count($pdProducts) ?> محصول</div>
@@ -649,6 +661,11 @@ include __DIR__ . '/inc/layout_head.php';
             <label>درصد تخفیف</label>
             <input type="number" name="pd_percent" id="pd_percent" class="input" min="1" max="100" placeholder="مثلاً ۲۰">
           </div>
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>محدودیت تعداد استفاده</label>
+          <input type="number" name="pd_use_limit" id="pd_use_limit" class="input" min="1" placeholder="خالی = نامحدود">
+          <small class="cf" style="display:block;margin-top:6px">با هر خرید موفق یک واحد کم می‌شود و در صفر تخفیف غیرفعال می‌گردد.</small>
         </div>
         <div class="field">
           <label>محصولات</label>
@@ -780,6 +797,8 @@ include __DIR__ . '/inc/layout_head.php';
       action.value = 'product_edit';
       idInput.value = row.id;
       document.getElementById('pd_status').value = row.status || 'active';
+      var useLimitInput = document.getElementById('pd_use_limit');
+      if (useLimitInput) useLimitInput.value = row.use_limit || '';
       if (row.type === 'percent') {
         percentInput.value = row.amount || '';
         valueInput.value = '';

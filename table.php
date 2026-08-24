@@ -1126,12 +1126,18 @@ try {
         type VARCHAR(20) NOT NULL,
         amount INT NOT NULL DEFAULT 0,
         products TEXT NOT NULL,
+        use_limit INT NULL,
         created_at INT UNSIGNED NOT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         if (!$result) {
             echo "table ProductDiscount" . mysqli_error($connect);
         }
     }
+} catch (Exception $e) {
+    file_put_contents('error_log', $e->getMessage());
+}
+try {
+    addFieldToTable("ProductDiscount", "use_limit", null, "INT NULL");
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());
 }

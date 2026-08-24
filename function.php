@@ -2931,6 +2931,7 @@ function DirectPayment($order_id, $image = 'images.jpg')
             }
             return;
         }
+        product_discount_consume($info_product['code_product'] ?? '', $Balance_id);
         $Shoppinginfo = json_encode([
             'inline_keyboard' => [
                 [
@@ -9314,13 +9315,22 @@ function product_discount_ensure_schema(): void
         type VARCHAR(20) NOT NULL,
         amount INT NOT NULL DEFAULT 0,
         products TEXT NOT NULL,
+        use_limit INT NULL,
         created_at INT UNSIGNED NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
     try {
         if ($pdo instanceof PDO) {
             $pdo->exec($sql);
+            $cols = $pdo->query("SHOW COLUMNS FROM ProductDiscount")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('use_limit', $cols, true)) {
+                $pdo->exec("ALTER TABLE ProductDiscount ADD use_limit INT NULL");
+            }
         } elseif (isset($connect) && $connect) {
             $connect->query($sql);
+            $check = $connect->query("SHOW COLUMNS FROM ProductDiscount LIKE 'use_limit'");
+            if ($check && mysqli_num_rows($check) != 1) {
+                $connect->query("ALTER TABLE ProductDiscount ADD use_limit INT NULL");
+            }
         }
     } catch (Throwable $e) {
         error_log('product_discount_ensure_schema: ' . $e->getMessage());
@@ -9372,21 +9382,34 @@ function product_discount_sale_price(int $original, string $type, int $amount): 
     return (int) max(0, $original - $amount);
 }
 
-function product_discount_active_rows(): array
+function product_discount_row_has_quota(array $row): bool
+{
+    if (!array_key_exists('use_limit', $row) || $row['use_limit'] === null || $row['use_limit'] === '') {
+        return true;
+    }
+    return (int) $row['use_limit'] > 0;
+}
+
+function product_discount_active_rows(bool $reset = false): array
 {
     static $rows = null;
+    if ($reset) {
+        $rows = null;
+        return [];
+    }
     if ($rows !== null) {
         return $rows;
     }
     product_discount_ensure_schema();
     global $pdo, $connect;
     $rows = [];
+    $sql = "SELECT * FROM ProductDiscount WHERE status = 'active' AND (use_limit IS NULL OR use_limit > 0) ORDER BY id DESC";
     try {
         if ($pdo instanceof PDO) {
-            $stmt = $pdo->query("SELECT * FROM ProductDiscount WHERE status = 'active' ORDER BY id DESC");
+            $stmt = $pdo->query($sql);
             $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
         } elseif (isset($connect) && $connect) {
-            $result = $connect->query("SELECT * FROM ProductDiscount WHERE status = 'active' ORDER BY id DESC");
+            $result = $connect->query($sql);
             if ($result) {
                 while ($row = $result->fetch_assoc()) {
                     $rows[] = $row;
@@ -9397,7 +9420,72 @@ function product_discount_active_rows(): array
         error_log('product_discount_active_rows: ' . $e->getMessage());
         $rows = [];
     }
+    $rows = array_values(array_filter($rows, 'product_discount_row_has_quota'));
     return $rows;
+}
+
+function product_discount_consume($codeProduct, $user = null): bool
+{
+    $agent = is_array($user) ? (string) ($user['agent'] ?? '') : '';
+    if ($agent === 'n') {
+        return false;
+    }
+    $codeProduct = trim((string) $codeProduct);
+    if ($codeProduct === '' || stripos($codeProduct, 'customvolume') === 0) {
+        return false;
+    }
+    global $pdo, $connect;
+    $original = 0;
+    try {
+        if ($pdo instanceof PDO) {
+            $stmt = $pdo->prepare('SELECT price_product FROM product WHERE code_product = ? LIMIT 1');
+            $stmt->execute([$codeProduct]);
+            $original = (int) round((float) ($stmt->fetchColumn() ?: 0));
+        } elseif (isset($connect) && $connect) {
+            $stmt = $connect->prepare('SELECT price_product FROM product WHERE code_product = ? LIMIT 1');
+            $stmt->bind_param('s', $codeProduct);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            $rowPrice = $res ? $res->fetch_assoc() : null;
+            $stmt->close();
+            $original = (int) round((float) ($rowPrice['price_product'] ?? 0));
+        }
+    } catch (Throwable $e) {
+        error_log('product_discount_consume price: ' . $e->getMessage());
+        return false;
+    }
+    if ($original <= 0) {
+        return false;
+    }
+    $applied = product_discount_apply($original, $codeProduct);
+    if (empty($applied['applied']) || empty($applied['row']['id'])) {
+        return false;
+    }
+    $row = $applied['row'];
+    if (!product_discount_row_has_quota($row) || !array_key_exists('use_limit', $row) || $row['use_limit'] === null || $row['use_limit'] === '') {
+        return false;
+    }
+    $id = (int) $row['id'];
+    $sql = "UPDATE ProductDiscount SET status = IF(use_limit <= 1, 'inactive', status), use_limit = use_limit - 1 WHERE id = ? AND status = 'active' AND use_limit IS NOT NULL AND use_limit > 0";
+    $ok = false;
+    try {
+        if ($pdo instanceof PDO) {
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([$id]);
+            $ok = $stmt->rowCount() > 0;
+        } elseif (isset($connect) && $connect) {
+            $stmt = $connect->prepare($sql);
+            $stmt->bind_param('i', $id);
+            $stmt->execute();
+            $ok = $stmt->affected_rows > 0;
+            $stmt->close();
+        }
+    } catch (Throwable $e) {
+        error_log('product_discount_consume: ' . $e->getMessage());
+        $ok = false;
+    }
+    product_discount_active_rows(true);
+    return $ok;
 }
 
 function product_discount_for_product(string $codeProduct): ?array

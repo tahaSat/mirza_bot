@@ -893,6 +893,7 @@ switch ($data['actions']) {
             }
             return;
         }
+        product_discount_consume($product['code_product'] ?? '', $user_info);
         $config = "";
         $output_config_link = $panel['sublink'] == "onsublink" ? $dataoutput['subscription_url'] : "";
         if ($panel['config'] == "onconfig" && is_array($dataoutput['configs'])) {

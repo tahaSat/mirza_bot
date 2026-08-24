@@ -640,6 +640,9 @@ switch ($data['actions']) {
                 $countorder = $stmts2->rowCount();
                 if ($result['one_buy_status'] == "1" && $countorder != 0)
                     continue;
+                if (($user_info['agent'] ?? '') !== 'n') {
+                    $result['price_product'] = product_discount_apply($result['price_product'], $result['code_product'] ?? '')['sale'];
+                }
                 if (intval($user_info['pricediscount']) != 0) {
                     $resultper = ($result['price_product'] * $user_info['pricediscount']) / 100;
                     $result['price_product'] = $result['price_product'] - $resultper;
@@ -802,6 +805,9 @@ switch ($data['actions']) {
                 'msg' => "محصول انتخابی پیدا نشد"
             ));
             return;
+        }
+        if (empty($data['custom_service']) && ($user_info['agent'] ?? '') !== 'n') {
+            $product['price_product'] = product_discount_apply($product['price_product'], $product['code_product'] ?? '')['sale'];
         }
         if (intval($user_info['pricediscount']) != 0) {
             $result = ($product['price_product'] * $user_info['pricediscount']) / 100;

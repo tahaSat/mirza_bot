@@ -1548,11 +1548,12 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
             continue;
         if ($isAgentN) {
             $result['price_product'] = agent_wholesale_cost($user, (int) ($result['Volume_constraint'] ?? 0));
-        } elseif (intval($pricediscount) != 0) {
-            $resultper = ($result['price_product'] * $pricediscount) / 100;
-            $result['price_product'] = $result['price_product'] - $resultper;
+            $namekeyboard = $result['name_product'] . " - " . number_format($result['price_product']) . "تومان";
+        } else {
+            $priceInfo = product_discount_payable($result['price_product'], $result['code_product'] ?? '', $pricediscount, $user);
+            $result['price_product'] = $priceInfo['payable'];
+            $namekeyboard = $result['name_product'] . " - " . product_discount_format_button((int) $priceInfo['original'], (int) $priceInfo['payable'], (bool) $priceInfo['applied']) . "تومان";
         }
-        $namekeyboard = $result['name_product'] . " - " . number_format($result['price_product']) . "تومان";
         if ($statusshowprice == "onshowprice") {
             $result['name_product'] = $namekeyboard;
         }

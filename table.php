@@ -1117,6 +1117,26 @@ try {
 }
 //-----------------------------------------------------------------
 try {
+    $result = $connect->query("SHOW TABLES LIKE 'ProductDiscount'");
+    $table_exists = ($result->num_rows > 0);
+    if (!$table_exists) {
+        $result = $connect->query("CREATE TABLE ProductDiscount (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        type VARCHAR(20) NOT NULL,
+        amount INT NOT NULL DEFAULT 0,
+        products TEXT NOT NULL,
+        created_at INT UNSIGNED NOT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        if (!$result) {
+            echo "table ProductDiscount" . mysqli_error($connect);
+        }
+    }
+} catch (Exception $e) {
+    file_put_contents('error_log', $e->getMessage());
+}
+//-----------------------------------------------------------------
+try {
     $result = $connect->query("SHOW TABLES LIKE 'affiliates'");
     $table_exists = ($result->num_rows > 0);
 

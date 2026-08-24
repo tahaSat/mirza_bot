@@ -4424,8 +4424,12 @@ $textinvite
         step("home", $from_id);
         return;
     }
+    $priceInfo = null;
     if (($user['agent'] ?? '') === 'n' && ($parts[0] ?? '') != "customvolume") {
         $info_product['price_product'] = agent_wholesale_cost($user, (int) ($info_product['Volume_constraint'] ?? 0));
+    } elseif (($parts[0] ?? '') != "customvolume") {
+        $priceInfo = product_discount_payable($info_product['price_product'], $info_product['code_product'] ?? '', $user['pricediscount'] ?? 0, $user);
+        $info_product['price_product'] = $priceInfo['payable'];
     } elseif (($user['agent'] ?? '') !== 'n' && intval($user['pricediscount']) != 0) {
         $resultper = ($info_product['price_product'] * $user['pricediscount']) / 100;
         $info_product['price_product'] = $info_product['price_product'] - $resultper;
@@ -4443,7 +4447,9 @@ $textinvite
         $info_product['Volume_constraint'] = $textbotlang['users']['stateus']['Unlimited'];
     if (intval($info_product['Service_time']) == 0)
         $info_product['Service_time'] = $textbotlang['users']['stateus']['Unlimited'];
-    $info_product_price_product = number_format($info_product['price_product']);
+    $info_product_price_product = (is_array($priceInfo) && !empty($priceInfo['applied']))
+        ? product_discount_format_html((int) $priceInfo['original'], (int) $priceInfo['payable'], true)
+        : number_format($info_product['price_product']);
     $userBalance = number_format($user['Balance']);
     $replacements = [
         '{username}' => $username_ac,
@@ -4539,6 +4545,9 @@ $textinvite
         $priceproduct = $partsdic[1];
     } else {
         $priceproduct = $info_product['price_product'];
+        if (($user['agent'] ?? '') !== 'n' && ($parts[0] ?? '') !== 'customvolume') {
+            $priceproduct = product_discount_apply($priceproduct, $info_product['code_product'] ?? '')['sale'];
+        }
     }
     if (($user['agent'] ?? '') === 'n') {
         $priceproduct = agent_wholesale_cost($user, (int) ($info_product['Volume_constraint'] ?? 0));
@@ -4967,6 +4976,9 @@ $textonebuy
     } else {
         $info_product = mysqli_fetch_assoc(mysqli_query($connect, "SELECT * FROM product WHERE code_product = '{$user['Processing_value_one']}' AND (Location = '{$userdate['name_panel']}'or Location = '/all') LIMIT 1"));
     }
+    if (($parts[0] ?? '') !== 'customvolume' && ($user['agent'] ?? '') !== 'n') {
+        $info_product['price_product'] = product_discount_apply($info_product['price_product'] ?? 0, $info_product['code_product'] ?? '')['sale'];
+    }
     $result = ($SellDiscountlimit['price'] / 100) * $info_product['price_product'];
 
     $info_productmain = $info_product['price_product'];
@@ -5189,7 +5201,11 @@ $textonebuy
         $info_product['Volume_constraint'] = $textbotlang['users']['stateus']['Unlimited'];
     if ($info_product['Service_time'] == 0)
         $info_product['Service_time'] = $textbotlang['users']['stateus']['Unlimited'];
-    $info_product['price_product'] = intval($info_product['price_product']) * intval($user['Processing_value_four']);
+    $unitPrice = intval($info_product['price_product']);
+    if (($parts[0] ?? '') !== 'customvolume' && ($user['agent'] ?? '') !== 'n') {
+        $unitPrice = product_discount_apply($unitPrice, $info_product['code_product'] ?? '')['sale'];
+    }
+    $info_product['price_product'] = $unitPrice * intval($user['Processing_value_four']);
     $price_product_format = number_format($info_product['price_product']);
     $userbalancepish = number_format($user['Balance']);
     $textin = "
@@ -5236,7 +5252,11 @@ $textonebuy
             return;
         }
     }
-    $priceproduct = $info_product['price_product'] * $user['Processing_value_four'];
+    $unitPrice = $info_product['price_product'];
+    if (($parts[0] ?? '') !== 'customvolume' && ($user['agent'] ?? '') !== 'n') {
+        $unitPrice = product_discount_apply($unitPrice, $info_product['code_product'] ?? '')['sale'];
+    }
+    $priceproduct = $unitPrice * $user['Processing_value_four'];
     $bulkVolumeTotal = (int) ($info_product['Volume_constraint'] ?? 0) * (int) $user['Processing_value_four'];
     $bulkUnitVolume = (int) ($info_product['Volume_constraint'] ?? 0);
     $bulkCount = (int) $user['Processing_value_four'];

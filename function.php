@@ -9301,6 +9301,230 @@ function discount_sell_record_usage(array $data): bool
     }
 }
 
+function product_discount_ensure_schema(): void
+{
+    static $ready = false;
+    if ($ready) {
+        return;
+    }
+    global $pdo, $connect;
+    $sql = "CREATE TABLE IF NOT EXISTS ProductDiscount (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        type VARCHAR(20) NOT NULL,
+        amount INT NOT NULL DEFAULT 0,
+        products TEXT NOT NULL,
+        created_at INT UNSIGNED NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+    try {
+        if ($pdo instanceof PDO) {
+            $pdo->exec($sql);
+        } elseif (isset($connect) && $connect) {
+            $connect->query($sql);
+        }
+    } catch (Throwable $e) {
+        error_log('product_discount_ensure_schema: ' . $e->getMessage());
+    }
+    $ready = true;
+}
+
+function product_discount_decode_products($raw): array
+{
+    if (is_array($raw)) {
+        $list = $raw;
+    } else {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            $list = $decoded;
+        } else {
+            $list = preg_split('/\s*,\s*/', $raw) ?: [];
+        }
+    }
+    $out = [];
+    foreach ($list as $v) {
+        $v = trim((string) $v);
+        if ($v !== '') {
+            $out[] = $v;
+        }
+    }
+    return array_values(array_unique($out));
+}
+
+function product_discount_encode_products($values): string
+{
+    $clean = product_discount_decode_products($values);
+    return json_encode($clean, JSON_UNESCAPED_UNICODE);
+}
+
+function product_discount_sale_price(int $original, string $type, int $amount): int
+{
+    if ($original <= 0 || $amount <= 0) {
+        return max(0, $original);
+    }
+    if ($type === 'percent') {
+        $amount = min(100, $amount);
+        return (int) max(0, round($original - (($original * $amount) / 100)));
+    }
+    return (int) max(0, $original - $amount);
+}
+
+function product_discount_active_rows(): array
+{
+    static $rows = null;
+    if ($rows !== null) {
+        return $rows;
+    }
+    product_discount_ensure_schema();
+    global $pdo, $connect;
+    $rows = [];
+    try {
+        if ($pdo instanceof PDO) {
+            $stmt = $pdo->query("SELECT * FROM ProductDiscount WHERE status = 'active' ORDER BY id DESC");
+            $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+        } elseif (isset($connect) && $connect) {
+            $result = $connect->query("SELECT * FROM ProductDiscount WHERE status = 'active' ORDER BY id DESC");
+            if ($result) {
+                while ($row = $result->fetch_assoc()) {
+                    $rows[] = $row;
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('product_discount_active_rows: ' . $e->getMessage());
+        $rows = [];
+    }
+    return $rows;
+}
+
+function product_discount_for_product(string $codeProduct): ?array
+{
+    $codeProduct = trim($codeProduct);
+    if ($codeProduct === '' || stripos($codeProduct, 'customvolume') === 0) {
+        return null;
+    }
+    foreach (product_discount_active_rows() as $row) {
+        $products = product_discount_decode_products($row['products'] ?? '');
+        if (in_array($codeProduct, $products, true)) {
+            return $row;
+        }
+    }
+    return null;
+}
+
+function product_discount_apply($original, $codeProduct): array
+{
+    $original = (int) round((float) $original);
+    $codeProduct = trim((string) $codeProduct);
+    $result = [
+        'original' => $original,
+        'sale' => $original,
+        'applied' => false,
+        'row' => null,
+    ];
+    if ($original <= 0 || $codeProduct === '' || stripos($codeProduct, 'customvolume') === 0) {
+        return $result;
+    }
+    $bestSale = $original;
+    $bestRow = null;
+    foreach (product_discount_active_rows() as $row) {
+        $products = product_discount_decode_products($row['products'] ?? '');
+        if (!in_array($codeProduct, $products, true)) {
+            continue;
+        }
+        $sale = product_discount_sale_price(
+            $original,
+            (string) ($row['type'] ?? 'value'),
+            (int) ($row['amount'] ?? 0)
+        );
+        if ($sale < $bestSale) {
+            $bestSale = $sale;
+            $bestRow = $row;
+        }
+    }
+    if ($bestRow !== null && $bestSale < $original) {
+        $result['sale'] = $bestSale;
+        $result['applied'] = true;
+        $result['row'] = $bestRow;
+    }
+    return $result;
+}
+
+function product_discount_apply_for_user($original, $codeProduct, $user = null): int
+{
+    $agent = is_array($user) ? (string) ($user['agent'] ?? '') : '';
+    if ($agent === 'n') {
+        return (int) round((float) $original);
+    }
+    return product_discount_apply($original, $codeProduct)['sale'];
+}
+
+function product_discount_payable($original, $codeProduct, $userPercent = 0, $user = null): array
+{
+    $original = (int) round((float) $original);
+    $agent = is_array($user) ? (string) ($user['agent'] ?? '') : '';
+    if ($agent === 'n') {
+        return [
+            'original' => $original,
+            'sale' => $original,
+            'payable' => $original,
+            'applied' => false,
+        ];
+    }
+    $pd = product_discount_apply($original, $codeProduct);
+    $sale = (int) $pd['sale'];
+    $payable = $sale;
+    $pct = (int) $userPercent;
+    if ($pct !== 0) {
+        $payable = (int) round($sale - (($sale * $pct) / 100));
+    }
+    if ($payable < 0) {
+        $payable = 0;
+    }
+    return [
+        'original' => (int) $pd['original'],
+        'sale' => $sale,
+        'payable' => $payable,
+        'applied' => (bool) $pd['applied'],
+    ];
+}
+
+function product_discount_strikethrough_text(string $text): string
+{
+    $chars = preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY);
+    if (!is_array($chars)) {
+        return $text;
+    }
+    $out = '';
+    foreach ($chars as $ch) {
+        if ($ch === "\n" || $ch === "\r") {
+            $out .= $ch;
+            continue;
+        }
+        $out .= $ch . "\u{0336}";
+    }
+    return $out;
+}
+
+function product_discount_format_html(int $original, int $sale, bool $applied): string
+{
+    if ($applied && $original !== $sale) {
+        return '<del>' . number_format($original) . '</del> ' . number_format($sale);
+    }
+    return number_format($sale);
+}
+
+function product_discount_format_button(int $original, int $sale, bool $applied): string
+{
+    if ($applied && $original !== $sale) {
+        return product_discount_strikethrough_text(number_format($original)) . ' ' . number_format($sale);
+    }
+    return number_format($sale);
+}
+
 function broadcast_audience_label(array $userdata)
 {
     if (($userdata['typeusermessage'] ?? '') === 'channelpost') {

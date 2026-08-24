@@ -4,6 +4,8 @@ require_once __DIR__ . '/inc/icons.php';
 require_auth();
 $pdo = panel_ensure_pdo();
 discount_sell_ensure_schema();
+product_discount_ensure_schema();
+$discountTab = (($_GET['tab'] ?? 'codes') === 'product') ? 'product' : 'codes';
 
 function discount_agent_label(string $agent): string
 {
@@ -245,6 +247,127 @@ if (isset($_GET['delete'])) {
   exit;
 }
 
+function product_discount_redirect(): void
+{
+  header('Location: discounts.php?tab=product');
+  exit;
+}
+
+function product_discount_collect_fields(): array
+{
+  $status = trim((string) ($_POST['pd_status'] ?? 'active'));
+  $valueRaw = trim((string) ($_POST['pd_value'] ?? ''));
+  $percentRaw = trim((string) ($_POST['pd_percent'] ?? ''));
+  $products = $_POST['pd_products'] ?? [];
+  if (!is_array($products)) {
+    $products = [$products];
+  }
+  $products = product_discount_decode_products($products);
+  return compact('status', 'valueRaw', 'percentRaw', 'products');
+}
+
+function product_discount_validate_fields(array $f): ?string
+{
+  if (!in_array($f['status'], ['active', 'inactive'], true)) {
+    return 'وضعیت نامعتبر است.';
+  }
+  $hasValue = $f['valueRaw'] !== '';
+  $hasPercent = $f['percentRaw'] !== '';
+  if ($hasValue && $hasPercent) {
+    return 'فقط یکی از مبلغ یا درصد را وارد کنید.';
+  }
+  if (!$hasValue && !$hasPercent) {
+    return 'مبلغ یا درصد تخفیف را وارد کنید.';
+  }
+  if ($hasValue) {
+    if (!ctype_digit($f['valueRaw']) || (int) $f['valueRaw'] < 1) {
+      return 'مبلغ تخفیف باید عدد بزرگ‌تر از صفر باشد.';
+    }
+  } else {
+    if (!ctype_digit($f['percentRaw']) || (int) $f['percentRaw'] < 1 || (int) $f['percentRaw'] > 100) {
+      return 'درصد تخفیف باید عددی بین ۱ تا ۱۰۰ باشد.';
+    }
+  }
+  if ($f['products'] === []) {
+    return 'حداقل یک محصول را انتخاب کنید.';
+  }
+  return null;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(($_POST['action'] ?? ''), ['product_add', 'product_edit'], true)) {
+  csrf_check_post();
+  $action = (string) $_POST['action'];
+  $f = product_discount_collect_fields();
+  $err = product_discount_validate_fields($f);
+  if ($action === 'product_edit') {
+    $id = (int) ($_POST['pd_id'] ?? 0);
+    if (!$id) {
+      flash('error', 'شناسه نامعتبر است.');
+      product_discount_redirect();
+    }
+  }
+  if ($err) {
+    flash('error', $err);
+    product_discount_redirect();
+  }
+  $type = $f['valueRaw'] !== '' ? 'value' : 'percent';
+  $amount = (int) ($type === 'value' ? $f['valueRaw'] : $f['percentRaw']);
+  $productsJson = product_discount_encode_products($f['products']);
+  try {
+    if ($action === 'product_add') {
+      db_query(
+        $pdo,
+        'INSERT INTO ProductDiscount (status, type, amount, products, created_at) VALUES (?, ?, ?, ?, ?)',
+        [$f['status'], $type, $amount, $productsJson, time()]
+      );
+      flash('success', 'تخفیف روی محصول ثبت شد.');
+    } else {
+      $id = (int) ($_POST['pd_id'] ?? 0);
+      $old = db_fetch($pdo, 'SELECT id FROM ProductDiscount WHERE id = ?', [$id]);
+      if (!$old) {
+        flash('error', 'تخفیف یافت نشد.');
+        product_discount_redirect();
+      }
+      db_query(
+        $pdo,
+        'UPDATE ProductDiscount SET status = ?, type = ?, amount = ?, products = ? WHERE id = ?',
+        [$f['status'], $type, $amount, $productsJson, $id]
+      );
+      flash('success', 'تخفیف روی محصول ویرایش شد.');
+    }
+  } catch (Exception $e) {
+    flash('error', 'خطای پایگاه داده: ' . $e->getMessage());
+  }
+  product_discount_redirect();
+}
+
+if (isset($_GET['product_delete'])) {
+  csrf_check_get();
+  $id = (int) $_GET['product_delete'];
+  $row = db_fetch($pdo, 'SELECT id FROM ProductDiscount WHERE id = ?', [$id]);
+  if ($row) {
+    db_query($pdo, 'DELETE FROM ProductDiscount WHERE id = ?', [$id]);
+    flash('success', 'تخفیف روی محصول حذف شد.');
+  } else {
+    flash('error', 'تخفیف یافت نشد.');
+  }
+  product_discount_redirect();
+}
+
+if (isset($_GET['product_toggle'])) {
+  csrf_check_get();
+  $id = (int) $_GET['product_toggle'];
+  $row = db_fetch($pdo, 'SELECT status FROM ProductDiscount WHERE id = ?', [$id]);
+  if ($row) {
+    $next = (($row['status'] ?? '') === 'active') ? 'inactive' : 'active';
+    db_query($pdo, 'UPDATE ProductDiscount SET status = ? WHERE id = ?', [$next, $id]);
+    flash('success', $next === 'active' ? 'تخفیف فعال شد.' : 'تخفیف غیرفعال شد.');
+  } else {
+    flash('error', 'تخفیف یافت نشد.');
+  }
+  product_discount_redirect();
+}
+
 $search = trim($_GET['q'] ?? '');
 $usageCode = trim((string) ($_GET['usage'] ?? ''));
 $params = [];
@@ -326,7 +449,7 @@ try {
   }
 }
 try {
-  $categories = db_fetchAll($pdo, 'SELECT remark FROM category ORDER BY remark');
+  $categories = db_fetchAll($pdo, 'SELECT remark, status FROM category ORDER BY remark');
 } catch (Exception $e) {
 }
 $categoryNames = [];
@@ -351,11 +474,349 @@ foreach ($panels as $p) {
   $panelNames[$p['code_panel']] = $p['name_panel'];
 }
 
-$pageTitle = 'کدهای تخفیف';
-$pageLede = 'ساخت و مدیریت کد تخفیف با فیلتر چندتایی روی محصول، دسته‌بندی و پنل.';
+$productDiscounts = [];
+try {
+  $productDiscounts = db_fetchAll($pdo, 'SELECT * FROM ProductDiscount ORDER BY id DESC');
+} catch (Exception $e) {
+  $productDiscounts = [];
+}
+
+$categoryActiveMap = [];
+foreach ($categories as $c) {
+  $remark = (string) ($c['remark'] ?? '');
+  $status = $c['status'] ?? 'active';
+  $categoryActiveMap[$remark] = ($status === '' || $status === 'active');
+}
+$productsByCategory = [];
+foreach ($products as $p) {
+  $catKey = trim((string) ($p['category'] ?? ''));
+  $productsByCategory[$catKey][] = $p;
+}
+$productPickerSections = [];
+$seenPickerCats = [];
+foreach ($categories as $c) {
+  $remark = (string) ($c['remark'] ?? '');
+  if ($remark === '' || empty($categoryActiveMap[$remark]) || empty($productsByCategory[$remark])) {
+    continue;
+  }
+  $productPickerSections[] = [
+    'key' => $remark,
+    'label' => $remark,
+    'products' => $productsByCategory[$remark],
+  ];
+  $seenPickerCats[$remark] = true;
+}
+if (!empty($productsByCategory[''])) {
+  $productPickerSections[] = [
+    'key' => '',
+    'label' => 'بدون دسته‌بندی',
+    'products' => $productsByCategory[''],
+  ];
+}
+
+$pageTitle = $discountTab === 'product' ? 'تخفیف روی محصول' : 'کدهای تخفیف';
+$pageLede = $discountTab === 'product'
+  ? 'تخفیف مبلغی یا درصدی روی محصولات انتخاب‌شده، بدون نیاز به کد.'
+  : 'ساخت و مدیریت کد تخفیف با فیلتر چندتایی روی محصول، دسته‌بندی و پنل.';
 $activeNav = 'discounts';
 include __DIR__ . '/inc/layout_head.php';
 ?>
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px" class="fade-up">
+  <div style="display:flex;gap:4px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:4px;flex-wrap:wrap">
+    <a href="discounts.php" class="btn btn-sm <?= $discountTab === 'codes' ? 'btn-primary' : 'btn-ghost' ?>">کدهای تخفیف</a>
+    <a href="discounts.php?tab=product" class="btn btn-sm <?= $discountTab === 'product' ? 'btn-primary' : 'btn-ghost' ?>">تخفیف روی محصول</a>
+  </div>
+</div>
+
+<?php if ($discountTab === 'product'): ?>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px" class="fade-up">
+  <div style="font-size:.85rem;color:var(--mute)"><?= count($productDiscounts) ?> تخفیف محصول</div>
+  <button class="btn btn-primary" onclick="openProductDiscountModal()"><?= icon('plus', 14) ?> افزودن تخفیف</button>
+</div>
+
+<div class="card fade-up d1">
+  <div class="toolbar">
+    <div class="toolbar-title">تخفیف روی محصول <small>(<?= count($productDiscounts) ?>)</small></div>
+  </div>
+  <?php if (empty($productDiscounts)): ?>
+    <div class="empty" style="padding:60px 20px">
+      <p>هنوز تخفیفی روی محصول ثبت نکرده‌اید</p>
+      <button class="btn btn-primary" style="margin-top:14px" onclick="openProductDiscountModal()"><?= icon('plus', 14) ?> ساخت اولین تخفیف</button>
+    </div>
+  <?php else: ?>
+    <div class="tbl-wrap">
+      <table class="tbl-lg">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>وضعیت</th>
+            <th>نوع</th>
+            <th>مقدار</th>
+            <th>محصولات</th>
+            <th>عملیات</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php $pi = 1; foreach ($productDiscounts as $pd):
+            $pdProducts = product_discount_decode_products($pd['products'] ?? '');
+            $pdType = (string) ($pd['type'] ?? 'value');
+            $pdAmount = (int) ($pd['amount'] ?? 0);
+            $pdStatus = (string) ($pd['status'] ?? 'inactive');
+            $editPayload = [
+              'id' => (int) ($pd['id'] ?? 0),
+              'status' => $pdStatus,
+              'type' => $pdType,
+              'amount' => $pdAmount,
+              'products' => $pdProducts,
+            ];
+          ?>
+            <tr>
+              <td class="cf"><?= $pi++ ?></td>
+              <td>
+                <span class="tag <?= $pdStatus === 'active' ? 'tag-ok' : 'tag-warn' ?>"><?= $pdStatus === 'active' ? 'فعال' : 'غیرفعال' ?></span>
+              </td>
+              <td class="cn"><?= $pdType === 'percent' ? 'درصد' : 'مبلغ' ?></td>
+              <td class="cn"><?= $pdType === 'percent' ? ($pdAmount . '٪') : (number_format($pdAmount) . ' ت') ?></td>
+              <td class="cn" style="font-size:.78rem;max-width:280px;line-height:1.45">
+                <?= htmlspecialchars(discount_scope_label($pdProducts, $productNames, '—', 3)) ?>
+                <div style="color:var(--mute)"><?= count($pdProducts) ?> محصول</div>
+              </td>
+              <td>
+                <div style="display:flex;gap:5px;flex-wrap:wrap">
+                  <button class="btn btn-ghost btn-sm btn-icon" title="ویرایش"
+                    onclick="openProductDiscountModal(<?= htmlspecialchars(json_encode($editPayload, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)">
+                    <?= icon('edit', 13) ?>
+                  </button>
+                  <a href="discounts.php?tab=product&product_toggle=<?= (int) $pd['id'] ?>&_csrf=<?= csrf_token() ?>"
+                    class="btn btn-ghost btn-sm" title="تغییر وضعیت">
+                    <?= $pdStatus === 'active' ? 'غیرفعال' : 'فعال' ?>
+                  </a>
+                  <a href="discounts.php?tab=product&product_delete=<?= (int) $pd['id'] ?>&_csrf=<?= csrf_token() ?>"
+                    class="btn btn-no btn-sm btn-icon" title="حذف"
+                    data-confirm="حذف این تخفیف روی محصول؟">
+                    <?= icon('trash', 13) ?>
+                  </a>
+                </div>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+  <?php endif; ?>
+</div>
+
+<style>
+.pd-xor-row{display:flex;align-items:end;gap:10px;flex-wrap:wrap}
+.pd-xor-row .field{flex:1;min-width:140px}
+.pd-xor-or{color:var(--mute);font-size:.85rem;padding-bottom:10px;font-weight:600}
+.pd-picker{max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--card-2, transparent)}
+.pd-picker .product-order-group{border-bottom:1px solid var(--line);margin:0}
+.pd-picker .product-order-group:last-child{border-bottom:0}
+.pd-picker .product-order-group-head{padding:10px 12px}
+.pd-picker .product-order-group-head-start{gap:8px}
+.pd-prod-list{display:flex;flex-direction:column;gap:6px;padding:8px 12px 12px 36px}
+.pd-prod-item{display:flex;align-items:center;gap:8px;font-size:.82rem;margin:0;cursor:pointer}
+.pd-cat-cb,.pd-prod-cb{width:16px;height:16px;flex-shrink:0}
+</style>
+
+<div class="modal-veil" id="productDiscountModal">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-head">
+      <h3 id="pd_modal_title">افزودن تخفیف روی محصول</h3>
+      <button class="modal-x" onclick="closeModal('productDiscountModal')"><?= icon('close', 14) ?></button>
+    </div>
+    <form method="POST" id="pdForm">
+      <div class="modal-body">
+        <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+        <input type="hidden" name="action" id="pd_action" value="product_add">
+        <input type="hidden" name="pd_id" id="pd_id" value="">
+        <div class="field" style="margin-bottom:12px">
+          <label>وضعیت</label>
+          <select name="pd_status" id="pd_status" class="select">
+            <option value="active">فعال</option>
+            <option value="inactive">غیرفعال</option>
+          </select>
+        </div>
+        <div class="pd-xor-row" style="margin-bottom:14px">
+          <div class="field">
+            <label>مبلغ تخفیف (تومان)</label>
+            <input type="number" name="pd_value" id="pd_value" class="input" min="1" placeholder="مثلاً ۲۰۰۰۰">
+          </div>
+          <div class="pd-xor-or">یا</div>
+          <div class="field">
+            <label>درصد تخفیف</label>
+            <input type="number" name="pd_percent" id="pd_percent" class="input" min="1" max="100" placeholder="مثلاً ۲۰">
+          </div>
+        </div>
+        <div class="field">
+          <label>محصولات</label>
+          <div class="pd-picker" id="pd_picker">
+            <?php if (empty($productPickerSections)): ?>
+              <div class="empty" style="padding:24px 12px">دسته‌بندی فعالی با محصول وجود ندارد.</div>
+            <?php else: ?>
+              <?php foreach ($productPickerSections as $section): ?>
+                <details class="product-order-group" data-cat="<?= htmlspecialchars($section['key'], ENT_QUOTES) ?>">
+                  <summary class="product-order-group-head">
+                    <div class="product-order-group-head-start">
+                      <input type="checkbox" class="pd-cat-cb" data-cat="<?= htmlspecialchars($section['key'], ENT_QUOTES) ?>" onclick="event.stopPropagation()">
+                      <span class="product-order-group-chevron" aria-hidden="true"><?= icon('chevron-down', 16) ?></span>
+                      <div class="product-order-group-title"><?= htmlspecialchars($section['label']) ?></div>
+                    </div>
+                    <div class="product-order-group-head-end">
+                      <span class="tag tag-info"><?= count($section['products']) ?></span>
+                    </div>
+                  </summary>
+                  <div class="pd-prod-list">
+                    <?php foreach ($section['products'] as $pp):
+                      $code = (string) ($pp['code_product'] ?? '');
+                      if ($code === '') continue;
+                    ?>
+                      <label class="pd-prod-item">
+                        <input type="checkbox" name="pd_products[]" class="pd-prod-cb" data-cat="<?= htmlspecialchars($section['key'], ENT_QUOTES) ?>" value="<?= htmlspecialchars($code) ?>">
+                        <?= htmlspecialchars((string) ($pp['name_product'] ?? $code)) ?>
+                      </label>
+                    <?php endforeach; ?>
+                  </div>
+                </details>
+              <?php endforeach; ?>
+            <?php endif; ?>
+          </div>
+          <small class="cf" style="display:block;margin-top:6px">چک‌باکس دسته همه محصولات را انتخاب می‌کند. برای انتخاب تکی، عنوان دسته را باز کنید.</small>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="submit" class="btn btn-primary" id="pd_submit"><?= icon('plus', 13) ?> ذخیره</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('productDiscountModal')">انصراف</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  var valueInput = document.getElementById('pd_value');
+  var percentInput = document.getElementById('pd_percent');
+  function syncXor() {
+    if (!valueInput || !percentInput) return;
+    if (document.activeElement === valueInput || (valueInput.value !== '' && percentInput.value === '')) {
+      percentInput.disabled = valueInput.value !== '';
+      if (valueInput.value !== '') percentInput.value = '';
+    } else if (document.activeElement === percentInput || percentInput.value !== '') {
+      valueInput.disabled = percentInput.value !== '';
+      if (percentInput.value !== '') valueInput.value = '';
+    } else {
+      valueInput.disabled = false;
+      percentInput.disabled = false;
+    }
+  }
+  if (valueInput) valueInput.addEventListener('input', function () {
+    if (this.value !== '') {
+      percentInput.value = '';
+      percentInput.disabled = true;
+    } else {
+      percentInput.disabled = false;
+    }
+  });
+  if (percentInput) percentInput.addEventListener('input', function () {
+    if (this.value !== '') {
+      valueInput.value = '';
+      valueInput.disabled = true;
+    } else {
+      valueInput.disabled = false;
+    }
+  });
+
+  function updateCatBox(cat) {
+    var picker = document.getElementById('pd_picker');
+    if (!picker) return;
+    var group = picker.querySelector('.product-order-group[data-cat="' + CSS.escape(cat) + '"]');
+    if (!group) return;
+    var catCb = group.querySelector('.pd-cat-cb');
+    var items = group.querySelectorAll('.pd-prod-cb');
+    if (!catCb || !items.length) return;
+    var checked = 0;
+    items.forEach(function (cb) { if (cb.checked) checked++; });
+    catCb.checked = checked === items.length;
+    catCb.indeterminate = checked > 0 && checked < items.length;
+  }
+
+  function updateAllCatBoxes() {
+    document.querySelectorAll('#pd_picker .product-order-group').forEach(function (group) {
+      updateCatBox(group.getAttribute('data-cat') || '');
+    });
+  }
+
+  document.getElementById('pd_picker') && document.getElementById('pd_picker').addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t) return;
+    if (t.classList.contains('pd-cat-cb')) {
+      var group = t.closest('.product-order-group');
+      if (!group) return;
+      group.querySelectorAll('.pd-prod-cb').forEach(function (cb) { cb.checked = t.checked; });
+      t.indeterminate = false;
+    } else if (t.classList.contains('pd-prod-cb')) {
+      updateCatBox(t.getAttribute('data-cat') || '');
+    }
+  });
+
+  window.openProductDiscountModal = function (row) {
+    var form = document.getElementById('pdForm');
+    var title = document.getElementById('pd_modal_title');
+    var action = document.getElementById('pd_action');
+    var idInput = document.getElementById('pd_id');
+    var submit = document.getElementById('pd_submit');
+    form.reset();
+    valueInput.disabled = false;
+    percentInput.disabled = false;
+    document.querySelectorAll('#pd_picker .pd-prod-cb, #pd_picker .pd-cat-cb').forEach(function (cb) {
+      cb.checked = false;
+      cb.indeterminate = false;
+    });
+    document.querySelectorAll('#pd_picker .product-order-group').forEach(function (g) { g.open = false; });
+    if (row && row.id) {
+      title.textContent = 'ویرایش تخفیف روی محصول';
+      action.value = 'product_edit';
+      idInput.value = row.id;
+      document.getElementById('pd_status').value = row.status || 'active';
+      if (row.type === 'percent') {
+        percentInput.value = row.amount || '';
+        valueInput.value = '';
+        valueInput.disabled = true;
+        percentInput.disabled = false;
+      } else {
+        valueInput.value = row.amount || '';
+        percentInput.value = '';
+        percentInput.disabled = true;
+        valueInput.disabled = false;
+      }
+      (row.products || []).forEach(function (code) {
+        var cb = document.querySelector('#pd_picker .pd-prod-cb[value="' + CSS.escape(code) + '"]');
+        if (cb) cb.checked = true;
+      });
+      updateAllCatBoxes();
+      submit.innerHTML = <?= json_encode(icon('check', 13) . ' ذخیره تغییرات', JSON_UNESCAPED_UNICODE) ?>;
+    } else {
+      title.textContent = 'افزودن تخفیف روی محصول';
+      action.value = 'product_add';
+      idInput.value = '';
+      document.getElementById('pd_status').value = 'active';
+      submit.innerHTML = <?= json_encode(icon('plus', 13) . ' ذخیره', JSON_UNESCAPED_UNICODE) ?>;
+    }
+    openModal('productDiscountModal');
+  };
+
+  document.getElementById('pdForm').addEventListener('submit', function () {
+    if (valueInput) valueInput.disabled = false;
+    if (percentInput) percentInput.disabled = false;
+  });
+})();
+</script>
+
+<?php include __DIR__ . '/inc/layout_foot.php';
+return;
+endif; ?>
 
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px" class="fade-up">
   <div style="font-size:.85rem;color:var(--mute)"><?= count($discounts) ?> کد تخفیف</div>

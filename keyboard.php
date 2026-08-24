@@ -1546,14 +1546,16 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
         $countorder = $stmts2->rowCount();
         if ($result['one_buy_status'] == "1" && $countorder != 0)
             continue;
+        $discountApplied = false;
         if ($isAgentN) {
             $result['price_product'] = agent_wholesale_cost($user, (int) ($result['Volume_constraint'] ?? 0));
             $namekeyboard = $result['name_product'] . " - " . number_format($result['price_product']) . "تومان";
         } else {
             $priceInfo = product_discount_payable($result['price_product'], $result['code_product'] ?? '', $pricediscount, $user);
             $result['price_product'] = $priceInfo['payable'];
+            $discountApplied = !empty($priceInfo['applied']);
             $displayName = (string) ($result['name_product'] ?? '');
-            if (!empty($priceInfo['applied'])) {
+            if ($discountApplied) {
                 $displayName = product_discount_rewrite_name(
                     $displayName,
                     (int) $priceInfo['original'],
@@ -1570,7 +1572,7 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
         $product['inline_keyboard'][] = [
             telegram_button_with_icon(
                 ['text' => $result['name_product'], 'callback_data' => "{$datakeyboard}{$result['code_product']}{$valuetow}"],
-                $result['emoji_id'] ?? ''
+                product_discount_button_emoji($result['emoji_id'] ?? '', $discountApplied)
             )
         ];
     }

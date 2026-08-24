@@ -9563,6 +9563,23 @@ function product_discount_format_like(string $sample, int $amount): string
     return $formatted;
 }
 
+function product_discount_badge_emoji_id(): string
+{
+    return '5229064374403998351';
+}
+
+function product_discount_button_emoji($productEmojiId, bool $applied): string
+{
+    $existing = stored_custom_emoji_id($productEmojiId);
+    if ($existing !== '') {
+        return $existing;
+    }
+    if ($applied) {
+        return product_discount_badge_emoji_id();
+    }
+    return '';
+}
+
 /**
  * Temporarily rewrite the catalog price inside a product title (display-only).
  * Matches 50000 / 50,000 / 50.000 / ۵۰٬۰۰۰ without touching other numbers like volume.

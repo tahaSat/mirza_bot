@@ -165,10 +165,20 @@ try {
   $categories = db_fetchAll($pdo, "SELECT * FROM category ORDER BY remark");
 } catch (Exception $e) {
 }
+$categoryActiveMap = [];
 $categoryNames = [];
 foreach ($categories as $cat) {
-  $categoryNames[$cat['remark']] = true;
+  $remark = (string) ($cat['remark'] ?? '');
+  $status = $cat['status'] ?? 'active';
+  $categoryNames[$remark] = true;
+  $categoryActiveMap[$remark] = ($status === '' || $status === 'active');
 }
+$productCatIsActive = static function (string $remark) use ($categoryActiveMap): bool {
+  if ($remark === '') {
+    return true;
+  }
+  return $categoryActiveMap[$remark] ?? false;
+};
 try {
   $usedCats = db_fetchAll($pdo, "SELECT DISTINCT category FROM product WHERE category IS NOT NULL AND category != ''");
   foreach ($usedCats as $uc) {
@@ -178,7 +188,14 @@ try {
       $categoryNames[$name] = true;
     }
   }
-  usort($categories, fn($a, $b) => strcmp($a['remark'], $b['remark']));
+  usort($categories, static function ($a, $b) use ($productCatIsActive) {
+    $aOn = $productCatIsActive((string) ($a['remark'] ?? '')) ? 0 : 1;
+    $bOn = $productCatIsActive((string) ($b['remark'] ?? '')) ? 0 : 1;
+    if ($aOn !== $bOn) {
+      return $aOn <=> $bOn;
+    }
+    return strcmp((string) ($a['remark'] ?? ''), (string) ($b['remark'] ?? ''));
+  });
 } catch (Exception $e) {
 }
 try {
@@ -204,6 +221,7 @@ foreach ($categories as $cat) {
     $categorySections[] = [
       'key' => $remark,
       'label' => $remark,
+      'active' => $productCatIsActive($remark),
       'products' => $productsByCategory[$remark],
     ];
     $seenCategories[$remark] = true;
@@ -216,9 +234,18 @@ foreach ($productsByCategory as $catKey => $categoryProducts) {
   $categorySections[] = [
     'key' => $catKey,
     'label' => $catKey === '' ? 'بدون دسته‌بندی' : $catKey,
+    'active' => $productCatIsActive($catKey),
     'products' => $categoryProducts,
   ];
 }
+usort($categorySections, static function ($a, $b) {
+  $aOn = !empty($a['active']) ? 0 : 1;
+  $bOn = !empty($b['active']) ? 0 : 1;
+  if ($aOn !== $bOn) {
+    return $aOn <=> $bOn;
+  }
+  return strcmp((string) $a['label'], (string) $b['label']);
+});
 
 $pasarguardPanels = [];
 foreach ($panels as $pl) {
@@ -268,15 +295,20 @@ include __DIR__ . '/inc/layout_head.php';
       </div>
     </div>
     <div id="prodOrder" class="product-order-list">
-      <?php foreach ($categorySections as $section): ?>
-        <section class="product-order-group fade-up" data-category="<?= htmlspecialchars($section['key'], ENT_QUOTES) ?>">
-          <div class="product-order-group-head">
-            <div>
+      <?php foreach ($categorySections as $section):
+        $isActive = !empty($section['active']);
+        ?>
+        <details class="product-order-group fade-up<?= $isActive ? '' : ' is-inactive' ?>" data-category="<?= htmlspecialchars($section['key'], ENT_QUOTES) ?>">
+          <summary class="product-order-group-head">
+            <div class="product-order-group-head-start">
+              <span class="product-order-group-chevron" aria-hidden="true"><?= icon('chevron-down', 16) ?></span>
               <div class="product-order-group-title"><?= htmlspecialchars($section['label']) ?></div>
-              <div class="product-order-group-meta"><?= count($section['products']) ?> محصول · ترتیب از ۱ شروع می‌شود</div>
             </div>
-            <span class="tag tag-info"><?= count($section['products']) ?></span>
-          </div>
+            <div class="product-order-group-head-end">
+              <span class="tag <?= $isActive ? 'tag-ok' : 'tag-warn' ?>"><?= $isActive ? 'فعال' : 'غیرفعال' ?></span>
+              <span class="tag tag-info"><?= count($section['products']) ?></span>
+            </div>
+          </summary>
           <div class="tbl-wrap">
             <table class="tbl-xl product-order-table">
               <thead>
@@ -330,7 +362,7 @@ include __DIR__ . '/inc/layout_head.php';
               </tbody>
             </table>
           </div>
-        </section>
+        </details>
       <?php endforeach; ?>
     </div>
   <?php endif; ?>

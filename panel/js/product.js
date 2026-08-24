@@ -111,15 +111,25 @@ function initProductSearch() {
     input.addEventListener('input', function () {
         var q = input.value.trim().toLowerCase();
         list.querySelectorAll('.product-order-group').forEach(function (group) {
+            var titleEl = group.querySelector('.product-order-group-title');
+            var title = titleEl ? titleEl.textContent.toLowerCase() : '';
+            var groupMatch = !!(q && title.indexOf(q) !== -1);
             var visibleRows = 0;
             group.querySelectorAll('.product-sort-row').forEach(function (row) {
-                var show = !q || row.textContent.toLowerCase().includes(q);
+                var show = !q || groupMatch || row.textContent.toLowerCase().includes(q);
                 row.style.display = show ? '' : 'none';
                 if (show) {
                     visibleRows += 1;
                 }
             });
             group.style.display = visibleRows ? '' : 'none';
+            if (q && visibleRows) {
+                group.open = true;
+                group.dataset.searchOpen = '1';
+            } else if (!q && group.dataset.searchOpen === '1') {
+                group.open = false;
+                delete group.dataset.searchOpen;
+            }
         });
     });
 }

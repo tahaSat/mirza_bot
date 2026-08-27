@@ -185,12 +185,26 @@ while ($services && $processed < $maxPerRun) {
         continue;
     }
 
-    $volumeEligible = $addVolume && $volumeValue > 0
-        && isset($liveUser['data_limit']) && is_numeric($liveUser['data_limit']) && floatval($liveUser['data_limit']) > 0;
-    $timeEligible = $addTime && $timeValue > 0
-        && isset($liveUser['expire']) && is_numeric($liveUser['expire']) && intval($liveUser['expire']) > 0;
+    $hasRemainingVolume = false;
+    $dataLimit = $liveUser['data_limit'] ?? 0;
+    $usedTraffic = $liveUser['used_traffic'] ?? 0;
+    if (is_numeric($dataLimit) && floatval($dataLimit) > 0) {
+        $usedVal = is_numeric($usedTraffic) ? floatval($usedTraffic) : 0;
+        $hasRemainingVolume = (floatval($dataLimit) - $usedVal) > 0;
+    }
+    $hasRemainingTime = false;
+    $expireAt = $liveUser['expire'] ?? 0;
+    if (is_numeric($expireAt) && intval($expireAt) > time()) {
+        $hasRemainingTime = true;
+    }
+
+    $volumeEligible = $addVolume && $volumeValue > 0 && $hasRemainingVolume;
+    $timeEligible = $addTime && $timeValue > 0 && $hasRemainingTime;
     if (!$volumeEligible && !$timeEligible) {
         $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
+        if ($pauseBetweenServices > 0) {
+            sleep($pauseBetweenServices);
+        }
         continue;
     }
 

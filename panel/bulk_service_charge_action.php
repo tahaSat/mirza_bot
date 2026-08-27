@@ -49,8 +49,15 @@ if ($action === 'cancel') {
 }
 
 $agent = $_POST['agent'] ?? 'all';
-$serviceType = $_POST['service_type'] ?? '';
-$valueRaw = trim((string) ($_POST['value'] ?? ''));
+$serviceTypes = $_POST['service_types'] ?? [];
+if (!is_array($serviceTypes)) {
+    $serviceTypes = [$serviceTypes];
+}
+$serviceTypes = array_values(array_unique(array_map('strval', $serviceTypes)));
+$addVolume = in_array('volume', $serviceTypes, true);
+$addTime = in_array('day', $serviceTypes, true) || in_array('time', $serviceTypes, true);
+$volumeRaw = trim((string) ($_POST['volume_value'] ?? ''));
+$timeRaw = trim((string) ($_POST['time_value'] ?? ''));
 $message = trim((string) ($_POST['message'] ?? ''));
 
 if (!in_array($agent, ['all', 'f', 'n', 'n2'], true)) {
@@ -58,15 +65,28 @@ if (!in_array($agent, ['all', 'f', 'n', 'n2'], true)) {
     header('Location: users.php');
     exit;
 }
-if (!in_array($serviceType, ['volume', 'day'], true)) {
-    flash('error', 'نوع سرویس نامعتبر است.');
+if (!$addVolume && !$addTime) {
+    flash('error', 'حداقل یکی از گزینه‌های حجم یا زمان را انتخاب کنید.');
     header('Location: users.php');
     exit;
 }
-if ($valueRaw === '' || !ctype_digit($valueRaw) || intval($valueRaw) <= 0) {
-    flash('error', 'مقدار شارژ باید یک عدد صحیح بزرگ‌تر از صفر باشد.');
-    header('Location: users.php');
-    exit;
+$volumeValue = 0;
+$timeValue = 0;
+if ($addVolume) {
+    if ($volumeRaw === '' || !ctype_digit($volumeRaw) || intval($volumeRaw) <= 0) {
+        flash('error', 'حجم افزایشی باید یک عدد صحیح بزرگ‌تر از صفر (گیگابایت) باشد.');
+        header('Location: users.php');
+        exit;
+    }
+    $volumeValue = intval($volumeRaw);
+}
+if ($addTime) {
+    if ($timeRaw === '' || !ctype_digit($timeRaw) || intval($timeRaw) <= 0) {
+        flash('error', 'زمان افزایشی باید یک عدد صحیح بزرگ‌تر از صفر (روز) باشد.');
+        header('Location: users.php');
+        exit;
+    }
+    $timeValue = intval($timeRaw);
 }
 if ($message === '' || mb_strlen($message, 'UTF-8') > 4000) {
     flash('error', 'پیام ارسالی باید بین ۱ تا ۴۰۰۰ کاراکتر باشد.');
@@ -99,11 +119,15 @@ if ($agent !== 'all') {
     $sql .= ' AND u.agent = :agent';
     $params[':agent'] = $agent;
 }
-if ($serviceType === 'volume') {
-    $sql .= " AND CAST(COALESCE(NULLIF(i.Volume, ''), '0') AS UNSIGNED) > 0";
-} else {
-    $sql .= " AND CAST(COALESCE(NULLIF(i.Volume, ''), '0') AS UNSIGNED) = 0
-              AND CAST(COALESCE(NULLIF(i.Service_time, ''), '0') AS UNSIGNED) > 0";
+$serviceFilters = [];
+if ($addVolume) {
+    $serviceFilters[] = "CAST(COALESCE(NULLIF(i.Volume, ''), '0') AS UNSIGNED) > 0";
+}
+if ($addTime) {
+    $serviceFilters[] = "CAST(COALESCE(NULLIF(i.Service_time, ''), '0') AS UNSIGNED) > 0";
+}
+if ($serviceFilters) {
+    $sql .= ' AND (' . implode(' OR ', $serviceFilters) . ')';
 }
 $sql .= ' ORDER BY i.id_invoice';
 $services = db_fetchAll($pdo, $sql, $params);
@@ -119,8 +143,12 @@ $job = [
     'bulk_service_charge' => true,
     'agent' => $agent,
     'typecustomer' => 'customer',
-    'typegift' => $serviceType,
-    'value' => intval($valueRaw),
+    'typegift' => ($addVolume && $addTime) ? 'both' : ($addVolume ? 'volume' : 'day'),
+    'add_volume' => $addVolume,
+    'add_time' => $addTime,
+    'volume_value' => $volumeValue,
+    'time_value' => $timeValue,
+    'value' => $addVolume && !$addTime ? $volumeValue : $timeValue,
     'text' => $message,
     'id_admin' => $admin['id_admin'],
     'total' => count($services),

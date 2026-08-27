@@ -69,10 +69,10 @@ $reportFailure = static function (array $panel, string $username, array $result)
     ]);
 };
 
-$logResult = static function (array $invoice, array $liveUser, array $job, array $result) use ($pdo): void {
-    $isVolume = $job['typegift'] === 'volume';
+$logResult = static function (array $invoice, array $liveUser, string $kind, int $value, array $result) use ($pdo): void {
+    $isVolume = $kind === 'volume';
     $valueData = [
-        $isVolume ? 'volume_value' : 'time_value' => intval($job['value']),
+        $isVolume ? 'volume_value' : 'time_value' => $value,
         'old_volume' => $liveUser['data_limit'] ?? null,
         'expire_old' => $liveUser['expire'] ?? null,
     ];
@@ -90,6 +90,31 @@ $logResult = static function (array $invoice, array $liveUser, array $job, array
         ':output' => json_encode($result, JSON_UNESCAPED_UNICODE),
     ]);
 };
+
+$addVolume = !empty($info['add_volume']);
+$addTime = !empty($info['add_time']);
+$volumeValue = intval($info['volume_value'] ?? 0);
+$timeValue = intval($info['time_value'] ?? 0);
+if (!$addVolume && !$addTime) {
+    $addVolume = ($info['typegift'] ?? '') === 'volume';
+    $addTime = ($info['typegift'] ?? '') === 'day';
+    if ($addVolume) {
+        $volumeValue = intval($info['value'] ?? 0);
+    }
+    if ($addTime) {
+        $timeValue = intval($info['value'] ?? 0);
+    }
+}
+if (($info['typegift'] ?? '') === 'both') {
+    $addVolume = true;
+    $addTime = true;
+    if ($volumeValue <= 0) {
+        $volumeValue = intval($info['value'] ?? 0);
+    }
+    if ($timeValue <= 0) {
+        $timeValue = intval($info['value'] ?? 0);
+    }
+}
 
 $batch = array_splice($services, 0, 5);
 foreach ($batch as $queuedService) {
@@ -122,33 +147,49 @@ foreach ($batch as $queuedService) {
         continue;
     }
 
-    $isVolume = $info['typegift'] === 'volume';
-    $eligible = $isVolume
-        ? (isset($liveUser['data_limit']) && is_numeric($liveUser['data_limit']) && floatval($liveUser['data_limit']) > 0)
-        : (isset($liveUser['expire']) && is_numeric($liveUser['expire']) && intval($liveUser['expire']) > 0);
-    if (!$eligible) {
+    $volumeEligible = $addVolume && $volumeValue > 0
+        && isset($liveUser['data_limit']) && is_numeric($liveUser['data_limit']) && floatval($liveUser['data_limit']) > 0;
+    $timeEligible = $addTime && $timeValue > 0
+        && isset($liveUser['expire']) && is_numeric($liveUser['expire']) && intval($liveUser['expire']) > 0;
+    if (!$volumeEligible && !$timeEligible) {
         $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
         continue;
     }
 
-    if ($isVolume) {
-        $result = $ManagePanel->extra_volume($invoice['username'], $panel['code_panel'], intval($info['value']));
-    } else {
-        $result = $ManagePanel->extra_time($invoice['username'], $panel['code_panel'], intval($info['value']));
+    $anyFailed = false;
+    $anySucceeded = false;
+    $applyCharge = static function (string $kind, int $value) use ($ManagePanel, $invoice, $panel, $liveUser, $logResult, &$anyFailed, &$anySucceeded, $reportFailure): void {
+        if ($kind === 'volume') {
+            $result = $ManagePanel->extra_volume($invoice['username'], $panel['code_panel'], $value);
+        } else {
+            $result = $ManagePanel->extra_time($invoice['username'], $panel['code_panel'], $value);
+        }
+        if (!is_array($result)) {
+            $result = ['status' => false, 'msg' => 'پاسخ نامعتبر پنل'];
+        }
+        $logResult($invoice, $liveUser, $kind, $value, $result);
+        if (($result['status'] ?? false) === false) {
+            $anyFailed = true;
+            $reportFailure($panel, $invoice['username'], $result);
+            return;
+        }
+        $anySucceeded = true;
+    };
+
+    if ($volumeEligible) {
+        $applyCharge('volume', $volumeValue);
     }
-    if (!is_array($result)) {
-        $result = ['status' => false, 'msg' => 'پاسخ نامعتبر پنل'];
+    if ($timeEligible) {
+        $applyCharge('time', $timeValue);
     }
 
-    $logResult($invoice, $liveUser, $info, $result);
-    if (($result['status'] ?? false) === false) {
+    if ($anyFailed) {
         $info['failed_count'] = intval($info['failed_count'] ?? 0) + 1;
-        $reportFailure($panel, $invoice['username'], $result);
         continue;
     }
 
     $info['success_count'] = intval($info['success_count'] ?? 0) + 1;
-    if (isset($info['text']) && trim((string) $info['text']) !== '') {
+    if ($anySucceeded && isset($info['text']) && trim((string) $info['text']) !== '') {
         sendmessage($invoice['id_user'], $info['text'], null, 'HTML');
     }
 }

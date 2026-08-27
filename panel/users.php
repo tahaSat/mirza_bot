@@ -625,7 +625,7 @@ include __DIR__ . '/inc/layout_head.php';
             <button class="modal-x" type="button" onclick="closeModal('bulkServiceChargeModal')"><?= icon('close', 14) ?></button>
         </div>
         <form method="POST" action="bulk_service_charge_action.php" id="bulkServiceChargeForm">
-            <div class="modal-body">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                 <input type="hidden" name="action" value="start">
 
@@ -641,18 +641,32 @@ include __DIR__ . '/inc/layout_head.php';
                 </div>
 
                 <div class="field">
-                    <label>نوع کاربران</label>
-                    <select class="select" name="service_type" id="bulkServiceType" required>
-                        <option value="volume">کاربران حجمی — افزایش حجم</option>
-                        <option value="day">کاربران نامحدود — افزایش زمان</option>
-                    </select>
+                    <label>نوع سرویس</label>
+                    <div style="display:flex;gap:16px;flex-wrap:wrap">
+                        <label class="check-row" style="margin:0">
+                            <input type="checkbox" name="service_types[]" value="volume" id="bulkChargeVolume">
+                            <span>حجم</span>
+                        </label>
+                        <label class="check-row" style="margin:0">
+                            <input type="checkbox" name="service_types[]" value="day" id="bulkChargeTime">
+                            <span>زمان</span>
+                        </label>
+                    </div>
+                    <span class="field-hint">می‌توانید هر دو را هم‌زمان انتخاب کنید. باکس مربوط به هر گزینه پس از انتخاب باز می‌شود.</span>
                 </div>
 
-                <div class="field">
-                    <label id="bulkServiceValueLabel">حجم افزایشی (گیگابایت)</label>
-                    <input class="input" type="number" name="value" id="bulkServiceValue"
-                        min="1" step="1" inputmode="numeric" required>
-                    <span class="field-hint" id="bulkServiceValueHint">این مقدار به تمام سرویس‌های حجمی فعال اضافه می‌شود.</span>
+                <div class="field" id="bulkVolumeField" hidden>
+                    <label>حجم افزایشی (گیگابایت)</label>
+                    <input class="input" type="number" name="volume_value" id="bulkVolumeValue"
+                        min="1" step="1" inputmode="numeric">
+                    <span class="field-hint">این مقدار به حجم تمام سرویس‌های فعال اضافه می‌شود.</span>
+                </div>
+
+                <div class="field" id="bulkTimeField" hidden>
+                    <label>زمان افزایشی (روز)</label>
+                    <input class="input" type="number" name="time_value" id="bulkTimeValue"
+                        min="1" step="1" inputmode="numeric">
+                    <span class="field-hint">این مقدار به زمان تمام سرویس‌های فعال اضافه می‌شود.</span>
                 </div>
 
                 <div class="field">
@@ -675,28 +689,42 @@ include __DIR__ . '/inc/layout_head.php';
 </div>
 <script>
 (function () {
-    var type = document.getElementById('bulkServiceType');
-    var label = document.getElementById('bulkServiceValueLabel');
-    var hint = document.getElementById('bulkServiceValueHint');
+    var volumeCheck = document.getElementById('bulkChargeVolume');
+    var timeCheck = document.getElementById('bulkChargeTime');
+    var volumeField = document.getElementById('bulkVolumeField');
+    var timeField = document.getElementById('bulkTimeField');
+    var volumeInput = document.getElementById('bulkVolumeValue');
+    var timeInput = document.getElementById('bulkTimeValue');
     var form = document.getElementById('bulkServiceChargeForm');
-    if (!type || !label || !hint || !form) return;
+    if (!volumeCheck || !timeCheck || !volumeField || !timeField || !volumeInput || !timeInput || !form) return;
 
-    function updateValueCopy() {
-        var isVolume = type.value === 'volume';
-        label.textContent = isVolume ? 'حجم افزایشی (گیگابایت)' : 'زمان افزایشی (روز)';
-        hint.textContent = isVolume
-            ? 'این مقدار به تمام سرویس‌های حجمی فعال اضافه می‌شود.'
-            : 'این مقدار به تمام سرویس‌های نامحدود فعال اضافه می‌شود.';
+    function syncChargeFields() {
+        var showVolume = volumeCheck.checked;
+        var showTime = timeCheck.checked;
+        volumeField.hidden = !showVolume;
+        timeField.hidden = !showTime;
+        volumeInput.required = showVolume;
+        timeInput.required = showTime;
+        if (!showVolume) volumeInput.value = '';
+        if (!showTime) timeInput.value = '';
     }
 
-    type.addEventListener('change', updateValueCopy);
+    volumeCheck.addEventListener('change', syncChargeFields);
+    timeCheck.addEventListener('change', syncChargeFields);
     form.addEventListener('submit', function (event) {
-        var kind = type.value === 'volume' ? 'حجم' : 'زمان';
-        if (!window.confirm('افزایش ' + kind + ' برای تمام سرویس‌های فعال مطابق فیلتر آغاز شود؟')) {
+        if (!volumeCheck.checked && !timeCheck.checked) {
+            event.preventDefault();
+            window.alert('حداقل یکی از گزینه‌های حجم یا زمان را انتخاب کنید.');
+            return;
+        }
+        var parts = [];
+        if (volumeCheck.checked) parts.push('حجم');
+        if (timeCheck.checked) parts.push('زمان');
+        if (!window.confirm('افزایش ' + parts.join(' و ') + ' برای تمام سرویس‌های فعال مطابق فیلتر آغاز شود؟')) {
             event.preventDefault();
         }
     });
-    updateValueCopy();
+    syncChargeFields();
 }());
 </script>
 <?php endif; ?>

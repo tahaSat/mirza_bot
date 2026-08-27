@@ -66,13 +66,10 @@ $isTimeoutError = static function ($reason): bool {
         || strpos($msg, 'failed to connect') !== false;
 };
 
-$reportFailure = static function (array $panel, string $username, array $result) use ($setting, $errorreport, $isTimeoutError): void {
+$reportFailure = static function (array $panel, string $username, array $result) use ($setting, $errorreport): void {
     $reason = $result['msg'] ?? 'خطای نامشخص';
     if (!is_string($reason)) {
         $reason = json_encode($reason, JSON_UNESCAPED_UNICODE);
-    }
-    if ($isTimeoutError($reason)) {
-        return;
     }
     if (empty($setting['Channel_Report'])) {
         return;
@@ -136,7 +133,9 @@ if (($info['typegift'] ?? '') === 'both') {
 }
 
 $isBulk = !empty($info['bulk_service_charge']);
-$opPauseSeconds = $isBulk ? 3 : 0;
+$maxPerRun = 5;
+$pauseBetweenServices = $isBulk ? 1 : 0;
+$opPauseSeconds = $isBulk ? 1 : 0;
 
 $resultMessage = static function ($result): string {
     $reason = is_array($result) ? ($result['msg'] ?? '') : '';
@@ -146,10 +145,15 @@ $resultMessage = static function ($result): string {
     return $reason;
 };
 
-$queuedService = array_shift($services);
-if (!is_array($queuedService) || empty($queuedService['username'])) {
-    $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
-} else {
+$processed = 0;
+while ($services && $processed < $maxPerRun) {
+    $queuedService = array_shift($services);
+    $processed++;
+    if (!is_array($queuedService) || empty($queuedService['username'])) {
+        $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
+        continue;
+    }
+
     if (!empty($queuedService['id_invoice'])) {
         $invoice = select("invoice", "*", "id_invoice", $queuedService['id_invoice'], "select");
     } else {
@@ -157,86 +161,98 @@ if (!is_array($queuedService) || empty($queuedService['username'])) {
     }
     if (!$invoice) {
         $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
-    } else {
-        $panelName = $queuedService['Service_location'] ?? ($info['name_panel'] ?? $invoice['Service_location']);
-        $panel = select("marzban_panel", "*", "name_panel", $panelName, "select");
-        if (!$panel) {
-            $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
-        } else {
-            $liveUser = $ManagePanel->DataUser($panelName, $invoice['username'], true);
-            $liveFailed = !is_array($liveUser) || ($liveUser['status'] ?? '') === 'Unsuccessful';
-            if ($liveFailed) {
-                $failPayload = is_array($liveUser) ? $liveUser : ['msg' => 'پاسخ نامعتبر پنل'];
-                if ($isTimeoutError($resultMessage($failPayload))) {
-                    gift_append_unfinished($info, (string) $invoice['username'], (string) $panelName, 'timeout');
-                    $info['failed_count'] = intval($info['failed_count'] ?? 0) + 1;
-                } else {
-                    $info['failed_count'] = intval($info['failed_count'] ?? 0) + 1;
-                    $reportFailure($panel, $invoice['username'], $failPayload);
-                }
-            } else {
-                $volumeEligible = $addVolume && $volumeValue > 0
-                    && isset($liveUser['data_limit']) && is_numeric($liveUser['data_limit']) && floatval($liveUser['data_limit']) > 0;
-                $timeEligible = $addTime && $timeValue > 0
-                    && isset($liveUser['expire']) && is_numeric($liveUser['expire']) && intval($liveUser['expire']) > 0;
-                if (!$volumeEligible && !$timeEligible) {
-                    $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
-                } else {
-                    $timedOut = false;
-                    $hardFailed = false;
-                    $applyCharge = static function (string $kind, int $value) use ($ManagePanel, $invoice, $panel, $liveUser, $logResult, $isTimeoutError, $resultMessage, &$timedOut, &$hardFailed, $reportFailure): void {
-                        if ($kind === 'volume') {
-                            $result = $ManagePanel->extra_volume($invoice['username'], $panel['code_panel'], $value, $liveUser);
-                        } else {
-                            $result = $ManagePanel->extra_time($invoice['username'], $panel['code_panel'], $value, $liveUser);
-                        }
-                        if (!is_array($result)) {
-                            $result = ['status' => false, 'msg' => 'پاسخ نامعتبر پنل'];
-                        }
-                        $logResult($invoice, $liveUser, $kind, $value, $result);
-                        if (($result['status'] ?? false) === false) {
-                            if ($isTimeoutError($resultMessage($result))) {
-                                $timedOut = true;
-                                return;
-                            }
-                            $hardFailed = true;
-                            $reportFailure($panel, $invoice['username'], $result);
-                        }
-                    };
+        continue;
+    }
 
-                    if ($volumeEligible) {
-                        if ($opPauseSeconds > 0) {
-                            sleep($opPauseSeconds);
-                        }
-                        $applyCharge('volume', $volumeValue);
-                        if ($timedOut) {
-                            gift_append_unfinished($info, (string) $invoice['username'], (string) $panelName, 'timeout (حجم)');
-                            $info['failed_count'] = intval($info['failed_count'] ?? 0) + 1;
-                        }
-                    }
-                    if (!$timedOut && !$hardFailed && $timeEligible) {
-                        if ($opPauseSeconds > 0) {
-                            sleep($opPauseSeconds);
-                        }
-                        $applyCharge('time', $timeValue);
-                        if ($timedOut) {
-                            gift_append_unfinished($info, (string) $invoice['username'], (string) $panelName, 'timeout (زمان)');
-                            $info['failed_count'] = intval($info['failed_count'] ?? 0) + 1;
-                        }
-                    }
-                    if ($timedOut) {
-                        // already recorded
-                    } elseif ($hardFailed) {
-                        $info['failed_count'] = intval($info['failed_count'] ?? 0) + 1;
-                    } else {
-                        $info['success_count'] = intval($info['success_count'] ?? 0) + 1;
-                        if (isset($info['text']) && trim((string) $info['text']) !== '') {
-                            sendmessage($invoice['id_user'], $info['text'], null, 'HTML');
-                        }
-                    }
-                }
-            }
+    $panelName = $queuedService['Service_location'] ?? ($info['name_panel'] ?? $invoice['Service_location']);
+    $panel = select("marzban_panel", "*", "name_panel", $panelName, "select");
+    if (!$panel) {
+        $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
+        continue;
+    }
+
+    $liveUser = $ManagePanel->DataUser($panelName, $invoice['username'], true);
+    $liveFailed = !is_array($liveUser) || ($liveUser['status'] ?? '') === 'Unsuccessful';
+    if ($liveFailed) {
+        $failPayload = is_array($liveUser) ? $liveUser : ['msg' => 'پاسخ نامعتبر پنل'];
+        $failReason = $isTimeoutError($resultMessage($failPayload)) ? 'timeout' : $resultMessage($failPayload);
+        gift_append_unfinished($info, (string) $invoice['username'], (string) $panelName, $failReason);
+        $info['failed_count'] = intval($info['failed_count'] ?? 0) + 1;
+        $reportFailure($panel, $invoice['username'], $failPayload);
+        if ($pauseBetweenServices > 0) {
+            sleep($pauseBetweenServices);
         }
+        continue;
+    }
+
+    $volumeEligible = $addVolume && $volumeValue > 0
+        && isset($liveUser['data_limit']) && is_numeric($liveUser['data_limit']) && floatval($liveUser['data_limit']) > 0;
+    $timeEligible = $addTime && $timeValue > 0
+        && isset($liveUser['expire']) && is_numeric($liveUser['expire']) && intval($liveUser['expire']) > 0;
+    if (!$volumeEligible && !$timeEligible) {
+        $info['skipped_count'] = intval($info['skipped_count'] ?? 0) + 1;
+        continue;
+    }
+
+    $timedOut = false;
+    $hardFailed = false;
+    $applyCharge = static function (string $kind, int $value) use ($ManagePanel, $invoice, $panel, $liveUser, $logResult, $isTimeoutError, $resultMessage, $reportFailure, &$timedOut, &$hardFailed): void {
+        if ($kind === 'volume') {
+            $result = $ManagePanel->extra_volume($invoice['username'], $panel['code_panel'], $value, $liveUser);
+        } else {
+            $result = $ManagePanel->extra_time($invoice['username'], $panel['code_panel'], $value, $liveUser);
+        }
+        if (!is_array($result)) {
+            $result = ['status' => false, 'msg' => 'پاسخ نامعتبر پنل'];
+        }
+        $logResult($invoice, $liveUser, $kind, $value, $result);
+        if (($result['status'] ?? false) === false) {
+            $reportFailure($panel, $invoice['username'], $result);
+            if ($isTimeoutError($resultMessage($result))) {
+                $timedOut = true;
+                return;
+            }
+            $hardFailed = true;
+        }
+    };
+
+    if ($volumeEligible) {
+        if ($opPauseSeconds > 0) {
+            sleep($opPauseSeconds);
+        }
+        $applyCharge('volume', $volumeValue);
+        if ($timedOut || $hardFailed) {
+            $label = $timedOut ? 'timeout (حجم)' : 'خطا (حجم)';
+            gift_append_unfinished($info, (string) $invoice['username'], (string) $panelName, $label);
+            $info['failed_count'] = intval($info['failed_count'] ?? 0) + 1;
+            if ($pauseBetweenServices > 0) {
+                sleep($pauseBetweenServices);
+            }
+            continue;
+        }
+    }
+    if ($timeEligible) {
+        if ($opPauseSeconds > 0) {
+            sleep($opPauseSeconds);
+        }
+        $applyCharge('time', $timeValue);
+        if ($timedOut || $hardFailed) {
+            $label = $timedOut ? 'timeout (زمان)' : 'خطا (زمان)';
+            gift_append_unfinished($info, (string) $invoice['username'], (string) $panelName, $label);
+            $info['failed_count'] = intval($info['failed_count'] ?? 0) + 1;
+            if ($pauseBetweenServices > 0) {
+                sleep($pauseBetweenServices);
+            }
+            continue;
+        }
+    }
+
+    $info['success_count'] = intval($info['success_count'] ?? 0) + 1;
+    if (isset($info['text']) && trim((string) $info['text']) !== '') {
+        sendmessage($invoice['id_user'], $info['text'], null, 'HTML');
+    }
+    if ($pauseBetweenServices > 0) {
+        sleep($pauseBetweenServices);
     }
 }
 

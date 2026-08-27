@@ -36,13 +36,21 @@ if ($action === 'cancel') {
     if (!is_array($job) || empty($job['bulk_service_charge'])) {
         flash('warning', 'عملیات شارژ همگانی فعالی برای لغو وجود ندارد.');
     } else {
+        $remaining = [];
+        if (is_file($serviceQueueFile)) {
+            $queued = json_decode((string) file_get_contents($serviceQueueFile), true);
+            $remaining = is_array($queued) ? $queued : [];
+        }
+        require_once dirname(__DIR__) . '/botapi.php';
+        require_once $cronDir . '/gift_report.php';
+        gift_send_unfinished_report($job, $remaining, true);
         if (is_file($serviceQueueFile)) {
             unlink($serviceQueueFile);
         }
         if (is_file($giftFile)) {
             unlink($giftFile);
         }
-        flash('success', 'عملیات شارژ همگانی سرویس‌ها لغو شد.');
+        flash('success', 'عملیات شارژ همگانی سرویس‌ها لغو شد و فهرست انجام‌نشده ارسال گردید.');
     }
     header('Location: users.php');
     exit;
@@ -155,6 +163,7 @@ $job = [
     'success_count' => 0,
     'failed_count' => 0,
     'skipped_count' => 0,
+    'unfinished' => [],
 ];
 
 try {

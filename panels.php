@@ -2039,7 +2039,7 @@ class ManagePanel
         }
         return $extend;
     }
-    function extra_volume($username_account, $code_panel, $limit_volume_new)
+    function extra_volume($username_account, $code_panel, $limit_volume_new, $user_info = null)
     {
         $panel = select("marzban_panel", "*", "code_panel", $code_panel, "select");
         $invoice = select("invoice", "*", "username", $username_account, "select");
@@ -2055,7 +2055,13 @@ class ManagePanel
             'time' => $notif_value['time'],
         ));
         update("invoice", "notifctions", $notifctions, 'id_invoice', $invoice['id_invoice']);
-        $user_info = $this->DataUser($panel['name_panel'], $username_account);
+        $hasLiveLimit = is_array($user_info)
+            && ($user_info['status'] ?? '') !== 'Unsuccessful'
+            && isset($user_info['data_limit'])
+            && is_numeric($user_info['data_limit']);
+        if (!$hasLiveLimit) {
+            $user_info = $this->DataUser($panel['name_panel'], $username_account, true);
+        }
         if ($user_info['status'] == "Unsuccessful") {
             return array(
                 'status' => false,
@@ -2152,7 +2158,7 @@ class ManagePanel
         }
         return $extra_volume;
     }
-    function extra_time($username_account, $code_panel, $limit_time_new)
+    function extra_time($username_account, $code_panel, $limit_time_new, $user_info = null)
     {
         $panel = select("marzban_panel", "*", "code_panel", $code_panel, "select");
         $invoice = select("invoice", "*", "username", $username_account, "select");
@@ -2168,7 +2174,13 @@ class ManagePanel
             'time' => false,
         ));
         update("invoice", "notifctions", $notifctions, 'id_invoice', $invoice['id_invoice']);
-        $user_info = $this->DataUser($panel['name_panel'], $username_account);
+        $hasLiveExpire = is_array($user_info)
+            && ($user_info['status'] ?? '') !== 'Unsuccessful'
+            && isset($user_info['expire'])
+            && is_numeric($user_info['expire']);
+        if (!$hasLiveExpire) {
+            $user_info = $this->DataUser($panel['name_panel'], $username_account, true);
+        }
         if ($user_info['status'] == "Unsuccessful") {
             return array(
                 'status' => false,

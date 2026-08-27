@@ -12306,6 +12306,18 @@ if ($datain == "settimecornday" && $adminrulecheck['rule'] == "administrator") {
     file_put_contents('cronbot/gift', json_encode($userdata, JSON_UNESCAPED_UNICODE), LOCK_EX);
     file_put_contents('cronbot/username.json', json_encode($services, JSON_UNESCAPED_UNICODE), LOCK_EX);
 } elseif ($datain == "cancel_gift") {
+    $giftJob = is_file('cronbot/gift')
+        ? json_decode((string) file_get_contents('cronbot/gift'), true)
+        : null;
+    $remainingGift = [];
+    if (is_file('cronbot/username.json')) {
+        $queuedGift = json_decode((string) file_get_contents('cronbot/username.json'), true);
+        $remainingGift = is_array($queuedGift) ? $queuedGift : [];
+    }
+    if (is_array($giftJob) && !empty($giftJob['bulk_service_charge'])) {
+        require_once __DIR__ . '/cronbot/gift_report.php';
+        gift_send_unfinished_report($giftJob, $remainingGift, true);
+    }
     if (is_file('cronbot/username.json')) {
         unlink('cronbot/username.json');
     }

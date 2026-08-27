@@ -5104,7 +5104,7 @@ function activecron()
         $job('*/5 * * * *', 'activeconfig.php'),
         $job('*/5 * * * *', 'disableconfig.php'),
         $job('0 */5 * * *', 'backupbot.php'),
-        $job('*/2 * * * *', 'gift.php'),
+        $job('*/1 * * * *', 'gift.php'),
         $job('*/30 * * * *', 'expireagent.php'),
         $job('*/15 * * * *', 'on_hold.php'),
         $job('*/2 * * * *', 'configtest.php'),

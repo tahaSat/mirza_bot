@@ -45,12 +45,18 @@ $listSearch = trim((string) ($_GET['q'] ?? ''));
 $listPage = max(1, (int) ($_GET['page'] ?? 1));
 $histSearch = trim((string) ($_GET['hq'] ?? ''));
 $histPage = max(1, (int) ($_GET['hpage'] ?? 1));
+$sortAllowed = ['balance', 'affiliatescount', 'buyer_count'];
+$listSort = (string) ($_GET['sort'] ?? 'affiliatescount');
+if (!in_array($listSort, $sortAllowed, true)) {
+    $listSort = 'affiliatescount';
+}
+$listDir = strtolower((string) ($_GET['dir'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
 $perPage = 25;
 
 $listResult = ['rows' => [], 'total' => 0];
 $histResult = ['rows' => [], 'total' => 0];
 try {
-    $listResult = affiliates_lib_list_referrers($pdo, $listSearch, $perPage, ($listPage - 1) * $perPage);
+    $listResult = affiliates_lib_list_referrers($pdo, $listSearch, $perPage, ($listPage - 1) * $perPage, $listSort, $listDir);
 } catch (Throwable $e) {
     error_log('affiliates list_referrers: ' . $e->getMessage());
 }
@@ -134,13 +140,15 @@ include __DIR__ . '/inc/referral_nav.php';
     <form method="GET" class="toolbar-end">
       <?php if ($histSearch !== ''): ?><input type="hidden" name="hq" value="<?= htmlspecialchars($histSearch) ?>"><?php endif; ?>
       <?php if ($histPage > 1): ?><input type="hidden" name="hpage" value="<?= (int) $histPage ?>"><?php endif; ?>
+      <input type="hidden" name="sort" value="<?= htmlspecialchars($listSort) ?>">
+      <input type="hidden" name="dir" value="<?= htmlspecialchars($listDir) ?>">
       <div class="search-box" style="min-width:240px">
         <?= icon('search', 15) ?>
         <input type="text" name="q" value="<?= htmlspecialchars($listSearch) ?>" placeholder="آیدی، یوزرنیم یا نام..." autocomplete="off">
         <button type="submit" class="search-btn">جستجو</button>
       </div>
       <?php if ($listSearch !== ''): ?>
-        <a href="affiliates.php<?= $histSearch !== '' ? ('?hq=' . urlencode($histSearch) . ($histPage > 1 ? '&hpage=' . (int) $histPage : '') . '#list') : '#list' ?>" class="btn-link" style="font-size:.78rem">پاک کردن</a>
+        <a href="affiliates.php?sort=<?= urlencode($listSort) ?>&dir=<?= urlencode($listDir) ?><?= $histSearch !== '' ? ('&hq=' . urlencode($histSearch) . ($histPage > 1 ? '&hpage=' . (int) $histPage : '')) : '' ?>#list" class="btn-link" style="font-size:.78rem">پاک کردن</a>
       <?php endif; ?>
     </form>
   </div>
@@ -156,9 +164,26 @@ include __DIR__ . '/inc/referral_nav.php';
             <th>شناسه</th>
             <th>یوزرنیم</th>
             <th>نام</th>
-            <th>موجودی کیف پول</th>
-            <th>تعداد دعوت</th>
-            <th>خریدار سرویس</th>
+            <?php
+            $affSortQs = function (string $key, string $label) use ($listSort, $listDir, $listSearch, $histSearch, $histPage): string {
+                $nextDir = ($listSort === $key && $listDir === 'desc') ? 'asc' : 'desc';
+                $href = 'affiliates.php?q=' . urlencode($listSearch)
+                    . '&hq=' . urlencode($histSearch)
+                    . '&hpage=' . (int) $histPage
+                    . '&sort=' . urlencode($key)
+                    . '&dir=' . $nextDir
+                    . '#list';
+                $active = $listSort === $key;
+                $arrow = $active ? ($listDir === 'asc' ? ' ↑' : ' ↓') : '';
+                $style = $active
+                    ? 'color:var(--ac);text-decoration:none;font-weight:700;white-space:nowrap'
+                    : 'color:inherit;text-decoration:none;white-space:nowrap';
+                return '<th><a href="' . htmlspecialchars($href) . '" style="' . $style . '">' . htmlspecialchars($label) . $arrow . '</a></th>';
+            };
+            echo $affSortQs('balance', 'موجودی کیف پول');
+            echo $affSortQs('affiliatescount', 'تعداد دعوت');
+            echo $affSortQs('buyer_count', 'خریدار سرویس');
+            ?>
             <th>عملیات</th>
           </tr>
         </thead>
@@ -187,6 +212,8 @@ include __DIR__ . '/inc/referral_nav.php';
           $listQs = fn($p) => 'affiliates.php?q=' . urlencode($listSearch)
               . '&hq=' . urlencode($histSearch)
               . '&hpage=' . (int) $histPage
+              . '&sort=' . urlencode($listSort)
+              . '&dir=' . urlencode($listDir)
               . '&page=' . $p
               . '#list';
           ?>
@@ -207,6 +234,8 @@ include __DIR__ . '/inc/referral_nav.php';
     <form method="GET" class="toolbar-end">
       <?php if ($listSearch !== ''): ?><input type="hidden" name="q" value="<?= htmlspecialchars($listSearch) ?>"><?php endif; ?>
       <?php if ($listPage > 1): ?><input type="hidden" name="page" value="<?= (int) $listPage ?>"><?php endif; ?>
+      <input type="hidden" name="sort" value="<?= htmlspecialchars($listSort) ?>">
+      <input type="hidden" name="dir" value="<?= htmlspecialchars($listDir) ?>">
       <div class="search-box" style="min-width:240px">
         <?= icon('search', 15) ?>
         <input type="text" name="hq" value="<?= htmlspecialchars($histSearch) ?>" placeholder="آیدی یا یوزرنیم معرف/دعوت‌شده..." autocomplete="off">
@@ -272,6 +301,8 @@ include __DIR__ . '/inc/referral_nav.php';
               . '&page=' . (int) $listPage
               . '&hq=' . urlencode($histSearch)
               . '&hpage=' . $p
+              . '&sort=' . urlencode($listSort)
+              . '&dir=' . urlencode($listDir)
               . '#history';
           ?>
           <a class="<?= $histPage <= 1 ? 'dis' : '' ?>" href="<?= $histQs(max(1, $histPage - 1)) ?>">‹</a>

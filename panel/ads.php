@@ -45,10 +45,16 @@ if (isset($_GET['delete'])) {
 
 $search = trim((string) ($_GET['q'] ?? ''));
 $page = max(1, (int) ($_GET['page'] ?? 1));
+$sortAllowed = ['join_count', 'amount', 'started_at'];
+$sort = (string) ($_GET['sort'] ?? '');
+if (!in_array($sort, $sortAllowed, true)) {
+    $sort = 'id';
+}
+$dir = strtolower((string) ($_GET['dir'] ?? '')) === 'asc' ? 'asc' : 'desc';
 $perPage = 25;
 $list = ['rows' => [], 'total' => 0];
 try {
-    $list = ads_lib_list($pdo, $search, $perPage, ($page - 1) * $perPage);
+    $list = ads_lib_list($pdo, $search, $perPage, ($page - 1) * $perPage, $sort, $dir);
 } catch (Throwable $e) {
     error_log('ads list: ' . $e->getMessage());
 }
@@ -75,13 +81,17 @@ include __DIR__ . '/inc/referral_nav.php';
   <div class="toolbar" style="flex-wrap:wrap;gap:10px">
     <div class="toolbar-title">تبلیغ‌کننده‌ها <small>(<?= number_format($total) ?>)</small></div>
     <form method="GET" class="toolbar-end">
+      <?php if ($sort !== 'id'): ?>
+        <input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>">
+        <input type="hidden" name="dir" value="<?= htmlspecialchars($dir) ?>">
+      <?php endif; ?>
       <div class="search-box" style="min-width:240px">
         <?= icon('search', 15) ?>
         <input type="text" name="q" value="<?= htmlspecialchars($search) ?>" placeholder="نام یا کد لینک..." autocomplete="off">
         <button type="submit" class="search-btn">جستجو</button>
       </div>
       <?php if ($search !== ''): ?>
-        <a href="ads.php" class="btn-link" style="font-size:.78rem">پاک کردن</a>
+        <a href="ads.php<?= $sort !== 'id' ? ('?sort=' . urlencode($sort) . '&dir=' . urlencode($dir)) : '' ?>" class="btn-link" style="font-size:.78rem">پاک کردن</a>
       <?php endif; ?>
     </form>
   </div>
@@ -98,9 +108,24 @@ include __DIR__ . '/inc/referral_nav.php';
         <thead>
           <tr>
             <th>نام</th>
-            <th>جوین</th>
-            <th>مبلغ تبلیغ</th>
-            <th>تاریخ شروع</th>
+            <?php
+            $sortLink = function (string $key, string $label) use ($sort, $dir, $search): string {
+                $nextDir = ($sort === $key && $dir === 'desc') ? 'asc' : 'desc';
+                $href = 'ads.php?q=' . urlencode($search) . '&sort=' . urlencode($key) . '&dir=' . $nextDir;
+                $active = $sort === $key;
+                $arrow = '';
+                if ($active) {
+                    $arrow = $dir === 'asc' ? ' ↑' : ' ↓';
+                }
+                $style = $active
+                    ? 'color:var(--ac);text-decoration:none;font-weight:700;white-space:nowrap'
+                    : 'color:inherit;text-decoration:none;white-space:nowrap';
+                return '<th><a href="' . htmlspecialchars($href) . '" style="' . $style . '">' . htmlspecialchars($label) . $arrow . '</a></th>';
+            };
+            echo $sortLink('join_count', 'جوین');
+            echo $sortLink('amount', 'مبلغ تبلیغ');
+            echo $sortLink('started_at', 'تاریخ شروع');
+            ?>
             <th>لینک</th>
             <th>عملیات</th>
           </tr>
@@ -139,7 +164,9 @@ include __DIR__ . '/inc/referral_nav.php';
       <div class="tbl-foot">
         <span><?= number_format($total) ?> مورد · صفحه <?= $page ?> از <?= $totalPages ?></span>
         <div class="pager">
-          <?php $qs = fn($p) => 'ads.php?q=' . urlencode($search) . '&page=' . $p; ?>
+          <?php $qs = fn($p) => 'ads.php?q=' . urlencode($search)
+              . ($sort !== 'id' ? '&sort=' . urlencode($sort) . '&dir=' . urlencode($dir) : '')
+              . '&page=' . $p; ?>
           <a class="<?= $page <= 1 ? 'dis' : '' ?>" href="<?= $qs(max(1, $page - 1)) ?>">‹</a>
           <?php for ($p = max(1, $page - 2); $p <= min($totalPages, $page + 2); $p++): ?>
             <a class="<?= $p === $page ? 'cur' : '' ?>" href="<?= $qs($p) ?>"><?= $p ?></a>

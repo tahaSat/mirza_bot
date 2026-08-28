@@ -60,7 +60,7 @@ function affiliates_lib_save_settings(PDO $pdo, array $data): void
     );
 }
 
-function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit = 25, int $offset = 0): array
+function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit = 25, int $offset = 0, string $sort = 'affiliatescount', string $dir = 'desc'): array
 {
     $where = ["IFNULL(u.affiliatescount, '') != ''", "u.affiliatescount != '0'"];
     $params = [];
@@ -94,6 +94,14 @@ function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit
             GROUP BY u2.affiliates
          ) b ON CAST(b.referrer_id AS CHAR) = CAST(u.id AS CHAR)';
 
+    $dirSql = strtolower($dir) === 'asc' ? 'ASC' : 'DESC';
+    $orderMap = [
+        'balance' => 'CAST(u.Balance AS SIGNED) ' . $dirSql . ', CAST(u.affiliatescount AS UNSIGNED) DESC, u.id DESC',
+        'affiliatescount' => 'CAST(u.affiliatescount AS UNSIGNED) ' . $dirSql . ', u.id DESC',
+        'buyer_count' => 'COALESCE(b.buyer_count, 0) ' . $dirSql . ', CAST(u.affiliatescount AS UNSIGNED) DESC, u.id DESC',
+    ];
+    $orderSql = $orderMap[$sort] ?? $orderMap['affiliatescount'];
+
     $total = db_count($pdo, "SELECT COUNT(*) FROM user u $whereSQL", $params);
     $rows = db_fetchAll(
         $pdo,
@@ -101,7 +109,7 @@ function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit
                 COALESCE(b.buyer_count, 0) AS buyer_count
          $fromSQL
          $whereSQL
-         ORDER BY CAST(u.affiliatescount AS UNSIGNED) DESC, u.id DESC
+         ORDER BY $orderSql
          LIMIT " . (int) $limit . ' OFFSET ' . (int) $offset,
         $params
     );

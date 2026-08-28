@@ -27,7 +27,7 @@ function ads_lib_date_input_value(string $stored): string
     return date('Y-m-d');
 }
 
-function ads_lib_list(PDO $pdo, string $search = '', int $limit = 25, int $offset = 0): array
+function ads_lib_list(PDO $pdo, string $search = '', int $limit = 25, int $offset = 0, string $sort = 'id', string $dir = 'desc'): array
 {
     ads_ensure_schema();
     $where = [];
@@ -38,10 +38,18 @@ function ads_lib_list(PDO $pdo, string $search = '', int $limit = 25, int $offse
         array_push($params, $like, $like, $like);
     }
     $whereSQL = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+    $dirSql = strtolower($dir) === 'asc' ? 'ASC' : 'DESC';
+    $orderMap = [
+        'join_count' => 'join_count ' . $dirSql . ', id DESC',
+        'amount' => 'amount ' . $dirSql . ', id DESC',
+        'started_at' => "COALESCE(STR_TO_DATE(REPLACE(started_at, '-', '/'), '%Y/%m/%d'), STR_TO_DATE(started_at, '%Y/%m/%d %H:%i:%s')) " . $dirSql . ', id DESC',
+        'id' => 'id DESC',
+    ];
+    $orderSql = $orderMap[$sort] ?? $orderMap['id'];
     $total = db_count($pdo, "SELECT COUNT(*) FROM ad_advertiser $whereSQL", $params);
     $rows = db_fetchAll(
         $pdo,
-        "SELECT * FROM ad_advertiser $whereSQL ORDER BY id DESC LIMIT " . (int) $limit . ' OFFSET ' . (int) $offset,
+        "SELECT * FROM ad_advertiser $whereSQL ORDER BY $orderSql LIMIT " . (int) $limit . ' OFFSET ' . (int) $offset,
         $params
     );
     return ['rows' => $rows, 'total' => $total];

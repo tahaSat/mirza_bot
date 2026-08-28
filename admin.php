@@ -246,7 +246,11 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $sql33 = $pdo->query($sql33);
     $invoiceSumRow = $sql33->fetch(PDO::FETCH_ASSOC);
     $invoiceTotal = isset($invoiceSumRow['total_price']) ? (float) $invoiceSumRow['total_price'] : 0;
-    $invoicesumall = number_format($invoiceTotal, 0);
+    $withdrawAll = bot_wallet_withdraw_stats($pdo);
+    $withdrawCountAll = (int) ($withdrawAll['count'] ?? 0);
+    $withdrawSumAll = (float) ($withdrawAll['sum'] ?? 0);
+    $invoicesumall = number_format($invoiceTotal - $withdrawSumAll, 0);
+    $withdrawSumAllFmt = number_format($withdrawSumAll, 0);
     $sql3 = "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_extend FROM service_other WHERE type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'";
     $stmt3 = $pdo->query($sql3);
     $extendSumRow = $stmt3->fetch(PDO::FETCH_ASSOC);
@@ -342,6 +346,8 @@ if (in_array($text, $textadmin) || $datain == "admin") {
 🧾 <b>تعداد کل فروش:</b> <code>$invoice</code> عدد  
 $firstPurchaseText
 🧾 <b>تعداد کل فروش سرویس های فعال:</b> <code>$invoiceactive</code> عدد  
+💸 <b>تعداد برداشت از کیف پول:</b> <code>$withdrawCountAll</code> عدد  
+💰 <b>مبلغ برداشت از کیف پول:</b> <code>$withdrawSumAllFmt</code> تومان  
 💵 <b>جمع کل درآمد (پرداخت‌های موفق):</b> <code>$invoicesumall</code> تومان  
 💵 <b>جمع کل فروش سرویس های فعال:</b> <code>$invoicesum</code> تومان  
 🔄 <b>جمع کل تمدید:</b> <code>$extendsum</code> تومان  

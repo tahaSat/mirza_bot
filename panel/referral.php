@@ -118,10 +118,12 @@ if ($view_campaign) {
     }
 }
 
-$pageTitle = 'کمپین‌های دعوت';
+$pageTitle = 'کمپین محصول رایگان';
 $pageLede = 'مدیریت لینک دعوت، تعداد دعوت موردنیاز و جایزه سرویس.';
 $activeNav = 'referral';
+$referralTab = 'campaign';
 include __DIR__ . '/inc/layout_head.php';
+include __DIR__ . '/inc/referral_nav.php';
 ?>
 
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px" class="fade-up">

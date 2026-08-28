@@ -834,6 +834,36 @@ function bot_period_payment_purpose_stats(PDO $pdo, int $startTs, int $endTs): a
     }
 }
 
+/**
+ * Paid wallet withdrawals in a window (approval time). Omit timestamps for all-time.
+ *
+ * @return array{count:int,sum:float}
+ */
+function bot_wallet_withdraw_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = null): array
+{
+    $empty = ['count' => 0, 'sum' => 0.0];
+    try {
+        $sql = "SELECT COUNT(*) AS count, COALESCE(SUM(amount),0) AS sum
+                FROM wallet_withdraw
+                WHERE status = 'paid'";
+        $params = [];
+        if ($startTs !== null && $endTs !== null) {
+            $sql .= ' AND updated_at BETWEEN :start AND :end';
+            $params = [':start' => $startTs, ':end' => $endTs];
+        }
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        return [
+            'count' => (int) ($row['count'] ?? 0),
+            'sum' => (float) ($row['sum'] ?? 0),
+        ];
+    } catch (Throwable $e) {
+        error_log('bot_wallet_withdraw_stats: ' . $e->getMessage());
+        return $empty;
+    }
+}
+
 function bot_format_gb($gb): string
 {
     $gb = (float) $gb;
@@ -1115,7 +1145,7 @@ function bot_is_first_product_purchase(PDO $pdo, $userId, $includeInvoiceId = nu
 }
 
 /**
- * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,users:int,avg_join:string,total_count:int,total_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
+ * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,users:int,avg_join:string,total_count:int,total_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
  */
 function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
 {
@@ -1156,6 +1186,9 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
     $changeLocationSum = (float) ($changeLocation['sum'] ?? 0);
     $walletSum = (float) ($payments['wallet_sum'] ?? 0);
     $walletCount = (int) ($payments['wallet_count'] ?? 0);
+    $withdraw = bot_wallet_withdraw_stats($pdo, $startTs, $endTs);
+    $withdrawCount = (int) ($withdraw['count'] ?? 0);
+    $withdrawSum = (float) ($withdraw['sum'] ?? 0);
 
     return [
         'orders' => (int) ($orders['count'] ?? 0),
@@ -1172,6 +1205,8 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
         'change_location_sum' => $changeLocationSum,
         'wallet' => $walletCount,
         'wallet_sum' => $walletSum,
+        'wallet_withdraw' => $withdrawCount,
+        'wallet_withdraw_sum' => $withdrawSum,
         'users' => $users,
         'avg_join' => avg_join_to_first_purchase_label($pdo, $startTs, $endTs),
         'total_count' => (int) ($payments['purchase_count'] ?? 0)
@@ -1179,7 +1214,7 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
             + $extraVolumeCount
             + $extraTimeCount
             + $walletCount,
-        'total_sum' => $orderSum + $extendSum + $extraVolumeSum + $extraTimeSum + $walletSum,
+        'total_sum' => $orderSum + $extendSum + $extraVolumeSum + $extraTimeSum + $walletSum - $withdrawSum,
         'sold_volume' => bot_sold_volume_stats($pdo, $startTs, $endTs),
         'first_purchase' => bot_first_purchase_stats($pdo, $startTs, $endTs),
         'forecast_sold_volume' => ($endTs - $startTs) >= (7 * 86400)
@@ -1200,6 +1235,8 @@ function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = 
     $sumChange = number_format($s['change_location_sum'], 0);
     $walletCount = (int) ($s['wallet'] ?? 0);
     $sumWallet = number_format((float) ($s['wallet_sum'] ?? 0), 0);
+    $withdrawCount = (int) ($s['wallet_withdraw'] ?? 0);
+    $sumWithdraw = number_format((float) ($s['wallet_withdraw_sum'] ?? 0), 0);
     $sumTotal = number_format($s['total_sum'], 0);
     $soldVolumeBlock = bot_format_sold_volume_block($s['sold_volume'] ?? []);
     $forecastVolume = $s['forecast_sold_volume'] ?? null;
@@ -1233,6 +1270,9 @@ $firstPurchaseBlock
 
 💳 شارژ کیف پول : $walletCount عدد
 💰 مبلغ شارژ کیف پول : $sumWallet تومان
+
+💸 تعداد برداشت از کیف پول : $withdrawCount عدد
+💰 مبلغ برداشت از کیف پول : $sumWithdraw تومان
 
 📊 تعداد کل : {$s['total_count']} عدد
 💵 جمع مبلغ کل : $sumTotal تومان

@@ -7399,6 +7399,428 @@ function parseConfigs($input)
     return $configs;
 }
 
+function affiliates_page_size(): int
+{
+    return 10;
+}
+
+function affiliates_btn_label(string $text, int $max = 64): string
+{
+    $text = trim($text);
+    if ($text === '' || strcasecmp($text, 'none') === 0) {
+        $text = '—';
+    }
+    if (mb_strlen($text, 'UTF-8') > $max) {
+        return mb_substr($text, 0, $max - 1, 'UTF-8') . '…';
+    }
+    return $text;
+}
+
+function affiliates_parse_timestamp($value): ?int
+{
+    if ($value === null || $value === '' || $value === '0') {
+        return null;
+    }
+    if (is_numeric($value)) {
+        $n = (int) $value;
+        if ($n > 20000000000) {
+            $n = (int) floor($n / 1000);
+        }
+        return $n > 0 ? $n : null;
+    }
+    $ts = strtotime((string) $value);
+    return ($ts !== false && $ts > 0) ? $ts : null;
+}
+
+function affiliates_user_can_claim_start_gift(array $user): bool
+{
+    $affSettings = select('affiliates', '*', null, null, 'select');
+    if (!is_array($affSettings) || ($affSettings['Discount'] ?? '') !== 'onDiscountaffiliates') {
+        return false;
+    }
+    $parentId = (string) ($user['affiliates'] ?? '0');
+    if ($parentId === '' || $parentId === '0' || !rowExists('user', 'id', $parentId)) {
+        return false;
+    }
+    $reagent = select('reagent_report', '*', 'user_id', $user['id'] ?? '', 'select');
+    if (!is_array($reagent)) {
+        return false;
+    }
+    $gift = $reagent['get_gift'] ?? 0;
+    if ($gift === true || $gift === 1 || $gift === '1' || $gift === 'true') {
+        return false;
+    }
+    return true;
+}
+
+function affiliates_porsant_text(array $affiliatesRow, $percentage): string
+{
+    if (($affiliatesRow['status_commission'] ?? '') !== 'oncommission') {
+        return '';
+    }
+    $percent = $percentage;
+    if (($affiliatesRow['porsant_one_buy'] ?? 'off_buy_porsant') === 'off_buy_porsant') {
+        return "<b>💸 پورسانت خرید:</b>  
+•  $percent درصد از  مبلغ هر خرید زیرمجموعه به شما تعلق می‌گیره.";
+    }
+    return "<b>💸 پورسانت خرید:</b>  
+•  $percent درصد از مبلغ خرید زیرمجموعه به شما تعلق می‌گیره";
+}
+
+function affiliates_main_keyboard($from_id, array $user, $usernamebot): string
+{
+    $shareUrl = "https://t.me/share/url?url=https://t.me/{$usernamebot}?start={$from_id}";
+    $rows = [
+        [
+            ['text' => '👥 زیر مجموعه ها', 'callback_data' => 'aff_list_1'],
+            ['text' => '🔗 اشتراک گذاری لینک', 'url' => $shareUrl],
+        ],
+        [
+            ['text' => '💸 درخواست برداشت', 'callback_data' => 'Wallet_Withdraw'],
+        ],
+    ];
+    if (affiliates_user_can_claim_start_gift($user)) {
+        $rows[] = [
+            ['text' => '🎁 دریافت هدیه عضویت', 'callback_data' => 'get_gift_start'],
+        ];
+    }
+    return json_encode(['inline_keyboard' => $rows], JSON_UNESCAPED_UNICODE);
+}
+
+function affiliates_main_view($from_id, array $user): array
+{
+    global $pdo, $setting, $usernamebot;
+
+    $affiliatescommission = select('affiliates', '*', null, null, 'select');
+    if (!is_array($affiliatescommission)) {
+        $affiliatescommission = [];
+    }
+
+    $sqlPanel = "SELECT COUNT(*) AS orders, SUM(price_product) AS total_price
+                 FROM invoice
+                 WHERE Status IN ('active', 'end_of_time', 'sendedwarn', 'send_on_hold')
+                 AND refral = :from_id
+                 AND name_product != 'سرویس تست'";
+    $stmt = $pdo->prepare($sqlPanel);
+    $stmt->execute([':from_id' => $from_id]);
+    $inforefral = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['orders' => 0, 'total_price' => 0];
+    $inforefral['total_price'] = (($inforefral['total_price'] ?? 0) * ($setting['affiliatespercentage'] ?? 0)) / 100;
+
+    $text_start = '';
+    if (($affiliatescommission['Discount'] ?? '') === 'onDiscountaffiliates') {
+        $text_start = "<b>🎁 هدیه عضویت:</b>
+• 🎉 مجموع هدیه: {$affiliatescommission['price_Discount']} تومان  
+• 🔻 ۵۰٪ برای شما (معرف)  
+• 🔻 ۵۰٪ برای زیرمجموعه (کاربر جدید)
+";
+    }
+    $text_porsant = affiliates_porsant_text($affiliatescommission, $setting['affiliatespercentage'] ?? 0);
+    $sum_order = number_format((float) ($inforefral['total_price'] ?? 0), 0);
+    $orders = (int) ($inforefral['orders'] ?? 0);
+    $affiliatescount = $user['affiliatescount'] ?? 0;
+
+    $text = "<b>💼 زیرمجموعه‌گیری و هدیه خوش‌آمد</b>
+
+با دعوت دوستان از طریق <b>لینک اختصاصی</b>، بدون پرداخت حتی ۱ ریال کیف پولت شارژ میشه و از خدمات ربات استفاده می‌کنی!
+
+$text_start
+$text_porsant
+
+<b>📊 آمار شما:</b>
+• 👥 زیرمجموعه‌ها: {$affiliatescount} نفر
+• 🛒 خریدها: {$orders} عدد
+• 💵 مجموع خرید: $sum_order تومان
+
+<b>📢 دعوت کن، هدیه بگیر، رشد کن!</b>
+";
+
+    return [
+        'text' => $text,
+        'keyboard' => affiliates_main_keyboard($from_id, $user, $usernamebot ?? ''),
+    ];
+}
+
+function affiliates_user_is_invitee($childId, $referrerId): bool
+{
+    $child = select('user', '*', 'id', $childId, 'select');
+    if (!is_array($child)) {
+        return false;
+    }
+    $parent = (string) ($child['affiliates'] ?? '0');
+    return $parent !== '' && $parent !== '0' && (string) $parent === (string) $referrerId;
+}
+
+function affiliates_list_view($referrerId, int $page): array
+{
+    global $pdo, $textbotlang;
+
+    $page = max(1, $page);
+    $limit = affiliates_page_size();
+    $offset = ($page - 1) * $limit;
+    $paidSql = invoice_paid_status_sql('i.Status');
+
+    $countStmt = $pdo->prepare(
+        "SELECT COUNT(*) FROM user
+         WHERE CAST(affiliates AS CHAR) = CAST(:rid AS CHAR)
+           AND IFNULL(affiliates, '') != ''
+           AND affiliates != '0'"
+    );
+    $countStmt->execute([':rid' => (string) $referrerId]);
+    $total = (int) $countStmt->fetchColumn();
+    $pages = max(1, (int) ceil($total / $limit));
+    if ($page > $pages) {
+        $page = $pages;
+        $offset = ($page - 1) * $limit;
+    }
+
+    $rows = [];
+    if ($total > 0) {
+        $stmt = $pdo->prepare(
+            "SELECT u.id, u.username, COALESCE(c.cnt, 0) AS service_count
+             FROM user u
+             LEFT JOIN (
+                SELECT i.id_user, COUNT(*) AS cnt
+                FROM invoice i
+                WHERE i.name_product != 'سرویس تست'
+                  AND ($paidSql)
+                GROUP BY i.id_user
+             ) c ON CAST(c.id_user AS CHAR) = CAST(u.id AS CHAR)
+             WHERE CAST(u.affiliates AS CHAR) = CAST(:rid AS CHAR)
+               AND IFNULL(u.affiliates, '') != ''
+               AND u.affiliates != '0'
+             ORDER BY CAST(u.register AS UNSIGNED) DESC, u.id DESC
+             LIMIT " . (int) $limit . ' OFFSET ' . (int) $offset
+        );
+        $stmt->execute([':rid' => (string) $referrerId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    $keyboard = ['inline_keyboard' => []];
+    if ($total === 0) {
+        $keyboard['inline_keyboard'][] = [
+            ['text' => '🔙 بازگشت', 'callback_data' => 'affiliatesbtn'],
+        ];
+        return [
+            'text' => 'هنوز زیرمجموعه‌ای ندارید.',
+            'keyboard' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+        ];
+    }
+
+    $keyboard['inline_keyboard'][] = [
+        ['text' => 'یوزرنیم', 'callback_data' => 'aff_noop'],
+        ['text' => 'آیدی', 'callback_data' => 'aff_noop'],
+        ['text' => 'تعداد', 'callback_data' => 'aff_noop'],
+        ['text' => 'مشاهده', 'callback_data' => 'aff_noop'],
+    ];
+
+    foreach ($rows as $row) {
+        $id = (string) ($row['id'] ?? '');
+        $username = (string) ($row['username'] ?? '');
+        if ($username !== '' && strcasecmp($username, 'none') !== 0) {
+            $usernameLabel = '@' . ltrim($username, '@');
+        } else {
+            $usernameLabel = '—';
+        }
+        $cb = 'aff_svc_' . $id . '_1';
+        $keyboard['inline_keyboard'][] = [
+            ['text' => affiliates_btn_label($usernameLabel), 'callback_data' => $cb],
+            ['text' => affiliates_btn_label($id), 'callback_data' => $cb],
+            ['text' => affiliates_btn_label((string) (int) ($row['service_count'] ?? 0)), 'callback_data' => $cb],
+            ['text' => '👁', 'callback_data' => $cb],
+        ];
+    }
+
+    $nextLabel = is_array($textbotlang) ? ($textbotlang['users']['page']['next'] ?? '▶️') : '▶️';
+    $prevLabel = is_array($textbotlang) ? ($textbotlang['users']['page']['previous'] ?? '◀️') : '◀️';
+    $nav = [];
+    if ($page > 1) {
+        $nav[] = ['text' => $prevLabel, 'callback_data' => 'aff_list_' . ($page - 1)];
+    }
+    if ($page < $pages) {
+        $nav[] = ['text' => $nextLabel, 'callback_data' => 'aff_list_' . ($page + 1)];
+    }
+    if ($nav) {
+        $keyboard['inline_keyboard'][] = $nav;
+    }
+    $keyboard['inline_keyboard'][] = [
+        ['text' => '🔙 بازگشت', 'callback_data' => 'affiliatesbtn'],
+    ];
+
+    return [
+        'text' => "👥 لیست زیرمجموعه‌های شما\nصفحه {$page} از {$pages} · {$total} نفر\nروی هر ردیف بزنید تا سرویس‌های همان کاربر را ببینید.",
+        'keyboard' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+    ];
+}
+
+function affiliates_format_volume_usage(?array $dataUser, array $invoice): string
+{
+    $panelOk = is_array($dataUser) && ($dataUser['status'] ?? '') !== 'Unsuccessful';
+    if ($panelOk) {
+        $used = $dataUser['used_traffic'] ?? 0;
+        $limit = $dataUser['data_limit'] ?? 0;
+        $usedText = (is_numeric($used) && (float) $used > 0)
+            ? formatBytes((float) $used)
+            : 'مصرف نشده';
+        $limitText = (is_numeric($limit) && (float) $limit > 0)
+            ? formatBytes((float) $limit)
+            : 'نامحدود';
+        return $usedText . ' / ' . $limitText;
+    }
+    $volume = $invoice['Volume'] ?? ($invoice['Volume_constraint'] ?? '0');
+    $totalText = (is_numeric($volume) && (float) $volume > 0)
+        ? ((float) $volume . ' گیگ')
+        : 'نامحدود';
+    return 'نامشخص / ' . $totalText;
+}
+
+function affiliates_format_time_usage(?array $dataUser, array $invoice): string
+{
+    $totalDays = (int) ($invoice['Service_time'] ?? 0);
+    $panelOk = is_array($dataUser) && ($dataUser['status'] ?? '') !== 'Unsuccessful';
+    $expire = $panelOk ? ($dataUser['expire'] ?? 0) : 0;
+    $expireTs = is_numeric($expire) ? (int) $expire : 0;
+
+    if ($totalDays <= 0 && $expireTs <= 0) {
+        return 'نامحدود';
+    }
+
+    $consumed = null;
+    if ($expireTs > 0 && $totalDays > 0) {
+        $remaining = (int) max(0, floor(($expireTs - time()) / 86400));
+        $consumed = (int) max(0, min($totalDays, $totalDays - $remaining));
+    } else {
+        $soldTs = affiliates_parse_timestamp($invoice['time_sell'] ?? null);
+        if ($soldTs !== null && $totalDays > 0) {
+            $elapsed = (int) max(0, floor((time() - $soldTs) / 86400));
+            $consumed = (int) min($totalDays, $elapsed);
+        }
+    }
+
+    if ($totalDays <= 0) {
+        return $consumed === null ? 'نامحدود' : ($consumed . ' روز / نامحدود');
+    }
+    if ($consumed === null) {
+        return 'نامشخص / ' . $totalDays . ' روز';
+    }
+    return $consumed . ' / ' . $totalDays . ' روز';
+}
+
+function affiliates_fetch_invoice_usage(array $invoice): ?array
+{
+    global $ManagePanel;
+    $username = (string) ($invoice['username'] ?? '');
+    $location = (string) ($invoice['Service_location'] ?? '');
+    if ($username === '' || $location === '' || !isset($ManagePanel) || !is_object($ManagePanel)) {
+        return null;
+    }
+    try {
+        $data = $ManagePanel->DataUser($location, $username, true);
+        return is_array($data) ? $data : null;
+    } catch (Throwable $e) {
+        error_log('affiliates_fetch_invoice_usage: ' . $e->getMessage());
+        return null;
+    }
+}
+
+function affiliates_services_view($referrerId, $childId, int $page): array
+{
+    global $pdo, $textbotlang;
+
+    if (!affiliates_user_is_invitee($childId, $referrerId)) {
+        return [
+            'text' => '❌ این کاربر زیرمجموعه شما نیست.',
+            'keyboard' => json_encode([
+                'inline_keyboard' => [
+                    [['text' => '🔙 بازگشت', 'callback_data' => 'aff_list_1']],
+                ],
+            ], JSON_UNESCAPED_UNICODE),
+        ];
+    }
+
+    $child = select('user', '*', 'id', $childId, 'select');
+    $childUsername = is_array($child) ? (string) ($child['username'] ?? '') : '';
+    $childLabel = ($childUsername !== '' && strcasecmp($childUsername, 'none') !== 0)
+        ? '@' . ltrim($childUsername, '@')
+        : (string) $childId;
+    $childLabel = htmlspecialchars($childLabel, ENT_QUOTES, 'UTF-8');
+
+    $page = max(1, $page);
+    $limit = affiliates_page_size();
+    $offset = ($page - 1) * $limit;
+    $paidSql = invoice_paid_status_sql('Status');
+
+    $countStmt = $pdo->prepare(
+        "SELECT COUNT(*) FROM invoice
+         WHERE CAST(id_user AS CHAR) = CAST(:uid AS CHAR)
+           AND name_product != 'سرویس تست'
+           AND ($paidSql)"
+    );
+    $countStmt->execute([':uid' => (string) $childId]);
+    $total = (int) $countStmt->fetchColumn();
+    $pages = $total > 0 ? max(1, (int) ceil($total / $limit)) : 1;
+    if ($page > $pages) {
+        $page = $pages;
+        $offset = ($page - 1) * $limit;
+    }
+
+    $keyboard = ['inline_keyboard' => []];
+    if ($total === 0) {
+        $keyboard['inline_keyboard'][] = [
+            ['text' => '🔙 بازگشت به لیست', 'callback_data' => 'aff_list_1'],
+        ];
+        return [
+            'text' => "کاربر {$childLabel} هنوز سرویسی نخریده است.",
+            'keyboard' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+        ];
+    }
+
+    $stmt = $pdo->prepare(
+        "SELECT username, name_product, Volume, Service_time, time_sell, Service_location, Status
+         FROM invoice
+         WHERE CAST(id_user AS CHAR) = CAST(:uid AS CHAR)
+           AND name_product != 'سرویس تست'
+           AND ($paidSql)
+         ORDER BY time_sell DESC
+         LIMIT " . (int) $limit . ' OFFSET ' . (int) $offset
+    );
+    $stmt->execute([':uid' => (string) $childId]);
+    $invoices = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $lines = ["🛍 سرویس‌های {$childLabel}", "صفحه {$page} از {$pages} · {$total} سرویس", ''];
+    foreach ($invoices as $invoice) {
+        $usage = affiliates_fetch_invoice_usage($invoice);
+        $volumeLine = affiliates_format_volume_usage($usage, $invoice);
+        $timeLine = affiliates_format_time_usage($usage, $invoice);
+        $svcUser = htmlspecialchars((string) ($invoice['username'] ?? ''), ENT_QUOTES, 'UTF-8');
+        $product = htmlspecialchars((string) ($invoice['name_product'] ?? ''), ENT_QUOTES, 'UTF-8');
+        $lines[] = "🔹 <code>{$svcUser}</code> — {$product}";
+        $lines[] = "📦 حجم: {$volumeLine}";
+        $lines[] = "⏱ زمان: {$timeLine}";
+        $lines[] = '';
+    }
+
+    $nextLabel = is_array($textbotlang) ? ($textbotlang['users']['page']['next'] ?? '▶️') : '▶️';
+    $prevLabel = is_array($textbotlang) ? ($textbotlang['users']['page']['previous'] ?? '◀️') : '◀️';
+    $nav = [];
+    if ($page > 1) {
+        $nav[] = ['text' => $prevLabel, 'callback_data' => 'aff_svc_' . $childId . '_' . ($page - 1)];
+    }
+    if ($page < $pages) {
+        $nav[] = ['text' => $nextLabel, 'callback_data' => 'aff_svc_' . $childId . '_' . ($page + 1)];
+    }
+    if ($nav) {
+        $keyboard['inline_keyboard'][] = $nav;
+    }
+    $keyboard['inline_keyboard'][] = [
+        ['text' => '🔙 بازگشت به لیست', 'callback_data' => 'aff_list_1'],
+    ];
+
+    return [
+        'text' => rtrim(implode("\n", $lines)),
+        'keyboard' => json_encode($keyboard, JSON_UNESCAPED_UNICODE),
+    ];
+}
+
 function referral_ensure_schema(): void
 {
     static $ready = false;

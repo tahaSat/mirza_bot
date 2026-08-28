@@ -7319,8 +7319,9 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
         return;
     }
     $affiliates = select("affiliates", "*", null, null, "select");
-    $textaffiliates = "{$affiliates['description']}\n\n🔗 https://t.me/$usernamebot?start=$from_id";
-    if (strlen($affiliates['id_media']) >= 5) {
+    $isAffiliatesCallback = ($datain == "affiliatesbtn");
+    if (!$isAffiliatesCallback && is_array($affiliates) && strlen($affiliates['id_media'] ?? '') >= 5) {
+        $textaffiliates = "{$affiliates['description']}\n\n🔗 https://t.me/$usernamebot?start=$from_id";
         telegram('sendphoto', [
             'chat_id' => $from_id,
             'photo' => $affiliates['id_media'],
@@ -7328,55 +7329,33 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
             'parse_mode' => "HTML",
         ]);
     }
-    $affiliatescommission = select("affiliates", "*", null, null, "select");
-    $sqlPanel = "SELECT COUNT(*) AS orders, SUM(price_product) AS total_price
-                 FROM invoice 
-                 WHERE Status IN ('active', 'end_of_time', 'sendedwarn', 'send_on_hold') 
-                 AND refral = '$from_id'
-                 AND name_product != 'سرویس تست'";
-    $stmt = $pdo->prepare($sqlPanel);
-    $stmt->execute();
-    $inforefral = $stmt->fetch(PDO::FETCH_ASSOC);
-    $inforefral['total_price'] = ($inforefral['total_price'] * $setting['affiliatespercentage']) / 100;
-    $keyboard_share = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => "🎁 دریافت هدیه عضویت", 'callback_data' => "get_gift_start"],
-                ['text' => "🔗 اشتراک گذاری لینک", 'url' => "https://t.me/share/url?url=https://t.me/$usernamebot?start=$from_id"],
-            ],
-        ]
-    ]);
-    $text_start = "";
-    $text_porsant = "";
-    $Percent_porsant = $setting['affiliatespercentage'];
-    $sum_order = number_format($inforefral['total_price'], 0);
-    if ($affiliatescommission['Discount'] == "onDiscountaffiliates") {
-        $text_start = "<b>🎁 هدیه عضویت:</b>
-• 🎉 مجموع هدیه: {$affiliatescommission['price_Discount']} تومان  
-• 🔻 ۵۰٪ برای شما (معرف)  
-• 🔻 ۵۰٪ برای زیرمجموعه (کاربر جدید)
-";
+    $affView = affiliates_main_view($from_id, $user);
+    if ($isAffiliatesCallback) {
+        reply_or_edit($from_id, $message_id, $affView['text'], $affView['keyboard'], 'HTML');
+    } else {
+        sendmessage($from_id, $affView['text'], $affView['keyboard'], 'HTML');
     }
-    if ($affiliatescommission['status_commission'] == "oncommission") {
-        $text_porsant = "<b>💸 پورسانت خرید:</b>  
-•  $Percent_porsant درصد از مبلغ خرید زیرمجموعه به شما تعلق می‌گیره";
+} elseif (preg_match('/^aff_list_(\d+)$/', (string) $datain, $affListMatch)) {
+    if ($setting['affiliatesstatus'] == "offaffiliates") {
+        sendmessage($from_id, $textbotlang['users']['affiliates']['offaffiliates'], null, 'HTML');
+        return;
     }
-    $textaffiliates = "<b>💼 زیرمجموعه‌گیری و هدیه خوش‌آمد</b>
-
-با دعوت دوستان از طریق <b>لینک اختصاصی</b>، بدون پرداخت حتی ۱ ریال کیف پولت شارژ میشه و از خدمات ربات استفاده می‌کنی!
-
-$text_start
-$text_porsant
-
-<b>📊 آمار شما:</b>
-• 👥 زیرمجموعه‌ها: {$user['affiliatescount']} نفر
-• 🛒 خریدها: {$inforefral['orders']} عدد
-• 💵 مجموع خرید: $sum_order تومان
-
-<b>📢 دعوت کن، هدیه بگیر، رشد کن!</b>
-";
-
-    sendmessage($from_id, $textaffiliates, $keyboard_share, 'HTML');
+    $affList = affiliates_list_view($from_id, (int) $affListMatch[1]);
+    reply_or_edit($from_id, $message_id, $affList['text'], $affList['keyboard'], 'HTML');
+} elseif ($datain == "aff_noop") {
+    if (!empty($callback_query_id)) {
+        telegram('answerCallbackQuery', [
+            'callback_query_id' => $callback_query_id,
+            'cache_time' => 1,
+        ]);
+    }
+} elseif (preg_match('/^aff_svc_(\d+)_(\d+)$/', (string) $datain, $affSvcMatch)) {
+    if ($setting['affiliatesstatus'] == "offaffiliates") {
+        sendmessage($from_id, $textbotlang['users']['affiliates']['offaffiliates'], null, 'HTML');
+        return;
+    }
+    $affSvc = affiliates_services_view($from_id, $affSvcMatch[1], (int) $affSvcMatch[2]);
+    reply_or_edit($from_id, $message_id, $affSvc['text'], $affSvc['keyboard'], 'HTML');
 } elseif (user_text_matches_main_button($text, 'text_referral', $datatextbot) || $datain == "referralbtn") {
     if (!check_active_btn($setting['keyboardmain'], "text_referral")) {
         sendmessage($from_id, "❌ این دکمه غیرفعال می باشد", null, 'HTML');

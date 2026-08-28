@@ -866,6 +866,8 @@ try {
         ['text_dec_fq', $text_dec_fq],
         ['text_sell', '🔐 خرید اشتراک'],
         ['text_Add_Balance', '💰 افزایش موجودی'],
+        ['text_wallet_withdraw', "💸 لطفاً مبلغ برداشت از کیف پول را به تومان وارد کنید."],
+        ['text_wallet_withdraw_success', "✅ درخواست تسویه حساب شما ثبت شد و پس از بررسی واریز خواهد شد."],
         ['text_channel', $text_channel],
         ['text_Discount', '🎁 کد هدیه'],
         ['text_Tariff_list', '💵 تعرفه اشتراک ها'],
@@ -951,6 +953,7 @@ try {
         ['statusaqayepardakht', 'offaqayepardakht'],
         ['merchant_id_aqayepardakht', '0'],
         ['minbalance', '20000'],
+        ['wallet_withdraw_min', '0'],
         ['maxbalance', '1000000'],
         ['marchent_tronseller', '0'],
         ['walletaddress', '0'],
@@ -1884,6 +1887,8 @@ if ($check && $check->rowCount() != 0) {
     $pdo->exec("ALTER TABLE `user` DROP `ref_code`");
 }
 ensure_hot_path_indexes();
+require_once __DIR__ . '/withdraw_lib.php';
+withdraw_ensure_schema($pdo);
 global $telegram_polling_mode;
 if (empty($telegram_polling_mode)) {
     telegram('setwebhook', [

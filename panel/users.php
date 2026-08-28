@@ -641,6 +641,27 @@ include __DIR__ . '/inc/layout_head.php';
                 </div>
 
                 <div class="field">
+                    <label>پنل</label>
+                    <select class="select" name="panel" id="bulkChargePanel" required>
+                        <option value="">انتخاب پنل...</option>
+                        <?php
+                        $bulkChargePanels = db_fetchAll($pdo, "SELECT name_panel FROM marzban_panel WHERE status = 'active' ORDER BY name_panel");
+                        if (!$bulkChargePanels) {
+                            $bulkChargePanels = db_fetchAll($pdo, "SELECT name_panel FROM marzban_panel ORDER BY name_panel");
+                        }
+                        foreach ($bulkChargePanels as $bulkPanel):
+                            $bulkPanelName = (string) ($bulkPanel['name_panel'] ?? '');
+                            if ($bulkPanelName === '') {
+                                continue;
+                            }
+                        ?>
+                            <option value="<?= htmlspecialchars($bulkPanelName) ?>"><?= htmlspecialchars($bulkPanelName) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <span class="field-hint">افزایش فقط روی سرویس‌های همین پنل اعمال می‌شود.</span>
+                </div>
+
+                <div class="field">
                     <label>نوع سرویس</label>
                     <div style="display:flex;gap:16px;flex-wrap:wrap">
                         <label class="check-row" style="margin:0">
@@ -677,7 +698,7 @@ include __DIR__ . '/inc/layout_head.php';
                 </div>
 
                 <div style="margin:0;padding:10px 12px;border:1px solid var(--warn);border-radius:var(--r);color:var(--warn);font-size:.8rem;line-height:1.8">
-                    عملیات روی تمام سرویس‌های فعال مطابق فیلتر اجرا می‌شود و ممکن است چند دقیقه زمان ببرد.
+                    عملیات فقط روی سرویس‌های فعال پنل انتخاب‌شده مطابق فیلتر اجرا می‌شود و ممکن است چند دقیقه زمان ببرد.
                 </div>
             </div>
             <div class="modal-foot">
@@ -720,7 +741,14 @@ include __DIR__ . '/inc/layout_head.php';
         var parts = [];
         if (volumeCheck.checked) parts.push('حجم');
         if (timeCheck.checked) parts.push('زمان');
-        if (!window.confirm('افزایش ' + parts.join(' و ') + ' برای تمام سرویس‌های فعال مطابق فیلتر آغاز شود؟')) {
+        var panel = document.getElementById('bulkChargePanel');
+        var panelName = panel && panel.value ? panel.options[panel.selectedIndex].text : '';
+        var msg = 'افزایش ' + parts.join(' و ') + ' برای سرویس‌های فعال';
+        if (panelName) {
+            msg += ' پنل «' + panelName + '»';
+        }
+        msg += ' مطابق فیلتر آغاز شود؟';
+        if (!window.confirm(msg)) {
             event.preventDefault();
         }
     });

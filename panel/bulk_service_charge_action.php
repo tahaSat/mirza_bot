@@ -57,6 +57,7 @@ if ($action === 'cancel') {
 }
 
 $agent = $_POST['agent'] ?? 'all';
+$panelName = trim((string) ($_POST['panel'] ?? ''));
 $serviceTypes = $_POST['service_types'] ?? [];
 if (!is_array($serviceTypes)) {
     $serviceTypes = [$serviceTypes];
@@ -73,6 +74,18 @@ if (!in_array($agent, ['all', 'f', 'n', 'n2'], true)) {
     header('Location: users.php');
     exit;
 }
+if ($panelName === '') {
+    flash('error', 'پنل را انتخاب کنید.');
+    header('Location: users.php');
+    exit;
+}
+$panelRow = db_fetch($pdo, 'SELECT name_panel FROM marzban_panel WHERE name_panel = ? LIMIT 1', [$panelName]);
+if (!$panelRow) {
+    flash('error', 'پنل انتخاب‌شده نامعتبر است.');
+    header('Location: users.php');
+    exit;
+}
+$panelName = (string) $panelRow['name_panel'];
 if (!$addVolume && !$addTime) {
     flash('error', 'حداقل یکی از گزینه‌های حجم یا زمان را انتخاب کنید.');
     header('Location: users.php');
@@ -127,6 +140,8 @@ if ($agent !== 'all') {
     $sql .= ' AND u.agent = :agent';
     $params[':agent'] = $agent;
 }
+$sql .= ' AND i.Service_location = :panel';
+$params[':panel'] = $panelName;
 $serviceFilters = [];
 if ($addVolume) {
     $serviceFilters[] = "CAST(COALESCE(NULLIF(i.Volume, ''), '0') AS UNSIGNED) > 0";
@@ -150,6 +165,7 @@ $job = [
     'bulkcharge_mode' => 'service',
     'bulk_service_charge' => true,
     'agent' => $agent,
+    'name_panel' => $panelName,
     'typecustomer' => 'customer',
     'typegift' => ($addVolume && $addTime) ? 'both' : ($addVolume ? 'volume' : 'day'),
     'add_volume' => $addVolume,

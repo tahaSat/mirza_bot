@@ -8,6 +8,7 @@ require_once 'config.php';
 require_once 'botapi.php';
 require_once 'jdf.php';
 require_once 'function.php';
+require_once 'withdraw_lib.php';
 require_once 'vendor/autoload.php';
 require_once 'panels.php';
 $textbotlang = languagechange(__DIR__ . '/text.json');
@@ -124,6 +125,7 @@ if (!is_array($loadedTexts)) {
     $loadedTexts = [];
 }
 $datatextbot = array_merge(is_array($datatextbot) ? $datatextbot : [], $loadedTexts);
+withdraw_ensure_schema($pdo);
 $setting = select("setting", "*", null, null, "select", ['cache' => false]);
 $keyboard = build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $from_id, [
     'users' => $user,
@@ -3933,6 +3935,156 @@ $textinvite
     reply_or_edit($from_id, $message_id, $text_account, $keyboardPanel, 'HTML');
     step('home', $from_id);
     return;
+} elseif ($datain == "Wallet_Withdraw") {
+    withdraw_ensure_schema($pdo);
+    $wdBack = withdraw_user_back_keyboard();
+    reply_or_edit($from_id, $message_id, withdraw_prompt_text(), $wdBack, 'HTML');
+    step('wd_amount', $from_id);
+    update("user", "Processing_value", json_encode(['started' => 1], JSON_UNESCAPED_UNICODE), "id", $from_id);
+} elseif (in_array($user['step'], ['wd_amount', 'wd_card', 'wd_name', 'wd_confirm'], true)
+    || in_array($datain, ['wd_confirm_yes', 'wd_confirm_no', 'wd_confirm_edit', 'wd_edit_amount', 'wd_edit_card', 'wd_edit_name', 'wd_edit_back'], true)
+) {
+    withdraw_ensure_schema($pdo);
+    $wdBack = withdraw_user_back_keyboard();
+    $draft = withdraw_draft_from_user($user);
+    $balance = (int) ($user['Balance'] ?? 0);
+
+    if ($datain == "wd_confirm_no") {
+        step('home', $from_id);
+        update("user", "Processing_value", "0", "id", $from_id);
+        reply_or_edit($from_id, $message_id, "❌ درخواست برداشت لغو شد.", $keyboardPanel, 'HTML');
+        return;
+    }
+
+    if ($datain == "wd_confirm_edit") {
+        reply_or_edit($from_id, $message_id, "✏️ کدام مورد را می‌خواهید ویرایش کنید؟", withdraw_user_edit_keyboard(), 'HTML');
+        step('wd_confirm', $from_id);
+        return;
+    }
+
+    if ($datain == "wd_edit_back") {
+        $amount = (int) ($draft['amount'] ?? 0);
+        $card = (string) ($draft['card'] ?? '');
+        $holder = (string) ($draft['name'] ?? '');
+        if ($amount < 1 || $card === '' || $holder === '') {
+            sendmessage($from_id, "لطفاً اطلاعات را کامل کنید.", $wdBack, 'HTML');
+            return;
+        }
+        reply_or_edit($from_id, $message_id, withdraw_user_review_text($amount, $card, $holder), withdraw_user_confirm_keyboard(), 'HTML');
+        step('wd_confirm', $from_id);
+        return;
+    }
+
+    if ($datain == "wd_edit_amount") {
+        sendmessage($from_id, "💸 مبلغ برداشت را به تومان وارد کنید:", $wdBack, 'HTML');
+        step('wd_amount', $from_id);
+        return;
+    }
+    if ($datain == "wd_edit_card") {
+        sendmessage($from_id, "💳 شماره کارت ۱۶ رقمی را وارد کنید:", $wdBack, 'HTML');
+        step('wd_card', $from_id);
+        return;
+    }
+    if ($datain == "wd_edit_name") {
+        sendmessage($from_id, "👤 نام صاحب حساب را وارد کنید:", $wdBack, 'HTML');
+        step('wd_name', $from_id);
+        return;
+    }
+
+    if ($datain == "wd_confirm_yes") {
+        $amount = (int) ($draft['amount'] ?? 0);
+        $card = (string) ($draft['card'] ?? '');
+        $holder = (string) ($draft['name'] ?? '');
+        if ($amount < 1 || $card === '' || $holder === '') {
+            sendmessage($from_id, "❌ اطلاعات ناقص است. دوباره تلاش کنید.", $wdBack, 'HTML');
+            step('home', $from_id);
+            return;
+        }
+        $fresh = select("user", "*", "id", $from_id, "select");
+        $check = withdraw_validate_amount($amount, (int) ($fresh['Balance'] ?? 0), $pdo);
+        if (!$check['ok']) {
+            sendmessage($from_id, $check['error'], $wdBack, 'HTML');
+            step('wd_amount', $from_id);
+            return;
+        }
+        $created = withdraw_create_request($from_id, $amount, $card, $holder, (string) $first_name, (string) $username, $pdo);
+        step('home', $from_id);
+        update("user", "Processing_value", "0", "id", $from_id);
+        if (empty($created['ok'])) {
+            sendmessage($from_id, $created['msg'] ?? '❌ ثبت درخواست ناموفق بود.', $wdBack, 'HTML');
+            return;
+        }
+        reply_or_edit($from_id, $message_id, withdraw_success_text(), $keyboardPanel, 'HTML');
+        return;
+    }
+
+    if ($user['step'] == "wd_amount" && $text !== '') {
+        $amount = withdraw_parse_int($text);
+        if ($amount === null) {
+            sendmessage($from_id, "❌ مبلغ نامعتبر است. مبلغ را به تومان و به‌صورت عدد وارد کنید.", $wdBack, 'HTML');
+            return;
+        }
+        $check = withdraw_validate_amount($amount, $balance, $pdo);
+        if (!$check['ok']) {
+            sendmessage($from_id, $check['error'], $wdBack, 'HTML');
+            return;
+        }
+        $draft['amount'] = $amount;
+        update("user", "Processing_value", json_encode($draft, JSON_UNESCAPED_UNICODE), "id", $from_id);
+        if (!empty($draft['card']) && !empty($draft['name'])) {
+            sendmessage($from_id, withdraw_user_review_text($amount, (string) $draft['card'], (string) $draft['name']), withdraw_user_confirm_keyboard(), 'HTML');
+            step('wd_confirm', $from_id);
+            return;
+        }
+        sendmessage($from_id, "💳 شماره کارت ۱۶ رقمی را وارد کنید:", $wdBack, 'HTML');
+        step('wd_card', $from_id);
+        return;
+    }
+
+    if ($user['step'] == "wd_card" && $text !== '') {
+        $card = withdraw_normalize_card($text);
+        if ($card === null) {
+            sendmessage($from_id, "❌ شماره کارت نامعتبر است. یک شماره ۱۶ رقمی وارد کنید.", $wdBack, 'HTML');
+            return;
+        }
+        $draft['card'] = $card;
+        update("user", "Processing_value", json_encode($draft, JSON_UNESCAPED_UNICODE), "id", $from_id);
+        if (!empty($draft['name'])) {
+            sendmessage($from_id, withdraw_user_review_text((int) ($draft['amount'] ?? 0), $card, (string) $draft['name']), withdraw_user_confirm_keyboard(), 'HTML');
+            step('wd_confirm', $from_id);
+            return;
+        }
+        sendmessage($from_id, "👤 نام صاحب حساب را وارد کنید:", $wdBack, 'HTML');
+        step('wd_name', $from_id);
+        return;
+    }
+
+    if ($user['step'] == "wd_name" && $text !== '') {
+        $holder = trim($text);
+        if (function_exists('mb_strlen') ? mb_strlen($holder, 'UTF-8') < 2 : strlen($holder) < 2) {
+            sendmessage($from_id, "❌ نام صاحب حساب را کامل وارد کنید.", $wdBack, 'HTML');
+            return;
+        }
+        if (function_exists('mb_strlen') && mb_strlen($holder, 'UTF-8') > 80) {
+            sendmessage($from_id, "❌ نام صاحب حساب خیلی طولانی است.", $wdBack, 'HTML');
+            return;
+        }
+        $draft['name'] = $holder;
+        update("user", "Processing_value", json_encode($draft, JSON_UNESCAPED_UNICODE), "id", $from_id);
+        $amount = (int) ($draft['amount'] ?? 0);
+        $card = (string) ($draft['card'] ?? '');
+        sendmessage($from_id, withdraw_user_review_text($amount, $card, $holder), withdraw_user_confirm_keyboard(), 'HTML');
+        step('wd_confirm', $from_id);
+        return;
+    }
+
+    if ($user['step'] == "wd_confirm" && $datain === '') {
+        sendmessage($from_id, "لطفاً یکی از دکمه‌های تأیید، لغو یا ویرایش را انتخاب کنید.", withdraw_user_confirm_keyboard(), 'HTML');
+        return;
+    }
+    if (in_array($user['step'], ['wd_amount', 'wd_card', 'wd_name'], true) && $datain === '') {
+        sendmessage($from_id, "لطفاً مقدار خواسته‌شده را به‌صورت متن ارسال کنید.", $wdBack, 'HTML');
+    }
 } elseif ((user_text_matches_main_button($text, 'text_sell', $datatextbot) || $datain == "buy" || $datain == "buyback" || $text == "/buy" || $text == "buy") && $statusnote) {
     if ($setting['get_number'] == "onAuthenticationphone" && $user['step'] != "get_number" && $user['number'] == "none") {
         sendmessage($from_id, $textbotlang['users']['number']['Confirming'], $request_contact, 'HTML');

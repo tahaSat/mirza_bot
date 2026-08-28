@@ -113,6 +113,9 @@ $keyboardPanel = json_encode([
             ['text' => $datatextbot['text_Discount'], 'callback_data' => "Discount"],
             ['text' => $datatextbot['text_Add_Balance'], 'callback_data' => "Add_Balance"]
         ],
+        [
+            ['text' => '💸 درخواست برداشت', 'callback_data' => 'Wallet_Withdraw'],
+        ],
         [['text' => $textbotlang['users']['backbtn'], 'callback_data' => "backuser"]],
     ],
     'resize_keyboard' => true

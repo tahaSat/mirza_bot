@@ -503,6 +503,9 @@ function panel_payment_ensure_schema(PDO $pdo): void
         } elseif (!db_fetch($pdo, "SELECT id FROM expense_category WHERE slug = 'other'")) {
             $pdo->exec("INSERT INTO expense_category (slug, label, sort_order) VALUES ('other', 'سایر', 0)");
         }
+        if (!db_fetch($pdo, "SELECT id FROM expense_category WHERE slug = 'wallet_withdraw'")) {
+            $pdo->exec("INSERT INTO expense_category (slug, label, sort_order) VALUES ('wallet_withdraw', 'برداشت از کیف پول', 10)");
+        }
     } catch (Throwable $e) {
         error_log('panel_payment_ensure_schema expense_category: ' . $e->getMessage());
     }

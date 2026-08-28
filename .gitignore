@@ -6,3 +6,6 @@ android-sms-forwarder/
 storage/sessions/panel/*
 !storage/sessions/panel/.htaccess
 !storage/sessions/panel/.gitkeep
+storage/withdraw_receipts/*
+!storage/withdraw_receipts/.htaccess
+!storage/withdraw_receipts/.gitkeep

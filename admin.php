@@ -8902,6 +8902,9 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
                 ['text' => "💫Star Telegram", 'callback_data' => "none"],
             ],
             [
+                ['text' => "💸 برداشت از کیف پول", 'callback_data' => "wd_menu"],
+            ],
+            [
                 ['text' => "⬆️ حداکثر شارژ موجودی", 'callback_data' => "maxbalanceaccount"],
                 ['text' => "⬇️ حداقل شارژ موجودی", 'callback_data' => "mainbalanceaccount"],
             ],
@@ -8913,6 +8916,189 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
     sendmessage($from_id, "📌 از لیست زیر میتوانید درگاه ها را مدیریت کنید.
 
 ⚠️ تیم پیچا هیچ تضمینی برای درگاه ها نخواهد داشت و استفاده  و تمامی مسئولیت ها به عهده شما می باشد", $Bot_Status, 'HTML');
+} elseif (
+    $datain == "wd_menu"
+    || preg_match('/^wd_tab_(settings|pending|history)(?:_(\d+))?$/', (string) $datain, $wdTabMatch)
+    || preg_match('/^wd_ok_(\d+)$/', (string) $datain, $wdOkMatch)
+    || preg_match('/^wd_no_(\d+)$/', (string) $datain, $wdNoMatch)
+    || in_array($datain, ['wd_set_min', 'wd_set_prompt', 'wd_set_success', 'wd_none'], true)
+    || in_array($user['step'] ?? '', ['wd_admin_min', 'wd_admin_prompt', 'wd_admin_success', 'wd_admin_receipt', 'wd_admin_reject'], true)
+) {
+    $wdRule = $adminrulecheck['rule'] ?? '';
+    $wdCanManage = ($wdRule === 'administrator' || $wdRule === 'Seller');
+    if (!$wdCanManage) {
+        if ($callback_query_id) {
+            telegram('answerCallbackQuery', [
+                'callback_query_id' => $callback_query_id,
+                'text' => 'دسترسی ندارید',
+                'show_alert' => true,
+            ]);
+        }
+        return;
+    }
+    withdraw_ensure_schema($pdo);
+    $wdIsAdmin = ($wdRule === 'administrator');
+    $wdTabMatch = [];
+    $wdOkMatch = [];
+    $wdNoMatch = [];
+    if (is_string($datain) && $datain !== '') {
+        preg_match('/^wd_tab_(settings|pending|history)(?:_(\d+))?$/', $datain, $wdTabMatch);
+        preg_match('/^wd_ok_(\d+)$/', $datain, $wdOkMatch);
+        preg_match('/^wd_no_(\d+)$/', $datain, $wdNoMatch);
+    }
+
+    if ($datain == "wd_none") {
+        telegram('answerCallbackQuery', ['callback_query_id' => $callback_query_id]);
+        return;
+    }
+
+    if ($datain == "wd_menu" || isset($wdTabMatch[1])) {
+        step('home', $from_id);
+        $tab = $wdTabMatch[1] ?? 'pending';
+        $page = (int) ($wdTabMatch[2] ?? 1);
+        if ($tab === 'settings') {
+            if (!$wdIsAdmin) {
+                telegram('answerCallbackQuery', [
+                    'callback_query_id' => $callback_query_id,
+                    'text' => 'فقط مدیر اصلی می‌تواند تنظیمات را تغییر دهد',
+                    'show_alert' => true,
+                ]);
+                return;
+            }
+            reply_or_edit($from_id, $message_id, withdraw_admin_settings_text(), withdraw_admin_settings_keyboard(), 'HTML');
+            return;
+        }
+        if ($tab === 'history') {
+            $view = withdraw_admin_history_view($page);
+            reply_or_edit($from_id, $message_id, $view['text'], $view['keyboard'], 'HTML');
+            return;
+        }
+        $view = withdraw_admin_pending_view($page);
+        reply_or_edit($from_id, $message_id, $view['text'], $view['keyboard'], 'HTML');
+        return;
+    }
+
+    if ($datain == "wd_set_min") {
+        if (!$wdIsAdmin) {
+            return;
+        }
+        sendmessage($from_id, "⬇️ حداقل مبلغ برداشت را به تومان ارسال کنید (عدد ۰ یعنی فقط مبلغ مثبت).", $backadmin, 'HTML');
+        step('wd_admin_min', $from_id);
+        return;
+    }
+    if ($user['step'] == "wd_admin_min") {
+        $min = withdraw_parse_int((string) $text);
+        if ($min === null) {
+            sendmessage($from_id, "❌ مقدار نامعتبر است. یک عدد ارسال کنید.", $backadmin, 'HTML');
+            return;
+        }
+        withdraw_set_min($min, $pdo);
+        sendmessage($from_id, "✅ حداقل برداشت روی " . number_format($min) . " تومان تنظیم شد.", $backadmin, 'HTML');
+        step('home', $from_id);
+        sendmessage($from_id, withdraw_admin_settings_text(), withdraw_admin_settings_keyboard(), 'HTML');
+        return;
+    }
+
+    if ($datain == "wd_set_prompt") {
+        if (!$wdIsAdmin) {
+            return;
+        }
+        prompt_textbot_edit($from_id, WITHDRAW_TEXT_PROMPT, 'wd_admin_prompt', $backadmin);
+        return;
+    }
+    if ($user['step'] == "wd_admin_prompt") {
+        if (!save_textbot_from_update(WITHDRAW_TEXT_PROMPT, $update)) {
+            sendmessage($from_id, "❌ متن خالی است. دوباره ارسال کنید.", $backadmin, 'HTML');
+            return;
+        }
+        global $datatextbot;
+        if (is_array($datatextbot)) {
+            $datatextbot[WITHDRAW_TEXT_PROMPT] = text_from_telegram_update($update);
+        }
+        sendmessage($from_id, "✅ متن دکمه تسویه حساب ذخیره شد.", $backadmin, 'HTML');
+        step('home', $from_id);
+        sendmessage($from_id, withdraw_admin_settings_text(), withdraw_admin_settings_keyboard(), 'HTML');
+        return;
+    }
+
+    if ($datain == "wd_set_success") {
+        if (!$wdIsAdmin) {
+            return;
+        }
+        prompt_textbot_edit($from_id, WITHDRAW_TEXT_SUCCESS, 'wd_admin_success', $backadmin);
+        return;
+    }
+    if ($user['step'] == "wd_admin_success") {
+        if (!save_textbot_from_update(WITHDRAW_TEXT_SUCCESS, $update)) {
+            sendmessage($from_id, "❌ متن خالی است. دوباره ارسال کنید.", $backadmin, 'HTML');
+            return;
+        }
+        global $datatextbot;
+        if (is_array($datatextbot)) {
+            $datatextbot[WITHDRAW_TEXT_SUCCESS] = text_from_telegram_update($update);
+        }
+        sendmessage($from_id, "✅ متن پیام موفقیت ذخیره شد.", $backadmin, 'HTML');
+        step('home', $from_id);
+        sendmessage($from_id, withdraw_admin_settings_text(), withdraw_admin_settings_keyboard(), 'HTML');
+        return;
+    }
+
+    if (isset($wdOkMatch[1])) {
+        $wdId = (int) $wdOkMatch[1];
+        $wdRow = withdraw_get($wdId, $pdo);
+        if (!$wdRow || ($wdRow['status'] ?? '') !== WITHDRAW_STATUS_PENDING) {
+            telegram('answerCallbackQuery', [
+                'callback_query_id' => $callback_query_id,
+                'text' => 'این درخواست قبلاً بررسی شده است',
+                'show_alert' => true,
+            ]);
+            return;
+        }
+        update("user", "Processing_value", (string) $wdId, "id", $from_id);
+        sendmessage($from_id, "🖼 عکس رسید پرداخت را برای درخواست #$wdId ارسال کنید.", $backadmin, 'HTML');
+        step('wd_admin_receipt', $from_id);
+        return;
+    }
+
+    if ($user['step'] == "wd_admin_receipt") {
+        $wdId = (int) $user['Processing_value'];
+        if (!$photo || isset($update['message']['media_group_id'])) {
+            sendmessage($from_id, "❌ فقط یک تصویر رسید ارسال کنید.", $backadmin, 'HTML');
+            return;
+        }
+        $saved = withdraw_save_receipt_from_telegram($wdId, $photoid);
+        $result = withdraw_approve($wdId, (string) $from_id, $saved, $pdo);
+        step('home', $from_id);
+        update("user", "Processing_value", "0", "id", $from_id);
+        sendmessage($from_id, !empty($result['ok']) ? "✅ " . $result['msg'] : "❌ " . ($result['msg'] ?? 'خطا'), $keyboardadmin, 'HTML');
+        return;
+    }
+
+    if (isset($wdNoMatch[1])) {
+        $wdId = (int) $wdNoMatch[1];
+        $wdRow = withdraw_get($wdId, $pdo);
+        if (!$wdRow || ($wdRow['status'] ?? '') !== WITHDRAW_STATUS_PENDING) {
+            telegram('answerCallbackQuery', [
+                'callback_query_id' => $callback_query_id,
+                'text' => 'این درخواست قبلاً بررسی شده است',
+                'show_alert' => true,
+            ]);
+            return;
+        }
+        update("user", "Processing_value", (string) $wdId, "id", $from_id);
+        sendmessage($from_id, "✍️ دلیل رد درخواست #$wdId را ارسال کنید. این متن برای کاربر ارسال می‌شود.", $backadmin, 'HTML');
+        step('wd_admin_reject', $from_id);
+        return;
+    }
+
+    if ($user['step'] == "wd_admin_reject") {
+        $wdId = (int) $user['Processing_value'];
+        $result = withdraw_reject($wdId, (string) $from_id, (string) $text, $pdo);
+        step('home', $from_id);
+        update("user", "Processing_value", "0", "id", $from_id);
+        sendmessage($from_id, !empty($result['ok']) ? "✅ " . $result['msg'] : "❌ " . ($result['msg'] ?? 'خطا'), $keyboardadmin, 'HTML');
+        return;
+    }
 } elseif ($text == "🎁 کش بک تمدید" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, "📌 مقدار درصدی که می خواهید حساب کاربر بعد از تمدید به عنوان هدیه شارژ شود را ارسال کنید.
 ⚠️ در صورتی که میخواهید غیرفعال باشد عدد 0 را ارسال کنید", $backadmin, 'HTML');
@@ -9141,6 +9327,9 @@ n2", $backadmin, 'HTML');
                 ['text' => "⚙️ تنظیمات", 'callback_data' => "startelegram"],
                 ['text' => $paymentstar, 'callback_data' => "editpayment-startelegram-$paymentsstartelegram"],
                 ['text' => "💫Star Telegram", 'callback_data' => "none"],
+            ],
+            [
+                ['text' => "💸 برداشت از کیف پول", 'callback_data' => "wd_menu"],
             ],
             [
                 ['text' => "⬆️ حداکثر شارژ موجودی", 'callback_data' => "maxbalanceaccount"],

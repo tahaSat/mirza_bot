@@ -3932,13 +3932,13 @@ $textinvite
     return;
 } elseif ($datain == "Wallet_Withdraw") {
     withdraw_ensure_schema($pdo);
-    $wdBack = withdraw_user_back_keyboard();
+    $wdBack = withdraw_amount_keyboard((int) ($user['Balance'] ?? 0));
     reply_or_edit($from_id, $message_id, withdraw_prompt_text(), $wdBack, 'HTML');
     step('wd_amount', $from_id);
     update("user", "Processing_value", json_encode(['started' => 1], JSON_UNESCAPED_UNICODE), "id", $from_id);
 } elseif (in_array($user['step'], ['wd_amount', 'wd_pick', 'wd_card', 'wd_name', 'wd_confirm'], true)
     || preg_match('/^wd_use_(\d+)$/', (string) $datain, $wdUseMatch)
-    || in_array($datain, ['wd_confirm_yes', 'wd_confirm_no', 'wd_confirm_edit', 'wd_edit_amount', 'wd_edit_card', 'wd_edit_name', 'wd_edit_back', 'wd_add_card'], true)
+    || in_array($datain, ['wd_confirm_yes', 'wd_confirm_no', 'wd_confirm_edit', 'wd_edit_amount', 'wd_edit_card', 'wd_edit_name', 'wd_edit_back', 'wd_add_card', 'wd_all_balance'], true)
 ) {
     withdraw_ensure_schema($pdo);
     $wdUseMatch = [];
@@ -3948,6 +3948,7 @@ $textinvite
     $wdBack = withdraw_user_back_keyboard();
     $draft = withdraw_draft_from_user($user);
     $balance = (int) ($user['Balance'] ?? 0);
+    $wdAmountKb = withdraw_amount_keyboard($balance);
     $canReview = ((int) ($draft['amount'] ?? 0) > 0 && ($draft['card'] ?? '') !== '' && ($draft['name'] ?? '') !== '');
 
     if ($datain == "wd_confirm_no") {
@@ -3978,7 +3979,7 @@ $textinvite
     }
 
     if ($datain == "wd_edit_amount") {
-        sendmessage($from_id, "💸 مبلغ برداشت را به تومان وارد کنید:", $wdBack, 'HTML');
+        sendmessage($from_id, withdraw_prompt_text(), $wdAmountKb, 'HTML');
         step('wd_amount', $from_id);
         return;
     }
@@ -4009,7 +4010,7 @@ $textinvite
         update("user", "Processing_value", json_encode($draft, JSON_UNESCAPED_UNICODE), "id", $from_id);
         $amount = (int) ($draft['amount'] ?? 0);
         if ($amount < 1) {
-            reply_or_edit($from_id, $message_id, withdraw_prompt_text(), $wdBack, 'HTML');
+            reply_or_edit($from_id, $message_id, withdraw_prompt_text(), $wdAmountKb, 'HTML');
             step('wd_amount', $from_id);
             return;
         }
@@ -4030,7 +4031,7 @@ $textinvite
         $fresh = select("user", "*", "id", $from_id, "select");
         $check = withdraw_validate_amount($amount, (int) ($fresh['Balance'] ?? 0), $pdo);
         if (!$check['ok']) {
-            sendmessage($from_id, $check['error'], $wdBack, 'HTML');
+            sendmessage($from_id, $check['error'], $wdAmountKb, 'HTML');
             step('wd_amount', $from_id);
             return;
         }
@@ -4046,25 +4047,41 @@ $textinvite
         return;
     }
 
-    if ($user['step'] == "wd_amount" && $text !== '') {
-        $amount = withdraw_parse_int($text);
-        if ($amount === null) {
-            sendmessage($from_id, "❌ مبلغ نامعتبر است. مبلغ را به تومان و به‌صورت عدد وارد کنید.", $wdBack, 'HTML');
-            return;
+    if ($datain == "wd_all_balance" || ($user['step'] == "wd_amount" && $text !== '')) {
+        if ($datain == "wd_all_balance") {
+            $fresh = select("user", "*", "id", $from_id, "select");
+            $balance = (int) ($fresh['Balance'] ?? $balance);
+            $amount = $balance;
+        } else {
+            $amount = withdraw_parse_int($text);
+            if ($amount === null) {
+                sendmessage($from_id, "❌ مبلغ نامعتبر است. مبلغ را به تومان و به‌صورت عدد وارد کنید.", $wdAmountKb, 'HTML');
+                return;
+            }
         }
         $check = withdraw_validate_amount($amount, $balance, $pdo);
         if (!$check['ok']) {
-            sendmessage($from_id, $check['error'], $wdBack, 'HTML');
+            sendmessage($from_id, $check['error'], $wdAmountKb, 'HTML');
             return;
         }
         $draft['amount'] = $amount;
         update("user", "Processing_value", json_encode($draft, JSON_UNESCAPED_UNICODE), "id", $from_id);
         if (!empty($draft['card']) && !empty($draft['name'])) {
-            sendmessage($from_id, withdraw_user_review_text($amount, (string) $draft['card'], (string) $draft['name']), withdraw_user_confirm_keyboard(), 'HTML');
+            $review = withdraw_user_review_text($amount, (string) $draft['card'], (string) $draft['name']);
+            if ($datain == "wd_all_balance") {
+                reply_or_edit($from_id, $message_id, $review, withdraw_user_confirm_keyboard(), 'HTML');
+            } else {
+                sendmessage($from_id, $review, withdraw_user_confirm_keyboard(), 'HTML');
+            }
             step('wd_confirm', $from_id);
             return;
         }
-        sendmessage($from_id, withdraw_card_picker_text(), withdraw_card_picker_keyboard((string) $from_id, false), 'HTML');
+        $picker = withdraw_card_picker_keyboard((string) $from_id, false);
+        if ($datain == "wd_all_balance") {
+            reply_or_edit($from_id, $message_id, withdraw_card_picker_text(), $picker, 'HTML');
+        } else {
+            sendmessage($from_id, withdraw_card_picker_text(), $picker, 'HTML');
+        }
         step('wd_pick', $from_id);
         return;
     }
@@ -4117,7 +4134,11 @@ $textinvite
         sendmessage($from_id, "لطفاً یکی از دکمه‌های تأیید، لغو یا ویرایش را انتخاب کنید.", withdraw_user_confirm_keyboard(), 'HTML');
         return;
     }
-    if (in_array($user['step'], ['wd_amount', 'wd_card', 'wd_name'], true) && $datain === '') {
+    if ($user['step'] == "wd_amount" && $datain === '') {
+        sendmessage($from_id, "لطفاً مبلغ را وارد کنید یا از دکمه برداشت تمام موجودی استفاده کنید.", $wdAmountKb, 'HTML');
+        return;
+    }
+    if (in_array($user['step'], ['wd_card', 'wd_name'], true) && $datain === '') {
         sendmessage($from_id, "لطفاً مقدار خواسته‌شده را به‌صورت متن ارسال کنید.", $wdBack, 'HTML');
     }
 } elseif ((user_text_matches_main_button($text, 'text_sell', $datatextbot) || $datain == "buy" || $datain == "buyback" || $text == "/buy" || $text == "buy") && $statusnote) {

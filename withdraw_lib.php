@@ -467,6 +467,22 @@ function withdraw_user_back_keyboard(): string
     ], JSON_UNESCAPED_UNICODE);
 }
 
+function withdraw_amount_keyboard(int $balance): string
+{
+    global $textbotlang;
+    $back = is_array($textbotlang) ? ($textbotlang['users']['stateus']['backinfo'] ?? '🔙 بازگشت') : '🔙 بازگشت';
+    $allLabel = '💰 برداشت تمام موجودی';
+    if ($balance > 0) {
+        $allLabel .= ' (' . number_format($balance) . ' ت)';
+    }
+    return json_encode([
+        'inline_keyboard' => [
+            [['text' => $allLabel, 'callback_data' => 'wd_all_balance']],
+            [['text' => $back, 'callback_data' => 'account']],
+        ],
+    ], JSON_UNESCAPED_UNICODE);
+}
+
 function withdraw_draft_from_user(array $user): array
 {
     $data = json_decode((string) ($user['Processing_value'] ?? ''), true);

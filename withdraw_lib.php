@@ -88,6 +88,24 @@ function withdraw_ensure_schema(?PDO $pdo = null): void
     }
 
     try {
+        $pdo->exec(
+            "CREATE TABLE IF NOT EXISTS wallet_user_card (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                id_user VARCHAR(64) NOT NULL,
+                card_number VARCHAR(32) NOT NULL,
+                card_holder VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+                created_at INT UNSIGNED NOT NULL,
+                updated_at INT UNSIGNED NOT NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY uq_wallet_user_card (id_user, card_number),
+                INDEX idx_wallet_user_card_user (id_user)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+    } catch (Throwable $e) {
+        error_log('withdraw_ensure_schema user_card: ' . $e->getMessage());
+    }
+
+    try {
         $exists = $pdo->prepare('SELECT NamePay FROM PaySetting WHERE NamePay = ?');
         $exists->execute([WITHDRAW_MIN_KEY]);
         if (!$exists->fetch()) {
@@ -269,6 +287,140 @@ function withdraw_format_card(string $card): string
     return $card;
 }
 
+function withdraw_card_mask(string $card): string
+{
+    $card = preg_replace('/\D+/', '', $card) ?? $card;
+    if (strlen($card) === 16) {
+        return substr($card, 0, 4) . ' **** ' . substr($card, -4);
+    }
+    return $card;
+}
+
+function withdraw_user_cards(string $userId, ?PDO $pdo = null): array
+{
+    $pdo = withdraw_pdo($pdo);
+    if (!$pdo instanceof PDO || $userId === '') {
+        return [];
+    }
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT * FROM wallet_user_card WHERE id_user = ? ORDER BY updated_at DESC, id DESC LIMIT 20'
+        );
+        $stmt->execute([$userId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if ($rows === []) {
+            withdraw_import_cards_from_history($userId, $pdo);
+            $stmt->execute([$userId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        }
+        return $rows;
+    } catch (Throwable $e) {
+        error_log('withdraw_user_cards: ' . $e->getMessage());
+        return [];
+    }
+}
+
+function withdraw_import_cards_from_history(string $userId, PDO $pdo): void
+{
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT card_number, card_holder FROM wallet_withdraw
+             WHERE id_user = ? AND card_number != \'\' AND card_holder != \'\'
+             ORDER BY id ASC'
+        );
+        $stmt->execute([$userId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as $row) {
+            $card = withdraw_normalize_card((string) ($row['card_number'] ?? ''));
+            $holder = trim((string) ($row['card_holder'] ?? ''));
+            if ($card && $holder !== '') {
+                withdraw_save_user_card($userId, $card, $holder, $pdo);
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('withdraw_import_cards_from_history: ' . $e->getMessage());
+    }
+}
+
+function withdraw_get_user_card(int $id, string $userId, ?PDO $pdo = null): ?array
+{
+    $pdo = withdraw_pdo($pdo);
+    if (!$pdo instanceof PDO || $id < 1 || $userId === '') {
+        return null;
+    }
+    $stmt = $pdo->prepare('SELECT * FROM wallet_user_card WHERE id = ? AND id_user = ?');
+    $stmt->execute([$id, $userId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function withdraw_save_user_card(string $userId, string $card, string $holder, ?PDO $pdo = null): int
+{
+    $pdo = withdraw_pdo($pdo);
+    if (!$pdo instanceof PDO) {
+        return 0;
+    }
+    $now = time();
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO wallet_user_card (id_user, card_number, card_holder, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE card_holder = VALUES(card_holder), updated_at = VALUES(updated_at), id = LAST_INSERT_ID(id)'
+        );
+        $stmt->execute([$userId, $card, $holder, $now, $now]);
+        $id = (int) $pdo->lastInsertId();
+        if ($id > 0) {
+            return $id;
+        }
+        $existing = $pdo->prepare('SELECT id FROM wallet_user_card WHERE id_user = ? AND card_number = ?');
+        $existing->execute([$userId, $card]);
+        return (int) ($existing->fetchColumn() ?: 0);
+    } catch (Throwable $e) {
+        error_log('withdraw_save_user_card: ' . $e->getMessage());
+        return 0;
+    }
+}
+
+function withdraw_card_button_label(string $card, string $holder): string
+{
+    $label = withdraw_card_mask($card) . ' | ' . $holder;
+    if (function_exists('mb_strlen') && mb_strlen($label, 'UTF-8') > 60) {
+        $label = mb_substr($label, 0, 59, 'UTF-8') . '…';
+    } elseif (strlen($label) > 64) {
+        $label = substr($label, 0, 61) . '...';
+    }
+    return $label;
+}
+
+function withdraw_card_picker_text(): string
+{
+    return '💳 یک کارت را انتخاب کنید';
+}
+
+function withdraw_card_picker_keyboard(string $userId, bool $canBackToReview = false): string
+{
+    $rows = [];
+    foreach (withdraw_user_cards($userId) as $card) {
+        $id = (int) ($card['id'] ?? 0);
+        if ($id < 1) {
+            continue;
+        }
+        $rows[] = [[
+            'text' => withdraw_card_button_label((string) ($card['card_number'] ?? ''), (string) ($card['card_holder'] ?? '')),
+            'callback_data' => 'wd_use_' . $id,
+        ]];
+    }
+    $rows[] = [['text' => '➕ افزودن کارت جدید', 'callback_data' => 'wd_add_card']];
+    if ($canBackToReview) {
+        $rows[] = [['text' => '🔙 بازگشت به بررسی', 'callback_data' => 'wd_edit_back']];
+    } else {
+        global $textbotlang;
+        $back = is_array($textbotlang) ? ($textbotlang['users']['stateus']['backinfo'] ?? '🔙 بازگشت') : '🔙 بازگشت';
+        $rows[] = [['text' => $back, 'callback_data' => 'account']];
+    }
+    return json_encode(['inline_keyboard' => $rows], JSON_UNESCAPED_UNICODE);
+}
+
 function withdraw_user_review_text(int $amount, string $card, string $holder): string
 {
     return "📋 لطفاً اطلاعات درخواست برداشت را بررسی کنید:\n\n"
@@ -298,8 +450,7 @@ function withdraw_user_edit_keyboard(): string
     return json_encode([
         'inline_keyboard' => [
             [['text' => '💰 مبلغ', 'callback_data' => 'wd_edit_amount']],
-            [['text' => '💳 شماره کارت', 'callback_data' => 'wd_edit_card']],
-            [['text' => '👤 نام صاحب حساب', 'callback_data' => 'wd_edit_name']],
+            [['text' => '💳 کارت', 'callback_data' => 'wd_edit_card']],
             [['text' => '🔙 بازگشت به بررسی', 'callback_data' => 'wd_edit_back']],
         ],
     ], JSON_UNESCAPED_UNICODE);

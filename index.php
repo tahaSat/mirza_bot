@@ -3936,13 +3936,19 @@ $textinvite
     reply_or_edit($from_id, $message_id, withdraw_prompt_text(), $wdBack, 'HTML');
     step('wd_amount', $from_id);
     update("user", "Processing_value", json_encode(['started' => 1], JSON_UNESCAPED_UNICODE), "id", $from_id);
-} elseif (in_array($user['step'], ['wd_amount', 'wd_card', 'wd_name', 'wd_confirm'], true)
-    || in_array($datain, ['wd_confirm_yes', 'wd_confirm_no', 'wd_confirm_edit', 'wd_edit_amount', 'wd_edit_card', 'wd_edit_name', 'wd_edit_back'], true)
+} elseif (in_array($user['step'], ['wd_amount', 'wd_pick', 'wd_card', 'wd_name', 'wd_confirm'], true)
+    || preg_match('/^wd_use_(\d+)$/', (string) $datain, $wdUseMatch)
+    || in_array($datain, ['wd_confirm_yes', 'wd_confirm_no', 'wd_confirm_edit', 'wd_edit_amount', 'wd_edit_card', 'wd_edit_name', 'wd_edit_back', 'wd_add_card'], true)
 ) {
     withdraw_ensure_schema($pdo);
+    $wdUseMatch = [];
+    if (is_string($datain) && $datain !== '') {
+        preg_match('/^wd_use_(\d+)$/', $datain, $wdUseMatch);
+    }
     $wdBack = withdraw_user_back_keyboard();
     $draft = withdraw_draft_from_user($user);
     $balance = (int) ($user['Balance'] ?? 0);
+    $canReview = ((int) ($draft['amount'] ?? 0) > 0 && ($draft['card'] ?? '') !== '' && ($draft['name'] ?? '') !== '');
 
     if ($datain == "wd_confirm_no") {
         step('home', $from_id);
@@ -3962,7 +3968,8 @@ $textinvite
         $card = (string) ($draft['card'] ?? '');
         $holder = (string) ($draft['name'] ?? '');
         if ($amount < 1 || $card === '' || $holder === '') {
-            sendmessage($from_id, "لطفاً اطلاعات را کامل کنید.", $wdBack, 'HTML');
+            reply_or_edit($from_id, $message_id, withdraw_card_picker_text(), withdraw_card_picker_keyboard((string) $from_id, false), 'HTML');
+            step('wd_pick', $from_id);
             return;
         }
         reply_or_edit($from_id, $message_id, withdraw_user_review_text($amount, $card, $holder), withdraw_user_confirm_keyboard(), 'HTML');
@@ -3975,14 +3982,39 @@ $textinvite
         step('wd_amount', $from_id);
         return;
     }
-    if ($datain == "wd_edit_card") {
-        sendmessage($from_id, "💳 شماره کارت ۱۶ رقمی را وارد کنید:", $wdBack, 'HTML');
+    if ($datain == "wd_edit_card" || $datain == "wd_edit_name") {
+        reply_or_edit($from_id, $message_id, withdraw_card_picker_text(), withdraw_card_picker_keyboard((string) $from_id, $canReview), 'HTML');
+        step('wd_pick', $from_id);
+        return;
+    }
+
+    if ($datain == "wd_add_card") {
+        reply_or_edit($from_id, $message_id, "💳 شماره کارت ۱۶ رقمی را وارد کنید:", $wdBack, 'HTML');
         step('wd_card', $from_id);
         return;
     }
-    if ($datain == "wd_edit_name") {
-        sendmessage($from_id, "👤 نام صاحب حساب را وارد کنید:", $wdBack, 'HTML');
-        step('wd_name', $from_id);
+
+    if (!empty($wdUseMatch[1])) {
+        $savedCard = withdraw_get_user_card((int) $wdUseMatch[1], (string) $from_id, $pdo);
+        if (!$savedCard) {
+            telegram('answerCallbackQuery', [
+                'callback_query_id' => $callback_query_id,
+                'text' => 'کارت یافت نشد',
+                'show_alert' => true,
+            ]);
+            return;
+        }
+        $draft['card'] = (string) $savedCard['card_number'];
+        $draft['name'] = (string) $savedCard['card_holder'];
+        update("user", "Processing_value", json_encode($draft, JSON_UNESCAPED_UNICODE), "id", $from_id);
+        $amount = (int) ($draft['amount'] ?? 0);
+        if ($amount < 1) {
+            reply_or_edit($from_id, $message_id, withdraw_prompt_text(), $wdBack, 'HTML');
+            step('wd_amount', $from_id);
+            return;
+        }
+        reply_or_edit($from_id, $message_id, withdraw_user_review_text($amount, $draft['card'], $draft['name']), withdraw_user_confirm_keyboard(), 'HTML');
+        step('wd_confirm', $from_id);
         return;
     }
 
@@ -4002,6 +4034,7 @@ $textinvite
             step('wd_amount', $from_id);
             return;
         }
+        withdraw_save_user_card((string) $from_id, $card, $holder, $pdo);
         $created = withdraw_create_request($from_id, $amount, $card, $holder, (string) $first_name, (string) $username, $pdo);
         step('home', $from_id);
         update("user", "Processing_value", "0", "id", $from_id);
@@ -4031,8 +4064,8 @@ $textinvite
             step('wd_confirm', $from_id);
             return;
         }
-        sendmessage($from_id, "💳 شماره کارت ۱۶ رقمی را وارد کنید:", $wdBack, 'HTML');
-        step('wd_card', $from_id);
+        sendmessage($from_id, withdraw_card_picker_text(), withdraw_card_picker_keyboard((string) $from_id, false), 'HTML');
+        step('wd_pick', $from_id);
         return;
     }
 
@@ -4043,12 +4076,8 @@ $textinvite
             return;
         }
         $draft['card'] = $card;
+        unset($draft['name']);
         update("user", "Processing_value", json_encode($draft, JSON_UNESCAPED_UNICODE), "id", $from_id);
-        if (!empty($draft['name'])) {
-            sendmessage($from_id, withdraw_user_review_text((int) ($draft['amount'] ?? 0), $card, (string) $draft['name']), withdraw_user_confirm_keyboard(), 'HTML');
-            step('wd_confirm', $from_id);
-            return;
-        }
         sendmessage($from_id, "👤 نام صاحب حساب را وارد کنید:", $wdBack, 'HTML');
         step('wd_name', $from_id);
         return;
@@ -4064,12 +4093,23 @@ $textinvite
             sendmessage($from_id, "❌ نام صاحب حساب خیلی طولانی است.", $wdBack, 'HTML');
             return;
         }
+        $card = (string) ($draft['card'] ?? '');
+        if (withdraw_normalize_card($card) === null) {
+            sendmessage($from_id, "💳 شماره کارت ۱۶ رقمی را وارد کنید:", $wdBack, 'HTML');
+            step('wd_card', $from_id);
+            return;
+        }
         $draft['name'] = $holder;
         update("user", "Processing_value", json_encode($draft, JSON_UNESCAPED_UNICODE), "id", $from_id);
+        withdraw_save_user_card((string) $from_id, $card, $holder, $pdo);
         $amount = (int) ($draft['amount'] ?? 0);
-        $card = (string) ($draft['card'] ?? '');
         sendmessage($from_id, withdraw_user_review_text($amount, $card, $holder), withdraw_user_confirm_keyboard(), 'HTML');
         step('wd_confirm', $from_id);
+        return;
+    }
+
+    if ($user['step'] == "wd_pick") {
+        reply_or_edit($from_id, $message_id, withdraw_card_picker_text(), withdraw_card_picker_keyboard((string) $from_id, $canReview), 'HTML');
         return;
     }
 

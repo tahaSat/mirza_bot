@@ -73,7 +73,7 @@ if ($httpUrl !== $webhookUrl) {
 echo "--- 4) Outbound: setWebhook test (via proxy) — does NOT fix inbound ---\n";
 $set = telegram('setWebhook', [
     'url' => $webhookUrl,
-    'allowed_updates' => json_encode(['message', 'callback_query', 'channel_post', 'pre_checkout_query', 'inline_query']),
+    'allowed_updates' => json_encode(['message', 'callback_query', 'channel_post', 'pre_checkout_query', 'inline_query', 'chat_member', 'my_chat_member']),
 ]);
 echo json_encode($set, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
 

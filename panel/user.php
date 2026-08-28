@@ -295,7 +295,7 @@ include __DIR__ . '/inc/layout_head.php';
                 <a href="user_action.php?action=hide_card&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
                     class="btn btn-ghost btn-sm" style="justify-content:center">💳 غیرفعالسازی شماره کارت</a>
                 <a href="user_action.php?action=confirm_channel&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
-                    class="btn btn-ghost btn-sm" style="justify-content:center">📑 احراز عضویت کانال</a>
+                    class="btn btn-ghost btn-sm" style="justify-content:center">📑 معاف از جوین اجباری</a>
                 <a href="user_action.php?action=toggle_cron&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"
                     class="btn btn-ghost btn-sm" style="justify-content:center">🕚 وضعیت پیام‌های کرون</a>
                 <a href="user_action.php?action=zero_balance&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=user.php"

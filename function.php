@@ -2326,26 +2326,355 @@ function StatusPayment($paymentid)
     curl_close($curl);
     return $response;
 }
-function channel(array $id_channel)
+function normalize_forced_join_channel_id($input): string
 {
-    global $from_id;
-    $channel_link = array();
-    foreach ($id_channel as $channel) {
-        $response = telegram('getChatMember', [
-            'chat_id' => $channel,
-            'user_id' => $from_id
-        ], null, 3);
-        if ($response['ok']) {
-            if (!in_array($response['result']['status'], ['member', 'creator', 'administrator'])) {
-                $channel_link[] = $channel;
+    $input = trim((string) $input);
+    if ($input === '') {
+        return '';
+    }
+    $input = str_replace(['telegram.me/', 'telegram.dog/'], 't.me/', $input);
+    if (preg_match('/^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/(?:s\/)?([A-Za-z0-9_]+)\/?$/i', $input, $m)) {
+        return '@' . $m[1];
+    }
+    if (preg_match('/^-100\d{5,}$/', $input)) {
+        return $input;
+    }
+    if (preg_match('/^@?[A-Za-z][A-Za-z0-9_]{3,31}$/', $input)) {
+        return '@' . ltrim($input, '@');
+    }
+    return '';
+}
+
+function normalize_forced_join_url($url, $channel_id = ''): string
+{
+    $url = trim((string) $url);
+    if ($url === '') {
+        if (preg_match('/^@([A-Za-z0-9_]+)$/', (string) $channel_id, $m)) {
+            return 'https://t.me/' . $m[1];
+        }
+        return '';
+    }
+    if (preg_match('/^(?:t\.me|telegram\.me)\//i', $url)) {
+        $url = 'https://' . $url;
+    }
+    if (filter_var($url, FILTER_VALIDATE_URL) === false) {
+        return '';
+    }
+    $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+    if (!in_array($host, ['t.me', 'telegram.me', 'telegram.dog', 'www.t.me'], true)) {
+        return '';
+    }
+    return $url;
+}
+
+function forced_join_user_is_bypassed($user): bool
+{
+    return is_array($user) && (($user['joinchannel'] ?? '') === 'bypass');
+}
+
+function forced_join_member_statuses(): array
+{
+    return ['creator', 'administrator', 'member', 'restricted'];
+}
+
+function forced_join_ensure_telegram(): bool
+{
+    if (function_exists('telegram')) {
+        return true;
+    }
+    $path = __DIR__ . '/botapi.php';
+    if (!is_file($path)) {
+        return false;
+    }
+    if (!isset($GLOBALS['_mirza_telegram_update']) || !is_array($GLOBALS['_mirza_telegram_update'])) {
+        $GLOBALS['_mirza_telegram_update'] = [];
+    }
+    require_once $path;
+    return function_exists('telegram');
+}
+
+function verify_bot_is_channel_admin($channel_id): array
+{
+    if (!forced_join_ensure_telegram()) {
+        return ['ok' => true, 'skipped' => true];
+    }
+    global $APIKEY;
+    $channel_id = trim((string) $channel_id);
+    if ($channel_id === '') {
+        return ['ok' => false, 'error' => 'empty'];
+    }
+    $chat = telegram('getChat', ['chat_id' => $channel_id], null, 8);
+    if (!is_array($chat) || empty($chat['ok'])) {
+        $desc = strtolower((string) ($chat['description'] ?? ''));
+        if ($desc === '' || strpos($desc, 'timed out') !== false || strpos($desc, 'curl') !== false) {
+            return ['ok' => true, 'skipped' => true, 'error' => 'network'];
+        }
+        return ['ok' => false, 'error' => 'not_found'];
+    }
+    $bot_id = explode(':', (string) $APIKEY)[0];
+    $member = telegram('getChatMember', ['chat_id' => $channel_id, 'user_id' => $bot_id], null, 8);
+    $status = (string) ($member['result']['status'] ?? '');
+    if (!is_array($member) || empty($member['ok']) || !in_array($status, ['administrator', 'creator'], true)) {
+        return ['ok' => false, 'error' => 'not_admin'];
+    }
+    return [
+        'ok' => true,
+        'title' => (string) ($chat['result']['title'] ?? $channel_id),
+        'channel_id' => (string) ($chat['result']['id'] ?? $channel_id),
+    ];
+}
+
+function save_forced_join_channel($link, $remark, $linkjoin): array
+{
+    global $pdo;
+    $link = normalize_forced_join_channel_id($link);
+    $remark = trim((string) $remark);
+    $linkjoin = normalize_forced_join_url($linkjoin, $link);
+    if ($link === '') {
+        return ['ok' => false, 'msg' => 'یوزرنیم یا آیدی کانال نامعتبر است. از @channel یا آیدی عددی که با ‎-100 شروع می‌شود استفاده کنید.'];
+    }
+    if ($remark === '') {
+        return ['ok' => false, 'msg' => 'نام دکمه عضویت را وارد کنید.'];
+    }
+    if (mb_strlen($remark) > 64) {
+        return ['ok' => false, 'msg' => 'نام دکمه عضویت حداکثر ۶۴ کاراکتر باشد.'];
+    }
+    if ($linkjoin === '') {
+        return ['ok' => false, 'msg' => 'لینک عضویت معتبر نیست. لینک t.me کانال یا دعوت را وارد کنید.'];
+    }
+    $exists = select('channels', '*', 'link', $link, 'select');
+    if (is_array($exists) && !empty($exists['link'])) {
+        return ['ok' => false, 'msg' => 'این کانال از قبل ثبت شده است.'];
+    }
+    $verify = verify_bot_is_channel_admin($link);
+    if (empty($verify['ok'])) {
+        if (($verify['error'] ?? '') === 'not_admin') {
+            return ['ok' => false, 'msg' => 'ربات ادمین این کانال نیست. ابتدا ربات را ادمین کانال کنید، سپس دوباره ثبت کنید.'];
+        }
+        if (($verify['error'] ?? '') === 'not_found') {
+            return ['ok' => false, 'msg' => 'کانال یافت نشد. یوزرنیم/آیدی را بررسی کنید و مطمئن شوید ربات عضو کانال است.'];
+        }
+        return ['ok' => false, 'msg' => 'ثبت کانال ناموفق بود.'];
+    }
+
+    $insertChannel = function ($remarkValue) use ($pdo, $link, $linkjoin) {
+        $stmt = $pdo->prepare('INSERT INTO channels (link, remark, linkjoin) VALUES (:link, :remark, :linkjoin)');
+        $stmt->bindValue(':remark', $remarkValue, PDO::PARAM_STR);
+        $stmt->bindValue(':link', $link, PDO::PARAM_STR);
+        $stmt->bindValue(':linkjoin', $linkjoin, PDO::PARAM_STR);
+        $stmt->execute();
+    };
+
+    try {
+        $insertChannel($remark);
+    } catch (PDOException $e) {
+        if (strpos($e->getMessage(), 'Incorrect string value') !== false) {
+            if (function_exists('ensureTableUtf8mb4')) {
+                ensureTableUtf8mb4('channels');
             }
+            try {
+                $insertChannel($remark);
+            } catch (PDOException $retryException) {
+                if (strpos($retryException->getMessage(), 'Incorrect string value') === false) {
+                    throw $retryException;
+                }
+                $sanitisedRemark = is_string($remark) ? @iconv('UTF-8', 'UTF-8//IGNORE', $remark) : '';
+                if ($sanitisedRemark === false || $sanitisedRemark === '') {
+                    return ['ok' => false, 'msg' => 'نام دکمه قابل ذخیره نیست. متن ساده‌تری وارد کنید.'];
+                }
+                $insertChannel($sanitisedRemark);
+            }
+        } else {
+            throw $e;
         }
     }
-    if (count($channel_link) == 0) {
-        return [];
-    } else {
-        return $channel_link;
+    if (function_exists('clearSelectCache')) {
+        clearSelectCache('channels');
     }
+    $warning = !empty($verify['skipped']) ? ' کانال ذخیره شد، اما وضعیت ادمین بودن ربات الان قابل بررسی نبود. مطمئن شوید ربات ادمین کانال است.' : '';
+    return [
+        'ok' => true,
+        'msg' => 'کانال جوین اجباری با موفقیت ثبت شد.' . $warning,
+        'link' => $link,
+        'linkjoin' => $linkjoin,
+        'title' => $verify['title'] ?? '',
+    ];
+}
+
+function delete_forced_join_channel($link): array
+{
+    global $pdo;
+    $link = trim((string) $link);
+    if ($link === '') {
+        return ['ok' => false, 'msg' => 'کانال مشخص نشده است.'];
+    }
+    $stmt = $pdo->prepare('DELETE FROM channels WHERE link = :link');
+    $stmt->bindParam(':link', $link, PDO::PARAM_STR);
+    $stmt->execute();
+    if (function_exists('clearSelectCache')) {
+        clearSelectCache('channels');
+    }
+    if ($stmt->rowCount() === 0) {
+        $normalized = normalize_forced_join_channel_id($link);
+        if ($normalized !== '' && $normalized !== $link) {
+            $stmt = $pdo->prepare('DELETE FROM channels WHERE link = :link');
+            $stmt->bindParam(':link', $normalized, PDO::PARAM_STR);
+            $stmt->execute();
+        }
+    }
+    return ['ok' => true, 'msg' => 'کانال با موفقیت حذف شد.'];
+}
+
+function build_forced_join_keyboard(array $missing_channels, $textbotlang): string
+{
+    $keyboard = ['inline_keyboard' => []];
+    foreach ($missing_channels as $channel) {
+        $row = select('channels', '*', 'link', $channel, 'select');
+        if (!is_array($row)) {
+            continue;
+        }
+        $remark = trim((string) ($row['remark'] ?? ''));
+        $url = normalize_forced_join_url((string) ($row['linkjoin'] ?? ''), (string) ($row['link'] ?? ''));
+        if ($url === '') {
+            continue;
+        }
+        if ($remark === '') {
+            $remark = $textbotlang['users']['channel']['text_join'] ?? 'عضویت در کانال';
+        }
+        $keyboard['inline_keyboard'][] = [[
+            'text' => $remark,
+            'url' => $url,
+        ]];
+    }
+    $keyboard['inline_keyboard'][] = [[
+        'text' => $textbotlang['users']['channel']['confirmjoin'] ?? 'بررسی عضویت',
+        'callback_data' => 'confirmchannel',
+    ]];
+    return json_encode($keyboard);
+}
+
+function channel(array $id_channel, $user_id = null)
+{
+    global $from_id;
+    $user_id = $user_id ?? $from_id;
+    $missing = [];
+    $allowed = forced_join_member_statuses();
+    foreach ($id_channel as $channel) {
+        $channel = trim((string) $channel);
+        if ($channel === '') {
+            continue;
+        }
+        $response = telegram('getChatMember', [
+            'chat_id' => $channel,
+            'user_id' => $user_id,
+        ], null, 3);
+        if (!is_array($response) || empty($response['ok'])) {
+            $desc = strtolower((string) ($response['description'] ?? ''));
+            if (
+                strpos($desc, 'user not found') !== false
+                || strpos($desc, 'participant_id_invalid') !== false
+                || strpos($desc, 'user_id_invalid') !== false
+            ) {
+                $missing[] = $channel;
+            }
+            continue;
+        }
+        $status = (string) ($response['result']['status'] ?? '');
+        if (!in_array($status, $allowed, true)) {
+            $missing[] = $channel;
+        }
+    }
+    return $missing;
+}
+
+function forced_join_member_cache_ttl(): int
+{
+    return 300;
+}
+
+function forced_join_ensure_check_column(): bool
+{
+    static $ok = null;
+    if ($ok !== null) {
+        return $ok;
+    }
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        $ok = false;
+        return false;
+    }
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM `user` LIKE 'join_check_at'");
+        if ($stmt && $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $ok = true;
+            return true;
+        }
+        $pdo->exec("ALTER TABLE `user` ADD `join_check_at` VARCHAR(20) NULL DEFAULT '0'");
+        $ok = true;
+        return true;
+    } catch (Throwable $e) {
+        $ok = false;
+        return false;
+    }
+}
+
+function forced_join_should_skip_telegram(array $user, bool $force_refresh = false): bool
+{
+    if ($force_refresh) {
+        return false;
+    }
+    if (($user['joinchannel'] ?? '') !== 'active') {
+        return false;
+    }
+    if (!array_key_exists('join_check_at', $user)) {
+        return false;
+    }
+    $checked_at = (int) $user['join_check_at'];
+    if ($checked_at <= 0) {
+        return false;
+    }
+    $age = time() - $checked_at;
+    return $age >= 0 && $age < forced_join_member_cache_ttl();
+}
+
+function forced_join_remember_check(array &$user, $user_id, bool $joined): void
+{
+    $now = (string) time();
+    $fields = [];
+    if ($joined) {
+        if (($user['joinchannel'] ?? '') !== 'active') {
+            $fields['joinchannel'] = 'active';
+            $user['joinchannel'] = 'active';
+        }
+    } elseif (($user['joinchannel'] ?? '') === 'active') {
+        $fields['joinchannel'] = '0';
+        $user['joinchannel'] = '0';
+    }
+    if (array_key_exists('join_check_at', $user) || forced_join_ensure_check_column()) {
+        $fields['join_check_at'] = $now;
+        $user['join_check_at'] = $now;
+    }
+    if ($fields === []) {
+        return;
+    }
+    try {
+        userUpdate($user_id, $fields);
+    } catch (Throwable $e) {
+        error_log('forced_join_remember_check: ' . $e->getMessage());
+    }
+}
+
+function forced_join_missing_channels(array $channel_ids, array &$user, $user_id, bool $force_refresh = false): array
+{
+    if ($channel_ids === []) {
+        return [];
+    }
+    if (forced_join_should_skip_telegram($user, $force_refresh)) {
+        return [];
+    }
+    $missing = channel($channel_ids, $user_id);
+    forced_join_remember_check($user, $user_id, count($missing) === 0);
+    return $missing;
 }
 function isValidDate($date)
 {

@@ -42,6 +42,7 @@ try {
             hide_mini_app_instruction VARCHAR(20) NULL   DEFAULT '0',
             maxbuyagent VARCHAR(100) NULL   DEFAULT '0',
             joinchannel VARCHAR(100) NULL   DEFAULT '0',
+            join_check_at VARCHAR(20) NULL   DEFAULT '0',
             checkstatus VARCHAR(50) NULL   DEFAULT '0',
             bottype TEXT NULL ,
             score INT(255) NULL DEFAULT '0',
@@ -64,6 +65,7 @@ try {
         addFieldToTable($tableName, 'score', '0', "INT(255)");
         addFieldToTable($tableName, 'checkstatus', '0', "VARCHAR(50)");
         addFieldToTable($tableName, 'joinchannel', '0', "VARCHAR(100)");
+        addFieldToTable($tableName, 'join_check_at', '0', "VARCHAR(20)");
         addFieldToTable($tableName, 'maxbuyagent', '0');
         addFieldToTable($tableName, 'agent', 'f');
         addFieldToTable($tableName, 'verify', '1');

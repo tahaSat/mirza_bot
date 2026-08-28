@@ -16,18 +16,43 @@ require_once 'keyboard.php';
 if ($is_bot)
     return;
 if (isset($update['chat_member'])) {
-    $status = $update['chat_member']['new_chat_member']['status'];
-    $from_id = $update['chat_member']['new_chat_member']['user']['id'];
-    $user = select("user", "id", $from_id);
-    $keyboard_channel_left = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => "📌 عضویت مجدد", 'url' => "https://t.me/{$update['chat_member']['chat']['username']}"],
-            ],
-        ]
-    ]);
-    if (in_array($status, ['left', 'kicked', 'restricted'])) {
-        userUpdate($from_id, ['joinchannel' => '0']);
+    $status = $update['chat_member']['new_chat_member']['status'] ?? '';
+    $from_id = $update['chat_member']['new_chat_member']['user']['id'] ?? 0;
+    if (intval($from_id) === 0) {
+        return;
+    }
+    $user_left = select("user", "*", "id", $from_id, "select");
+    if (forced_join_user_is_bypassed($user_left)) {
+        return;
+    }
+    if (in_array($status, ['left', 'kicked'], true)) {
+        $leave_fields = ['joinchannel' => '0'];
+        if (is_array($user_left) && array_key_exists('join_check_at', $user_left)) {
+            $leave_fields['join_check_at'] = '0';
+        }
+        userUpdate($from_id, $leave_fields);
+        $chat_username = (string) ($update['chat_member']['chat']['username'] ?? '');
+        $chat_id = (string) ($update['chat_member']['chat']['id'] ?? '');
+        $join_url = $chat_username !== '' ? ('https://t.me/' . $chat_username) : '';
+        if ($join_url === '') {
+            $channel_row = $chat_id !== '' ? select("channels", "*", "link", $chat_id, "select") : null;
+            if (!is_array($channel_row) && $chat_username !== '') {
+                $channel_row = select("channels", "*", "link", '@' . $chat_username, "select");
+            }
+            if (is_array($channel_row)) {
+                $join_url = normalize_forced_join_url((string) ($channel_row['linkjoin'] ?? ''), (string) ($channel_row['link'] ?? ''));
+            }
+        }
+        $keyboard_channel_left = null;
+        if ($join_url !== '') {
+            $keyboard_channel_left = json_encode([
+                'inline_keyboard' => [
+                    [
+                        ['text' => "📌 عضویت مجدد", 'url' => $join_url],
+                    ],
+                ]
+            ]);
+        }
         sendmessage($from_id, $textbotlang['users']['channel']['left_channel'], $keyboard_channel_left, 'html');
         return;
     }
@@ -332,42 +357,40 @@ if ($setting['Bot_Status'] == "botstatusoff" && !in_array($from_id, $admin_ids))
     sendmessage($from_id, $datatextbot['text_bot_off'], null, 'html');
     return;
 }
-#-----------/start------------#
-if ($user['joinchannel'] != "active" && !in_array($from_id, $admin_ids)) {
-    if (count($channels_id) != 0) {
-        $channels = channel($channels_id);
+#-----------forced join------------#
+if (!in_array($from_id, $admin_ids) && count($channels_id) != 0 && !forced_join_user_is_bypassed($user)) {
+    $channels = forced_join_missing_channels($channels_id, $user, $from_id, $datain === "confirmchannel");
+    $apply_join_affiliates = static function () use ($from_id, $user) {
+        $partsaffiliates = explode("_", (string) ($user['Processing_value_four'] ?? ''));
+        if (($partsaffiliates[0] ?? '') !== "affiliates") {
+            return;
+        }
+        $affiliatesid = $partsaffiliates[1] ?? '';
+        if ($affiliatesid === '' || !rowExists('user', 'id', $affiliatesid)) {
+            return;
+        }
+        if ((string) $affiliatesid === (string) $from_id) {
+            return;
+        }
+        $marzbanDiscountaffiliates = select("affiliates", "*", null, null, "select");
+        $useraffiliates = select("user", "*", 'id', $affiliatesid, "select");
+        if (!is_array($useraffiliates)) {
+            return;
+        }
+        if (is_array($marzbanDiscountaffiliates) && ($marzbanDiscountaffiliates['Discount'] ?? '') == "onDiscountaffiliates") {
+            $Balance_add_user = $useraffiliates['Balance'] + $marzbanDiscountaffiliates['price_Discount'];
+            update("user", "Balance", $Balance_add_user, "id", $affiliatesid);
+            $addbalancediscount = number_format($marzbanDiscountaffiliates['price_Discount'], 0);
+            sendmessage($affiliatesid, "🎁 مبلغ $addbalancediscount به موجودی شما از طرف زیر مجموعه با شناسه کاربری $from_id اضافه گردید.", null, 'html');
+        }
+        $addcountaffiliates = intval($useraffiliates['affiliatescount']) + 1;
+        update("user", "affiliates", $affiliatesid, "id", $from_id);
+        update("user", "Processing_value_four", "none", "id", $from_id);
+        update("user", "affiliatescount", $addcountaffiliates, "id", $affiliatesid);
+    };
+    if (count($channels) != 0) {
+        $keyboardchannel = build_forced_join_keyboard($channels, $textbotlang);
         if ($datain == "confirmchannel") {
-            if (count($channels) == 0) {
-                userUpdate($from_id, ['joinchannel' => 'active']);
-                $user['joinchannel'] = 'active';
-                deletemessage($from_id, $message_id);
-                sendmessage($from_id, $datatextbot['text_start'], $keyboard, 'html');
-                telegram('answerCallbackQuery', [
-                    'callback_query_id' => $callback_query_id,
-                    'text' => $textbotlang['users']['channel']['confirmed'],
-                    'show_alert' => false,
-                    'cache_time' => 5,
-                ]);
-                return;
-            }
-            $keyboardchannel = [
-                'inline_keyboard' => [],
-            ];
-            foreach ($channels as $channel) {
-                $channelremark = select("channels", "*", 'link', $channel, "select");
-                if ($channelremark['remark'] == null)
-                    continue;
-                if ($channelremark['linkjoin'] == null)
-                    continue;
-                $keyboardchannel['inline_keyboard'][] = [
-                    [
-                        'text' => "{$channelremark['remark']}",
-                        'url' => $channelremark['linkjoin']
-                    ],
-                ];
-            }
-            $keyboardchannel['inline_keyboard'][] = [['text' => $textbotlang['users']['channel']['confirmjoin'], 'callback_data' => "confirmchannel"]];
-            $keyboardchannel = json_encode($keyboardchannel);
             Editmessagetext($from_id, $message_id, $datatextbot['text_channel'], $keyboardchannel);
             telegram('answerCallbackQuery', [
                 'callback_query_id' => $callback_query_id,
@@ -375,58 +398,30 @@ if ($user['joinchannel'] != "active" && !in_array($from_id, $admin_ids)) {
                 'show_alert' => true,
                 'cache_time' => 5,
             ]);
-            $partsaffiliates = explode("_", $user['Processing_value_four']);
-            if ($partsaffiliates[0] == "affiliates") {
-                $affiliatesid = $partsaffiliates[1];
-                if (!rowExists('user', 'id', $affiliatesid)) {
-                    sendmessage($from_id, $textbotlang['users']['affiliates']['affiliatesidyou'], null, 'html');
-                    return;
-                }
-                if ($affiliatesid == $from_id) {
-                    sendmessage($from_id, $textbotlang['users']['affiliates']['invalidaffiliates'], null, 'html');
-                    return;
-                }
-                $marzbanDiscountaffiliates = select("affiliates", "*", null, null, "select");
-                $useraffiliates = select("user", "*", 'id', $affiliatesid, "select");
-                if ($marzbanDiscountaffiliates['Discount'] == "onDiscountaffiliates") {
-                    $marzbanDiscountaffiliates = select("affiliates", "*", null, null, "select");
-                    $Balance_add_user = $useraffiliates['Balance'] + $marzbanDiscountaffiliates['price_Discount'];
-                    update("user", "Balance", $Balance_add_user, "id", $affiliatesid);
-                    $addbalancediscount = number_format($marzbanDiscountaffiliates['price_Discount'], 0);
-                    sendmessage($affiliatesid, "🎁 مبلغ $addbalancediscount به موجودی شما از طرف زیر مجموعه با شناسه کاربری $from_id اضافه گردید.", null, 'html');
-                }
-                sendmessage($from_id, $datatextbot['text_start'], $keyboard, 'html');
-                $addcountaffiliates = intval($useraffiliates['affiliatescount']) + 1;
-                update("user", "affiliates", $affiliatesid, "id", $from_id);
-                update("user", "Processing_value_four", "none", "id", $from_id);
-                update("user", "affiliatescount", $addcountaffiliates, "id", $affiliatesid);
-            }
             return;
         }
-        if (count($channels) != 0) {
-            $keyboardchannel = [
-                'inline_keyboard' => [],
-            ];
-            foreach ($channels as $channel) {
-                $channelremark = select("channels", "*", 'link', $channel, "select");
-                if ($channelremark['remark'] == null)
-                    continue;
-                if ($channelremark['linkjoin'] == null)
-                    continue;
-                $keyboardchannel['inline_keyboard'][] = [
-                    [
-                        'text' => "{$channelremark['remark']}",
-                        'url' => $channelremark['linkjoin']
-                    ],
-                ];
-            }
-            $keyboardchannel['inline_keyboard'][] = [['text' => $textbotlang['users']['channel']['confirmjoin'], 'callback_data' => "confirmchannel"]];
-            $keyboardchannel = json_encode($keyboardchannel);
-            sendmessage($from_id, $datatextbot['text_channel'], $keyboardchannel, 'html');
-            return;
+        if (!empty($callback_query_id) && $datain !== "confirmchannel") {
+            telegram('answerCallbackQuery', [
+                'callback_query_id' => $callback_query_id,
+                'text' => $textbotlang['users']['channel']['notconfirmed'],
+                'show_alert' => true,
+                'cache_time' => 5,
+            ]);
         }
-        userUpdate($from_id, ['joinchannel' => 'active']);
-        $user['joinchannel'] = 'active';
+        sendmessage($from_id, $datatextbot['text_channel'], $keyboardchannel, 'html');
+        return;
+    }
+    if ($datain == "confirmchannel") {
+        $apply_join_affiliates();
+        deletemessage($from_id, $message_id);
+        sendmessage($from_id, $datatextbot['text_start'], $keyboard, 'html');
+        telegram('answerCallbackQuery', [
+            'callback_query_id' => $callback_query_id,
+            'text' => $textbotlang['users']['channel']['confirmed'],
+            'show_alert' => false,
+            'cache_time' => 5,
+        ]);
+        return;
     }
 }
 if ($text == "/start" || $datain == "start" || $text == "start") {

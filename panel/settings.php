@@ -179,6 +179,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_forced_join') {
+    csrf_check_post();
+    $saved = save_forced_join_channel(
+        $_POST['channel_id'] ?? '',
+        $_POST['remark'] ?? '',
+        $_POST['linkjoin'] ?? ''
+    );
+    flash(!empty($saved['ok']) ? 'success' : 'error', $saved['msg'] ?? '');
+    header('Location: settings.php?tab=system');
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_forced_join') {
+    csrf_check_post();
+    $removed = delete_forced_join_channel($_POST['channel_link'] ?? '');
+    flash(!empty($removed['ok']) ? 'success' : 'error', $removed['msg'] ?? '');
+    header('Location: settings.php?tab=system');
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(($_POST['action'] ?? ''), ['expense_add', 'expense_edit', 'expense_delete'], true)) {
     csrf_check_post();
     $action = (string) ($_POST['action'] ?? '');
@@ -213,6 +233,13 @@ $tab = $_GET['tab'] ?? 'appearance';
 ensure_channel_post_setting_column();
 $channel_post_setting = select('setting', 'Channel_Post', null, null, 'select', ['cache' => false]);
 $channel_post_value = normalize_channel_post_input(is_array($channel_post_setting) ? ($channel_post_setting['Channel_Post'] ?? '') : '');
+
+$forced_join_channels = [];
+try {
+    $forced_join_channels = db_fetchAll($pdo, 'SELECT remark, link, linkjoin FROM channels ORDER BY remark');
+} catch (Throwable $e) {
+    $forced_join_channels = [];
+}
 
 $bot_setting = select('setting', 'keyboardmain', null, null, 'select', ['cache' => false]);
 $bot_keyboardmain = $bot_setting['keyboardmain'] ?? get_default_main_keyboard_json();
@@ -825,6 +852,82 @@ include __DIR__ . '/inc/layout_head.php';
 <?php elseif ($tab === 'system'): ?>
 
     <div class="card fade-up">
+        <div class="card-head">
+            <div>
+                <div class="card-title">جوین اجباری کانال</div>
+                <div class="card-subtitle">کاربر تا وقتی عضو این کانال‌ها نباشد نمی‌تواند از ربات استفاده کند. ربات باید ادمین کانال باشد.</div>
+            </div>
+        </div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:18px">
+            <?php if (empty($forced_join_channels)): ?>
+                <p style="margin:0;color:var(--mute);font-size:.9rem">هنوز کانالی برای جوین اجباری ثبت نشده است.</p>
+            <?php else: ?>
+                <div class="tbl-wrap">
+                    <table class="tbl-lg">
+                        <thead>
+                            <tr>
+                                <th>نام دکمه</th>
+                                <th>شناسه کانال</th>
+                                <th>لینک عضویت</th>
+                                <th>عملیات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($forced_join_channels as $ch): ?>
+                                <tr>
+                                    <td class="cs"><?= htmlspecialchars($ch['remark'] ?? '') ?></td>
+                                    <td class="cm" dir="ltr"><?= htmlspecialchars($ch['link'] ?? '') ?></td>
+                                    <td class="cn" dir="ltr" style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                                        <?php if (!empty($ch['linkjoin'])): ?>
+                                            <a href="<?= htmlspecialchars($ch['linkjoin']) ?>" target="_blank" rel="noopener"><?= htmlspecialchars($ch['linkjoin']) ?></a>
+                                        <?php else: ?>
+                                            <span style="color:var(--mute)">—</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <form method="POST" onsubmit="return confirm('این کانال از جوین اجباری حذف شود؟')">
+                                            <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                                            <input type="hidden" name="action" value="delete_forced_join">
+                                            <input type="hidden" name="channel_link" value="<?= htmlspecialchars($ch['link'] ?? '') ?>">
+                                            <button type="submit" class="btn btn-no btn-sm btn-icon" title="حذف"><?= icon('trash', 13) ?></button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+
+            <form method="POST" style="display:flex;flex-direction:column;gap:14px">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="save_forced_join">
+                <div class="field">
+                    <label>یوزرنیم یا آیدی عددی کانال</label>
+                    <input type="text" name="channel_id" class="input" dir="ltr"
+                        placeholder="@mychannel یا -1001234567890"
+                        autocomplete="off" required>
+                    <span class="field-hint">همان شناسه‌ای که ربات با آن عضویت کاربر را از تلگرام چک می‌کند.</span>
+                </div>
+                <div class="field">
+                    <label>نام دکمه عضویت</label>
+                    <input type="text" name="remark" class="input" placeholder="مثلاً عضویت در کانال اخبار" maxlength="64" required>
+                </div>
+                <div class="field">
+                    <label>لینک عضویت</label>
+                    <input type="text" name="linkjoin" class="input" dir="ltr"
+                        placeholder="https://t.me/mychannel یا لینک دعوت"
+                        autocomplete="off">
+                    <span class="field-hint">برای کانال عمومی اگر خالی بگذارید از روی یوزرنیم ساخته می‌شود. کانال خصوصی حتماً لینک دعوت نیاز دارد.</span>
+                </div>
+                <div>
+                    <button type="submit" class="btn btn-primary"><?= icon('plus', 14) ?> افزودن کانال</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card fade-up d1" style="margin-top:14px">
         <div class="card-head">
             <div>
                 <div class="card-title">کانال ارسال پست</div>

@@ -49,7 +49,7 @@ while (true) {
     $post_fields = [
         'offset' => $last_offset,
         'timeout' => $getUpdatesTimeout,
-        'allowed_updates' => json_encode(['message', 'callback_query', 'channel_post', 'pre_checkout_query', 'inline_query']),
+        'allowed_updates' => json_encode(['message', 'callback_query', 'channel_post', 'pre_checkout_query', 'inline_query', 'chat_member', 'my_chat_member']),
     ];
 
     $attempt = 0;

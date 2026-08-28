@@ -85,7 +85,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
         outtypepanel($typepanel['type'], $textbotlang['Admin']['Back-menu']);
     } elseif (in_array($user['step'], ["selectloc", "get_limit", "selectlocedite", "GetPriceExtra", "GetPriceexstratime", "GetPricecustomtime", "GetPricecustomvolume", "get_code", "get_codesell", "minbalancebulk"])) {
         sendmessage($from_id, $textbotlang['Admin']['Back-menu'], $shopkeyboard, 'HTML');
-    } elseif (in_array($user['step'], ["addchannel", "removechannel"])) {
+    } elseif (in_array($user['step'], ["addchannel", "getremark", "getlinkjoin", "removechannel"])) {
         sendmessage($from_id, $textbotlang['Admin']['Back-menu'], $channelkeyboard, 'HTML');
     } else {
         sendmessage($from_id, $textbotlang['Admin']['Back-Admin'], $keyboardadmin, 'HTML');
@@ -95,68 +95,62 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     sendmessage($from_id, $textbotlang['Admin']['channel']['changechannel'], $backadmin, 'HTML');
     step('addchannel', $from_id);
 } elseif ($user['step'] == "addchannel") {
-    savedata("clear", "link", $text);
-    sendmessage($from_id, "📌 یک نام برای دکمه عضویت چنل انتخاب نمایید.", $backadmin, 'HTML');
-    step('getremark', $from_id);
-} elseif ($user['step'] == "getremark") {
-    savedata("save", "remark", $text);
-    sendmessage($from_id, "📌 لینک عضویت را ارسال کنید", $backadmin, 'HTML');
-    step('getlinkjoin', $from_id);
-} elseif ($user['step'] == "getlinkjoin") {
-    if (!filter_var($text, FILTER_VALIDATE_URL)) {
-        sendmessage($from_id, "آدرس عضویت صحیح نمی باشد", $backadmin, 'HTML');
+    $channel_id = normalize_forced_join_channel_id($text);
+    if ($channel_id === '') {
+        sendmessage($from_id, "❌ یوزرنیم یا آیدی کانال نامعتبر است.\nنمونه صحیح: <code>@mychannel</code> یا <code>-1001234567890</code>", $backadmin, 'HTML');
         return;
     }
+    $exists = select("channels", "*", "link", $channel_id, "select");
+    if (is_array($exists) && !empty($exists['link'])) {
+        sendmessage($from_id, "❌ این کانال از قبل ثبت شده است.", $backadmin, 'HTML');
+        return;
+    }
+    $verify = verify_bot_is_channel_admin($channel_id);
+    if (empty($verify['ok'])) {
+        $err = ($verify['error'] ?? '') === 'not_admin'
+            ? "❌ ربات ادمین این کانال نیست. ابتدا ربات را ادمین کانال کنید، سپس دوباره ارسال کنید."
+            : "❌ کانال یافت نشد. یوزرنیم/آیدی را بررسی کنید و مطمئن شوید ربات عضو کانال است.";
+        sendmessage($from_id, $err, $backadmin, 'HTML');
+        return;
+    }
+    savedata("clear", "link", $channel_id);
+    $title = htmlspecialchars((string) ($verify['title'] ?? $channel_id), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    sendmessage($from_id, "✅ کانال <b>{$title}</b> تایید شد.\n\n📌 یک نام برای دکمه عضویت انتخاب نمایید.", $backadmin, 'HTML');
+    step('getremark', $from_id);
+} elseif ($user['step'] == "getremark") {
+    $remark = trim((string) $text);
+    if ($remark === '' || mb_strlen($remark) > 64) {
+        sendmessage($from_id, "❌ نام دکمه باید بین ۱ تا ۶۴ کاراکتر باشد.", $backadmin, 'HTML');
+        return;
+    }
+    savedata("save", "remark", $remark);
+    $userdata = json_decode($user['Processing_value'], true);
+    $channel_id = is_array($userdata) ? (string) ($userdata['link'] ?? '') : '';
+    $suggested = normalize_forced_join_url('', $channel_id);
+    $hint = $suggested !== ''
+        ? "اگر کانال عمومی است می‌توانید همین لینک را بفرستید:\n<code>{$suggested}</code>"
+        : "برای کانال خصوصی، لینک دعوت (Invite Link) را ارسال کنید.";
+    sendmessage($from_id, "📌 لینک عضویت کانال را ارسال کنید.\n{$hint}", $backadmin, 'HTML');
+    step('getlinkjoin', $from_id);
+} elseif ($user['step'] == "getlinkjoin") {
     $userdata = json_decode($user['Processing_value'], true);
     if (!is_array($userdata)) {
         $userdata = [];
     }
-
-    $remark = isset($userdata['remark']) ? (string) $userdata['remark'] : '';
-    $link = isset($userdata['link']) ? (string) $userdata['link'] : '';
-
-    sendmessage($from_id, "✅ کانال جوین اجباری با موفقیت ثبت گردید.", $channelkeyboard, 'HTML');
-    step('home', $from_id);
-
-    $insertChannel = function ($remarkValue) use ($pdo, $link, $text) {
-        $stmt = $pdo->prepare("INSERT INTO channels (link, remark, linkjoin) VALUES (:link, :remark, :linkjoin)");
-        $stmt->bindValue(':remark', $remarkValue, PDO::PARAM_STR);
-        $stmt->bindValue(':link', $link, PDO::PARAM_STR);
-        $stmt->bindValue(':linkjoin', $text, PDO::PARAM_STR);
-        $stmt->execute();
-    };
-
-    try {
-        $insertChannel($remark);
-    } catch (PDOException $e) {
-        if (strpos($e->getMessage(), 'Incorrect string value') !== false) {
-            ensureTableUtf8mb4('channels');
-            try {
-                $insertChannel($remark);
-            } catch (PDOException $retryException) {
-                if (strpos($retryException->getMessage(), 'Incorrect string value') === false) {
-                    throw $retryException;
-                }
-
-                $sanitisedRemark = is_string($remark) ? @iconv('UTF-8', 'UTF-8//IGNORE', $remark) : '';
-                if ($sanitisedRemark === false) {
-                    $sanitisedRemark = '';
-                }
-                $insertChannel($sanitisedRemark);
-            }
-        } else {
-            throw $e;
-        }
+    $saved = save_forced_join_channel($userdata['link'] ?? '', $userdata['remark'] ?? '', $text);
+    if (empty($saved['ok'])) {
+        sendmessage($from_id, "❌ " . ($saved['msg'] ?? 'ثبت کانال ناموفق بود.'), $backadmin, 'HTML');
+        return;
     }
+    sendmessage($from_id, "✅ " . $saved['msg'], $channelkeyboard, 'HTML');
+    step('home', $from_id);
 } elseif ($text == $textbotlang['Admin']['channel']['removechannelbtn'] && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['channel']['removechannel'], $list_channels_joins, 'HTML');
     step('removechannel', $from_id);
 } elseif ($user['step'] == "removechannel") {
-    sendmessage($from_id, $textbotlang['Admin']['channel']['removedchannel'], $channelkeyboard, 'HTML');
+    $removed = delete_forced_join_channel($text);
+    sendmessage($from_id, empty($removed['ok']) ? ("❌ " . $removed['msg']) : $textbotlang['Admin']['channel']['removedchannel'], $channelkeyboard, 'HTML');
     step('home', $from_id);
-    $stmt = $pdo->prepare("DELETE FROM channels WHERE link = :link");
-    $stmt->bindParam(':link', $text, PDO::PARAM_STR);
-    $stmt->execute();
 } elseif ($datain == "addnewadmin" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['Admin']['manageadmin']['getid'], $backadmin, 'HTML');
     step('addadmin', $from_id);
@@ -214,7 +208,20 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     update("user", "limit_usertest", $text);
     update("setting", "limit_usertest_all", $text);
 } elseif ($text == "📯 تنظیمات کانال" && $adminrulecheck['rule'] == "administrator") {
-    sendmessage($from_id, $textbotlang['Admin']['channel']['description'], $channelkeyboard, 'HTML');
+    $channel_rows = select("channels", "*", null, null, "fetchAll");
+    $channel_summary = $textbotlang['Admin']['channel']['description'];
+    if (is_array($channel_rows) && count($channel_rows) > 0) {
+        $channel_summary .= "\n\n📋 کانال‌های فعلی:";
+        foreach ($channel_rows as $channel_row) {
+            $remark_label = htmlspecialchars((string) ($channel_row['remark'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $link_label = htmlspecialchars((string) ($channel_row['link'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $join_label = htmlspecialchars((string) ($channel_row['linkjoin'] ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $channel_summary .= "\n• {$remark_label}\n  شناسه: <code>{$link_label}</code>\n  لینک: {$join_label}";
+        }
+    } else {
+        $channel_summary .= "\n\nهنوز کانالی ثبت نشده است.";
+    }
+    sendmessage($from_id, $channel_summary, $channelkeyboard, 'HTML');
 } elseif ($text == $textbotlang['Admin']['Status']['btn'] || $datain == "stat_all_bot") {
     $Balanceall = select("user", "SUM(Balance)", null, null, "select")['SUM(Balance)'];
     $statistics = select("user", "*", null, null, "count");
@@ -8842,6 +8849,9 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
     $Bot_Status = json_encode([
         'inline_keyboard' => [
             [
+                ['text' => "💸 برداشت از کیف پول", 'callback_data' => "wd_menu"],
+            ],
+            [
                 ['text' => "عملیات", 'callback_data' => "actions"],
                 ['text' => $textbotlang['Admin']['Status']['statussubject'], 'callback_data' => "subjectde"],
                 ['text' => $textbotlang['Admin']['Status']['subject'], 'callback_data' => "subject"],
@@ -8900,9 +8910,6 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
                 ['text' => "⚙️ تنظیمات", 'callback_data' => "startelegram"],
                 ['text' => $paymentstar, 'callback_data' => "editpayment-startelegram-$paymentsstartelegram"],
                 ['text' => "💫Star Telegram", 'callback_data' => "none"],
-            ],
-            [
-                ['text' => "💸 برداشت از کیف پول", 'callback_data' => "wd_menu"],
             ],
             [
                 ['text' => "⬆️ حداکثر شارژ موجودی", 'callback_data' => "maxbalanceaccount"],
@@ -9269,6 +9276,9 @@ n2", $backadmin, 'HTML');
     $Bot_Status = json_encode([
         'inline_keyboard' => [
             [
+                ['text' => "💸 برداشت از کیف پول", 'callback_data' => "wd_menu"],
+            ],
+            [
                 ['text' => "عملیات", 'callback_data' => "actions"],
                 ['text' => $textbotlang['Admin']['Status']['statussubject'], 'callback_data' => "subjectde"],
                 ['text' => $textbotlang['Admin']['Status']['subject'], 'callback_data' => "subject"],
@@ -9327,9 +9337,6 @@ n2", $backadmin, 'HTML');
                 ['text' => "⚙️ تنظیمات", 'callback_data' => "startelegram"],
                 ['text' => $paymentstar, 'callback_data' => "editpayment-startelegram-$paymentsstartelegram"],
                 ['text' => "💫Star Telegram", 'callback_data' => "none"],
-            ],
-            [
-                ['text' => "💸 برداشت از کیف پول", 'callback_data' => "wd_menu"],
             ],
             [
                 ['text' => "⬆️ حداکثر شارژ موجودی", 'callback_data' => "maxbalanceaccount"],
@@ -10781,12 +10788,16 @@ f,n.n2", $backadmin, 'HTML');
 } elseif ((preg_match('/confirmchannel-(\w+)/', $datain, $dataget))) {
     $iduser = $dataget[1];
     $userdata = select("user", "*", "id", $iduser, "select");
-    if ($userdata['joinchannel'] == "active") {
-        sendmessage($from_id, "✍️ کاربر از قبل تایید شده است", null, 'HTML');
+    if (!is_array($userdata)) {
+        sendmessage($from_id, $textbotlang['Admin']['not-user'], null, 'HTML');
         return;
     }
-    update("user", "joinchannel", "active", "id", $iduser);
-    sendmessage($from_id, "📌 کاربر از این پس بدون عضویت در کانال می تواند در ربات فعالیت داشته باشد", $keyboardadmin, 'HTML');
+    if (($userdata['joinchannel'] ?? '') === "bypass") {
+        sendmessage($from_id, "✍️ کاربر از قبل از جوین اجباری معاف شده است", null, 'HTML');
+        return;
+    }
+    update("user", "joinchannel", "bypass", "id", $iduser);
+    sendmessage($from_id, "📌 کاربر از این پس بدون عضویت در کانال می‌تواند در ربات فعالیت داشته باشد", $keyboardadmin, 'HTML');
 } elseif ((preg_match('/zerobalance-(\w+)/', $datain, $dataget))) {
     $iduser = $dataget[1];
     $userdata = select("user", "*", "id", $iduser, "select");

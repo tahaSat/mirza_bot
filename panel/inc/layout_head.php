@@ -7,6 +7,14 @@ $showPageHead = $showPageHead ?? true;
 $currentUser = $_SESSION['admin_user'] ?? 'ادمین';
 $initials = mb_strtoupper(mb_substr($currentUser, 0, 1, 'UTF-8'), 'UTF-8');
 $supportUnansweredCount = isset($pdo) && $pdo instanceof PDO ? panel_support_unanswered_count($pdo) : 0;
+$withdrawPendingCount = 0;
+if (isset($pdo) && $pdo instanceof PDO) {
+    try {
+        $withdrawPendingCount = (int) $pdo->query("SELECT COUNT(*) FROM wallet_withdraw WHERE status = 'pending'")->fetchColumn();
+    } catch (Throwable $e) {
+        $withdrawPendingCount = 0;
+    }
+}
 $devModeOn = function_exists('mirza_is_development_mode')
     ? mirza_is_development_mode()
     : !empty($GLOBALS['development_mode']);
@@ -113,8 +121,12 @@ $devModeOn = function_exists('mirza_is_development_mode')
           <a href="discounts.php" class="nav-item <?= $activeNav === 'discounts' ? 'active' : '' ?>" title="تخفیف">
             <span class="nav-icon"><?= icon('wallet') ?></span><span class="nav-label">تخفیف</span>
           </a>
-          <a href="payment.php" class="nav-item <?= in_array($activeNav, ['payment', 'payment_methods'], true) ? 'active' : '' ?>" title="مالی">
+          <a href="payment.php" class="nav-item <?= $activeNav === 'payment' ? 'active' : '' ?>" title="مالی">
             <span class="nav-icon"><?= icon('card') ?></span><span class="nav-label">مالی</span>
+          </a>
+          <a href="wallet_withdraw.php" class="nav-item <?= $activeNav === 'wallet_withdraw' ? 'active' : '' ?>" title="برداشت از کیف پول">
+            <span class="nav-icon"><?= icon('wallet') ?></span><span class="nav-label">برداشت کیف پول</span>
+            <?php if (($withdrawPendingCount ?? 0) > 0): ?><span class="nav-count"><?= number_format($withdrawPendingCount) ?></span><?php endif; ?>
           </a>
           <a href="payment_methods.php" class="nav-item <?= $activeNav === 'payment_methods' ? 'active' : '' ?>" title="درگاه‌های پرداخت">
             <span class="nav-icon"><?= icon('settings') ?></span><span class="nav-label">درگاه‌ها</span>

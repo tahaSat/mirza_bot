@@ -100,11 +100,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $pendingCount = withdraw_pending_count($pdo);
-$payPendingCount = 0;
-try {
-    $payPendingCount = db_count($pdo, "SELECT COUNT(*) FROM Payment_report WHERE Payment_Method = 'cart to cart' AND payment_Status = 'waiting'");
-} catch (Exception $e) {
-}
 
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 25;
@@ -143,29 +138,9 @@ $successText = pay_textbot_get($pdo, WITHDRAW_TEXT_SUCCESS, withdraw_success_def
 
 $pageTitle = 'برداشت از کیف پول';
 $pageLede = 'تنظیم حداقل برداشت، بررسی درخواست‌ها و تاریخچه تسویه حساب.';
-$activeNav = 'payment';
+$activeNav = 'wallet_withdraw';
 include __DIR__ . '/inc/layout_head.php';
 ?>
-
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px" class="fade-up">
-  <div style="display:flex;gap:4px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:4px;flex-wrap:wrap">
-    <a href="payment.php" class="btn btn-sm btn-ghost">همه تراکنش‌ها</a>
-    <a href="payment.php?tab=income" class="btn btn-sm btn-ghost">درآمدها</a>
-    <a href="payment.php?tab=pending" class="btn btn-sm btn-ghost">
-      رسید در انتظار
-      <?php if ($payPendingCount > 0): ?>
-        <span class="tag tag-warn" style="margin-right:6px;font-size:.7rem"><?= number_format($payPendingCount) ?></span>
-      <?php endif; ?>
-    </a>
-    <a href="payment.php?tab=costs" class="btn btn-sm btn-ghost">هزینه‌ها</a>
-    <a href="wallet_withdraw.php" class="btn btn-sm btn-primary">
-      برداشت از کیف پول
-      <?php if ($pendingCount > 0): ?>
-        <span class="tag tag-warn" style="margin-right:6px;font-size:.7rem"><?= number_format($pendingCount) ?></span>
-      <?php endif; ?>
-    </a>
-  </div>
-</div>
 
 <div style="display:flex;gap:4px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:4px;flex-wrap:wrap;margin-bottom:18px" class="fade-up">
   <a href="wallet_withdraw.php?tab=settings" class="btn btn-sm <?= $tab === 'settings' ? 'btn-primary' : 'btn-ghost' ?>">تنظیمات</a>

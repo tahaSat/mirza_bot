@@ -166,8 +166,8 @@ switch ($action) {
         break;
 
     case 'confirm_channel':
-        db_query($pdo, "UPDATE user SET joinchannel = 'active' WHERE id = ?", [$id]);
-        flash('success', 'عضویت کانال برای کاربر تایید شد.');
+        db_query($pdo, "UPDATE user SET joinchannel = 'bypass' WHERE id = ?", [$id]);
+        flash('success', 'کاربر از جوین اجباری معاف شد.');
         break;
 
     case 'toggle_cron':

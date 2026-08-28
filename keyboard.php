@@ -475,6 +475,15 @@ $stmt->execute();
 $result = $stmt->fetchAll();
 $table_exists = count($result) > 0;
 $list_channels = [];
+$list_channels_join = [
+    'keyboard' => [
+        [
+            ['text' => $textbotlang['Admin']['backadmin']],
+            ['text' => $textbotlang['Admin']['backmenu']]
+        ]
+    ],
+    'resize_keyboard' => true,
+];
 if ($table_exists) {
     $stmt = $pdo->prepare("SELECT * FROM channels");
     $stmt->execute();
@@ -494,8 +503,8 @@ if ($table_exists) {
         ['text' => $textbotlang['Admin']['backadmin']],
         ['text' => $textbotlang['Admin']['backmenu']]
     ];
-    $list_channels_joins = json_encode($list_channels_join);
 }
+$list_channels_joins = json_encode($list_channels_join);
 //------------------  [ list card ]----------------//
 $stmt = $pdo->prepare("SHOW TABLES LIKE 'card_number'");
 $stmt->execute();

@@ -2,12 +2,10 @@
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
 require_once __DIR__ . '/inc/payments_lib.php';
-require_once dirname(__DIR__) . '/withdraw_lib.php';
 require_auth();
 
 $pdo = panel_ensure_pdo();
 panel_payment_ensure_schema($pdo);
-withdraw_ensure_schema($pdo);
 
 $tab = $_GET['tab'] ?? 'list';
 if (!in_array($tab, ['list', 'income', 'pending', 'costs'], true)) {
@@ -537,7 +535,6 @@ try {
     $pendingCount = db_count($pdo, "SELECT COUNT(*) FROM Payment_report WHERE Payment_Method = 'cart to cart' AND payment_Status = 'waiting'");
 } catch (Exception $e) {
 }
-$withdrawPendingCount = withdraw_pending_count($pdo);
 $netIncome = $totalSuccess - $totalCosts;
 $cardsFiltered = $search !== '' || $priceMin !== null || $priceMax !== null || $fromFilter || $toFilter
     || $method !== '' || $category !== '' || $kind !== '' || $expenseStatus !== ''
@@ -684,12 +681,6 @@ include __DIR__ . '/inc/layout_head.php';
       <?php endif; ?>
     </a>
     <a href="payment.php?tab=costs" class="btn btn-sm <?= $tab === 'costs' ? 'btn-primary' : 'btn-ghost' ?>">هزینه‌ها</a>
-    <a href="wallet_withdraw.php" class="btn btn-sm btn-ghost">
-      برداشت از کیف پول
-      <?php if (($withdrawPendingCount ?? 0) > 0): ?>
-        <span class="tag tag-warn" style="margin-right:6px;font-size:.7rem"><?= number_format($withdrawPendingCount) ?></span>
-      <?php endif; ?>
-    </a>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <a href="settings.php?tab=finance" class="btn btn-ghost btn-sm"><?= icon('wallet', 14) ?> دسته‌های هزینه</a>

@@ -75,7 +75,7 @@ $commissionOn = $settings['status_commission'] === 'oncommission';
 $giftOn = $settings['discount'] === 'onDiscountaffiliates';
 $firstBuyOnly = $settings['porsant_one_buy'] === 'on_buy_porsant';
 
-$pageTitle = 'پورسانت دعوت';
+$pageTitle = 'پنل همکاری';
 $pageLede = 'درصد پورسانت، هدیه استارت، و لیست افرادی که از دعوت استفاده کرده‌اند.';
 $activeNav = 'referral';
 $referralTab = 'commission';
@@ -156,6 +156,7 @@ include __DIR__ . '/inc/referral_nav.php';
             <th>شناسه</th>
             <th>یوزرنیم</th>
             <th>نام</th>
+            <th>موجودی کیف پول</th>
             <th>تعداد دعوت</th>
             <th>خریدار سرویس</th>
             <th>عملیات</th>
@@ -167,6 +168,7 @@ include __DIR__ . '/inc/referral_nav.php';
               <td class="cm"><?= htmlspecialchars((string) $row['id']) ?></td>
               <td><?= !empty($row['username']) ? '@' . htmlspecialchars($row['username']) : '—' ?></td>
               <td><?= !empty($row['namecustom']) ? htmlspecialchars($row['namecustom']) : '—' ?></td>
+              <td class="cn"><?= number_format((int) ($row['Balance'] ?? 0)) ?> <span class="cf">ت</span></td>
               <td><?= number_format((int) $row['affiliatescount']) ?></td>
               <td><?= number_format((int) $row['buyer_count']) ?></td>
               <td>

@@ -1851,6 +1851,49 @@ try {
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());
 }
+try {
+    $result = $connect->query("SHOW TABLES LIKE 'ad_advertiser'");
+    $table_exists = ($result->num_rows > 0);
+    if (!$table_exists) {
+        $result = $connect->query("CREATE TABLE ad_advertiser (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+        code VARCHAR(32) NOT NULL,
+        join_count INT UNSIGNED NOT NULL DEFAULT 0,
+        amount INT UNSIGNED NOT NULL DEFAULT 0,
+        started_at VARCHAR(50) NOT NULL,
+        payment_order_id VARCHAR(100) NULL,
+        source_user_id VARCHAR(50) NULL,
+        created_at VARCHAR(50) NOT NULL,
+        UNIQUE KEY uniq_ad_code (code),
+        UNIQUE KEY uniq_ad_source_user (source_user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        if (!$result) {
+            echo "table ad_advertiser" . mysqli_error($connect);
+        }
+    }
+} catch (Exception $e) {
+    file_put_contents('error_log', $e->getMessage());
+}
+try {
+    $result = $connect->query("SHOW TABLES LIKE 'ad_join'");
+    $table_exists = ($result->num_rows > 0);
+    if (!$table_exists) {
+        $result = $connect->query("CREATE TABLE ad_join (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        advertiser_id INT UNSIGNED NOT NULL,
+        user_id BIGINT NOT NULL,
+        created_at VARCHAR(50) NOT NULL,
+        UNIQUE KEY uniq_ad_join_user (advertiser_id, user_id),
+        KEY idx_ad_join_advertiser (advertiser_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        if (!$result) {
+            echo "table ad_join" . mysqli_error($connect);
+        }
+    }
+} catch (Exception $e) {
+    file_put_contents('error_log', $e->getMessage());
+}
 
 
 

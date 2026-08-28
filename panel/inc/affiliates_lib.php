@@ -65,6 +65,14 @@ function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit
     $where = ["IFNULL(u.affiliatescount, '') != ''", "u.affiliatescount != '0'"];
     $params = [];
 
+    if (function_exists('ads_ensure_schema')) {
+        ads_ensure_schema();
+        $where[] = "CAST(u.id AS CHAR) NOT IN (
+            SELECT a.source_user_id FROM ad_advertiser a
+            WHERE IFNULL(a.source_user_id, '') != ''
+        )";
+    }
+
     if ($search !== '') {
         $where[] = '(CAST(u.id AS CHAR) LIKE ?
                      OR COALESCE(u.username, \'\') LIKE ?

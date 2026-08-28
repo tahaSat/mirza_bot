@@ -112,8 +112,8 @@ $devModeOn = function_exists('mirza_is_development_mode')
           <a href="product.php" class="nav-item <?= $activeNav === 'product' ? 'active' : '' ?>" title="محصولات">
             <span class="nav-icon"><?= icon('package') ?></span><span class="nav-label">محصولات</span>
           </a>
-          <a href="affiliates.php" class="nav-item <?= $activeNav === 'referral' ? 'active' : '' ?>" title="رفرال">
-            <span class="nav-icon"><?= icon('users') ?></span><span class="nav-label">رفرال</span>
+          <a href="affiliates.php" class="nav-item <?= $activeNav === 'referral' ? 'active' : '' ?>" title="بخش رفرال">
+            <span class="nav-icon"><?= icon('users') ?></span><span class="nav-label">بخش رفرال</span>
           </a>
           <a href="categories.php" class="nav-item <?= $activeNav === 'categories' ? 'active' : '' ?>" title="دسته‌بندی‌ها">
             <span class="nav-icon"><?= icon('package') ?></span><span class="nav-label">دسته‌بندی‌ها</span>

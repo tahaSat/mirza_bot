@@ -277,6 +277,8 @@ if (strpos($text, "/start ") !== false && $user['step'] != "gettextSystemMessage
     } elseif (preg_match('/^ref_(\d+)_(\d+)$/', $affiliatesid, $referral_match)
         || preg_match('/^ref_([A-Za-z][A-Za-z0-9]*)_(\d+)$/', $affiliatesid, $referral_match)) {
         handle_referral_start($referral_match[1], $referral_match[2], $from_id, $was_new_user, $username);
+    } elseif (preg_match('/^ad_([A-Za-z0-9]{8,32})$/', $affiliatesid, $ad_match)) {
+        handle_ad_start($ad_match[1], $from_id, $was_new_user, $username);
     } elseif (!in_array($affiliatesid, ['start', "usertest", "/start", "buy", "help"])) {
         isValidInvitationCode($setting, $from_id, $user['verify']);
         if ($setting['affiliatesstatus'] == "offaffiliates") {
@@ -284,6 +286,10 @@ if (strpos($text, "/start ") !== false && $user['step'] != "gettextSystemMessage
             return;
         }
         if (is_numeric($affiliatesid) && rowExists('user', 'id', $affiliatesid)) {
+            if (function_exists('ads_is_collaboration_link_disabled') && ads_is_collaboration_link_disabled($affiliatesid)) {
+                sendmessage($from_id, $datatextbot['text_start'], $keyboard, 'html');
+                return;
+            }
             if ($affiliatesid == $from_id) {
                 sendmessage($from_id, $textbotlang['users']['affiliates']['invalidaffiliates'], null, 'html');
                 return;

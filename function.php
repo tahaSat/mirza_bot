@@ -7453,6 +7453,221 @@ function referral_ensure_schema(): void
     $ready = true;
 }
 
+function ads_ensure_schema(): void
+{
+    static $ready = false;
+    if ($ready) {
+        return;
+    }
+
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        return;
+    }
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS ad_advertiser (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+        code VARCHAR(32) NOT NULL,
+        join_count INT UNSIGNED NOT NULL DEFAULT 0,
+        amount INT UNSIGNED NOT NULL DEFAULT 0,
+        started_at VARCHAR(50) NOT NULL,
+        payment_order_id VARCHAR(100) NULL,
+        source_user_id VARCHAR(50) NULL,
+        created_at VARCHAR(50) NOT NULL,
+        UNIQUE KEY uniq_ad_code (code),
+        UNIQUE KEY uniq_ad_source_user (source_user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS ad_join (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        advertiser_id INT UNSIGNED NOT NULL,
+        user_id BIGINT NOT NULL,
+        created_at VARCHAR(50) NOT NULL,
+        UNIQUE KEY uniq_ad_join_user (advertiser_id, user_id),
+        KEY idx_ad_join_advertiser (advertiser_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM setting LIKE 'ads_affiliates_migrated'");
+        if (!$stmt->fetch()) {
+            $pdo->exec("ALTER TABLE setting ADD ads_affiliates_migrated VARCHAR(10) NOT NULL DEFAULT '0'");
+        }
+    } catch (Throwable $e) {
+        error_log('ads_ensure_schema setting flag: ' . $e->getMessage());
+    }
+
+    $ready = true;
+    ads_migrate_from_affiliates();
+    ads_detach_migrated_affiliates();
+}
+
+function ads_generate_code(): string
+{
+    global $pdo;
+    ads_ensure_schema();
+    $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    $max = strlen($chars) - 1;
+    for ($attempt = 0; $attempt < 30; $attempt++) {
+        $code = '';
+        for ($i = 0; $i < 10; $i++) {
+            $code .= $chars[random_int(0, $max)];
+        }
+        $stmt = $pdo->prepare('SELECT id FROM ad_advertiser WHERE code = ? LIMIT 1');
+        $stmt->execute([$code]);
+        if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
+            return $code;
+        }
+    }
+    throw new RuntimeException('تولید کد یکتای تبلیغ ناموفق بود.');
+}
+
+function ads_build_link(string $code): string
+{
+    global $usernamebot;
+    return 'https://t.me/' . $usernamebot . '?start=ad_' . $code;
+}
+
+function ads_migrate_from_affiliates(): void
+{
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        return;
+    }
+
+    try {
+        $flag = $pdo->query("SELECT ads_affiliates_migrated FROM setting LIMIT 1")->fetchColumn();
+        if ((string) $flag === '1') {
+            return;
+        }
+    } catch (Throwable $e) {
+        error_log('ads_migrate_from_affiliates flag: ' . $e->getMessage());
+        return;
+    }
+
+    $rows = $pdo->query(
+        "SELECT id, username, namecustom, affiliatescount, register
+         FROM user
+         WHERE IFNULL(affiliatescount, '') != '' AND affiliatescount != '0'"
+    )->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $now = date('Y/m/d H:i:s');
+    $insert = $pdo->prepare(
+        'INSERT INTO ad_advertiser (name, code, join_count, amount, started_at, payment_order_id, source_user_id, created_at)
+         VALUES (?, ?, ?, 0, ?, NULL, ?, ?)'
+    );
+
+    foreach ($rows as $row) {
+        $sourceId = (string) ($row['id'] ?? '');
+        if ($sourceId === '') {
+            continue;
+        }
+        $exists = $pdo->prepare('SELECT id FROM ad_advertiser WHERE source_user_id = ? LIMIT 1');
+        $exists->execute([$sourceId]);
+        if ($exists->fetch(PDO::FETCH_ASSOC)) {
+            continue;
+        }
+
+        $custom = trim((string) ($row['namecustom'] ?? ''));
+        $username = trim((string) ($row['username'] ?? ''));
+        if ($custom !== '' && strcasecmp($custom, 'none') !== 0) {
+            $name = $custom;
+        } elseif ($username !== '' && strcasecmp($username, 'none') !== 0) {
+            $name = '@' . ltrim($username, '@');
+        } else {
+            $name = 'کاربر ' . $sourceId;
+        }
+
+        $startedAt = $now;
+        $register = $row['register'] ?? '';
+        if (is_numeric($register) && (int) $register > 1000000000) {
+            $startedAt = date('Y/m/d', (int) $register);
+        } elseif (is_string($register) && trim($register) !== '' && strcasecmp(trim($register), 'none') !== 0) {
+            $startedAt = trim($register);
+        }
+
+        try {
+            $insert->execute([
+                $name,
+                ads_generate_code(),
+                max(0, (int) ($row['affiliatescount'] ?? 0)),
+                $startedAt,
+                $sourceId,
+                $now,
+            ]);
+            $pdo->prepare("UPDATE user SET affiliatescount = '0' WHERE id = ?")->execute([$sourceId]);
+        } catch (Throwable $e) {
+            error_log('ads_migrate_from_affiliates insert: ' . $e->getMessage());
+        }
+    }
+
+    try {
+        $pdo->exec("UPDATE setting SET ads_affiliates_migrated = '1'");
+    } catch (Throwable $e) {
+        error_log('ads_migrate_from_affiliates set flag: ' . $e->getMessage());
+    }
+}
+
+function ads_is_collaboration_link_disabled($user_id): bool
+{
+    global $pdo;
+    if (!($pdo instanceof PDO) || $user_id === '' || $user_id === null) {
+        return false;
+    }
+    ads_ensure_schema();
+    $stmt = $pdo->prepare('SELECT id FROM ad_advertiser WHERE source_user_id = ? LIMIT 1');
+    $stmt->execute([(string) $user_id]);
+    return (bool) $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+function ads_detach_migrated_affiliates(): void
+{
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        return;
+    }
+    try {
+        $pdo->exec(
+            "UPDATE user u
+             INNER JOIN ad_advertiser a ON CAST(a.source_user_id AS CHAR) = CAST(u.id AS CHAR)
+             SET u.affiliatescount = '0'
+             WHERE IFNULL(a.source_user_id, '') != ''
+               AND IFNULL(u.affiliatescount, '0') != '0'"
+        );
+    } catch (Throwable $e) {
+        error_log('ads_detach_migrated_affiliates: ' . $e->getMessage());
+    }
+}
+
+function handle_ad_start($code, $from_id, $was_new_user = false, $invited_username = '')
+{
+    global $pdo, $keyboard, $datatextbot;
+
+    ads_ensure_schema();
+    $code = (string) $code;
+    $welcome = $datatextbot['text_start'] ?? 'خوش آمدید';
+
+    $stmt = $pdo->prepare('SELECT * FROM ad_advertiser WHERE code = ? LIMIT 1');
+    $stmt->execute([$code]);
+    $advertiser = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$advertiser) {
+        sendmessage($from_id, $welcome, $keyboard, 'html');
+        return ['ok' => false, 'reason' => 'not_found'];
+    }
+
+    $createdAt = date('Y/m/d H:i:s');
+    try {
+        $ins = $pdo->prepare('INSERT INTO ad_join (advertiser_id, user_id, created_at) VALUES (?, ?, ?)');
+        $ins->execute([(int) $advertiser['id'], (string) $from_id, $createdAt]);
+        $pdo->prepare('UPDATE ad_advertiser SET join_count = join_count + 1 WHERE id = ?')->execute([(int) $advertiser['id']]);
+    } catch (Throwable $e) {
+        // already counted for this advertiser
+    }
+
+    sendmessage($from_id, $welcome, $keyboard, 'html');
+    return ['ok' => true];
+}
+
 function referral_get_campaign_by_code($code)
 {
     referral_ensure_schema();

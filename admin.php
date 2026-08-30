@@ -3975,7 +3975,7 @@ $caption";
     sendmessage($from_id, $textbotlang['users']['selectoption'], $setting_panel, 'HTML');
 } elseif ($text == "🤙 بخش پشتیبانی" && $adminrulecheck['rule'] == "administrator") {
     sendmessage($from_id, $textbotlang['users']['selectoption'], $supportcenter, 'HTML');
-} elseif ($datain == "receipt_bot_confirmed") {
+} elseif ($datain == "receipt_bot_confirmed" || $datain == "receipt_admin_confirmed") {
     telegram('answerCallbackQuery', [
         'callback_query_id' => $callback_query_id,
         'cache_time' => 5,
@@ -4064,6 +4064,7 @@ $caption";
     update("user", "Processing_value_one", "none", "id", $Balance_id['id']);
     update("user", "Processing_value_tow", "none", "id", $Balance_id['id']);
     update("user", "Processing_value_four", "none", "id", $Balance_id['id']);
+    markAdminReceiptsAdminConfirmed($Payment_report['id_order'], $from_id);
 } elseif (preg_match('/reject_pay_(\w+)/', $datain, $datagetr) && ($adminrulecheck['rule'] == "administrator" || $adminrulecheck['rule'] == "Seller")) {
     $id_order = $datagetr[1];
     $Payment_report = select("Payment_report", "*", "id_order", $id_order, "select");

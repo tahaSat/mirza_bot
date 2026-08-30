@@ -2005,6 +2005,17 @@ function paymentReceiptAutoConfirmedKeyboard()
     ]);
 }
 
+function paymentReceiptAdminConfirmedKeyboard()
+{
+    return json_encode([
+        'inline_keyboard' => [
+            [
+                ['text' => 'رسید توسط ادمین تایید شد', 'callback_data' => 'receipt_admin_confirmed'],
+            ],
+        ],
+    ]);
+}
+
 function ensureAdminReceiptMsgsColumn()
 {
     static $done = false;
@@ -2080,9 +2091,9 @@ function notifyAdminsCardReceipt($orderId, $text, $keyboard, $photoId = null, $p
     appendAdminReceiptMessages($orderId, $stored);
 }
 
-function markAdminReceiptsAutoConfirmed($orderId)
+function updateAdminReceiptKeyboards($orderId, $keyboard, $excludeChatId = 0)
 {
-    if ($orderId === null || $orderId === '') {
+    if ($orderId === null || $orderId === '' || $keyboard === null || $keyboard === '') {
         return;
     }
     ensureAdminReceiptMsgsColumn();
@@ -2094,11 +2105,14 @@ function markAdminReceiptsAutoConfirmed($orderId)
     if ($messages === []) {
         return;
     }
-    $keyboard = paymentReceiptAutoConfirmedKeyboard();
+    $excludeChatId = intval($excludeChatId);
     foreach ($messages as $item) {
         $chatId = intval($item['chat_id'] ?? 0);
         $messageId = intval($item['message_id'] ?? 0);
         if ($chatId === 0 || $messageId === 0) {
+            continue;
+        }
+        if ($excludeChatId > 0 && $chatId === $excludeChatId) {
             continue;
         }
         if (function_exists('EditMessageReplyMarkup')) {
@@ -2111,6 +2125,16 @@ function markAdminReceiptsAutoConfirmed($orderId)
             ]);
         }
     }
+}
+
+function markAdminReceiptsAutoConfirmed($orderId)
+{
+    updateAdminReceiptKeyboards($orderId, paymentReceiptAutoConfirmedKeyboard());
+}
+
+function markAdminReceiptsAdminConfirmed($orderId, $excludeChatId = 0)
+{
+    updateAdminReceiptKeyboards($orderId, paymentReceiptAdminConfirmedKeyboard(), $excludeChatId);
 }
 
 function finalizeAdminReceiptAfterSend($orderId)

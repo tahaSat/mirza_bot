@@ -421,6 +421,9 @@ function panel_payment_confirm(PDO $pdo, string $orderId): array
             db_query($pdo, "UPDATE Payment_report SET payment_Status = 'paid' WHERE id_order = ?", [$orderId]);
         }
         db_query($pdo, "UPDATE user SET Processing_value_one = 'none', Processing_value_tow = 'none', Processing_value_four = 'none' WHERE id = ?", [$payment['id_user']]);
+        if (function_exists('markAdminReceiptsAdminConfirmed')) {
+            markAdminReceiptsAdminConfirmed($orderId);
+        }
 
         return ['ok' => true, 'msg' => 'پرداخت تأیید شد.'];
     } catch (Throwable $e) {

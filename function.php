@@ -8056,33 +8056,15 @@ function ads_migrate_from_affiliates(): void
 
 function ads_is_collaboration_link_disabled($user_id): bool
 {
-    global $pdo;
-    if (!($pdo instanceof PDO) || $user_id === '' || $user_id === null) {
-        return false;
-    }
-    ads_ensure_schema();
-    $stmt = $pdo->prepare('SELECT id FROM ad_advertiser WHERE source_user_id = ? LIMIT 1');
-    $stmt->execute([(string) $user_id]);
-    return (bool) $stmt->fetch(PDO::FETCH_ASSOC);
+    // Ads use start=ad_{code}. Numeric start={id} is collaboration and must stay active
+    // even if that user was copied into ad_advertiser by the one-time migration.
+    return false;
 }
 
 function ads_detach_migrated_affiliates(): void
 {
-    global $pdo;
-    if (!($pdo instanceof PDO)) {
-        return;
-    }
-    try {
-        $pdo->exec(
-            "UPDATE user u
-             INNER JOIN ad_advertiser a ON CAST(a.source_user_id AS CHAR) = CAST(u.id AS CHAR)
-             SET u.affiliatescount = '0'
-             WHERE IFNULL(a.source_user_id, '') != ''
-               AND IFNULL(u.affiliatescount, '0') != '0'"
-        );
-    } catch (Throwable $e) {
-        error_log('ads_detach_migrated_affiliates: ' . $e->getMessage());
-    }
+    // No-op: previously zeroed user.affiliatescount for anyone copied into ad_advertiser,
+    // which emptied the collaboration referrers list while reagent_report still had invites.
 }
 
 function handle_ad_start($code, $from_id, $was_new_user = false, $invited_username = '')

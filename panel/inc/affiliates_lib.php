@@ -60,52 +60,106 @@ function affiliates_lib_save_settings(PDO $pdo, array $data): void
     );
 }
 
-function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit = 25, int $offset = 0, string $sort = 'affiliatescount', string $dir = 'desc'): array
+function affiliates_lib_repair_counts(PDO $pdo): void
 {
-    $where = ["IFNULL(u.affiliatescount, '') != ''", "u.affiliatescount != '0'"];
-    $params = [];
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
 
-    if (function_exists('ads_ensure_schema')) {
-        ads_ensure_schema();
-        $where[] = "CAST(u.id AS CHAR) NOT IN (
-            SELECT a.source_user_id FROM ad_advertiser a
-            WHERE IFNULL(a.source_user_id, '') != ''
-        )";
+    try {
+        $col = $pdo->query("SHOW COLUMNS FROM setting LIKE 'affiliates_counts_repaired'")->fetch(PDO::FETCH_ASSOC);
+        if (!$col) {
+            $pdo->exec("ALTER TABLE setting ADD affiliates_counts_repaired VARCHAR(10) NOT NULL DEFAULT '0'");
+        }
+        $flagRow = db_fetch($pdo, 'SELECT affiliates_counts_repaired FROM setting LIMIT 1');
+        if ((string) ($flagRow['affiliates_counts_repaired'] ?? '0') === '1') {
+            return;
+        }
+    } catch (Throwable $e) {
+        error_log('affiliates_lib_repair_counts flag: ' . $e->getMessage());
     }
 
+    try {
+        $pdo->exec(
+            "UPDATE user u
+             INNER JOIN (
+                SELECT referrer_id, COUNT(DISTINCT invited_id) AS cnt
+                FROM (
+                    SELECT CAST(reagent AS CHAR) AS referrer_id, CAST(user_id AS CHAR) AS invited_id
+                    FROM reagent_report
+                    WHERE IFNULL(reagent, '') != '' AND reagent != '0'
+                    UNION
+                    SELECT CAST(affiliates AS CHAR) AS referrer_id, CAST(id AS CHAR) AS invited_id
+                    FROM user
+                    WHERE IFNULL(affiliates, '') != '' AND affiliates != '0'
+                ) inv
+                GROUP BY referrer_id
+             ) s ON CAST(u.id AS CHAR) = s.referrer_id
+             SET u.affiliatescount = CAST(s.cnt AS CHAR)"
+        );
+        $pdo->exec("UPDATE setting SET affiliates_counts_repaired = '1'");
+    } catch (Throwable $e) {
+        error_log('affiliates_lib_repair_counts update: ' . $e->getMessage());
+    }
+}
+
+function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit = 25, int $offset = 0, string $sort = 'affiliatescount', string $dir = 'desc'): array
+{
+    affiliates_lib_repair_counts($pdo);
+
+    $where = [];
+    $params = [];
+
     if ($search !== '') {
-        $where[] = '(CAST(u.id AS CHAR) LIKE ?
+        $where[] = '(CAST(r.referrer_id AS CHAR) LIKE ?
                      OR COALESCE(u.username, \'\') LIKE ?
                      OR COALESCE(u.namecustom, \'\') LIKE ?)';
         $like = '%' . $search . '%';
         array_push($params, $like, $like, $like);
     }
 
-    $whereSQL = 'WHERE ' . implode(' AND ', $where);
-    $fromSQL = 'FROM user u
+    $whereSQL = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+    $fromSQL = 'FROM (
+            SELECT referrer_id, COUNT(DISTINCT invited_id) AS invite_count
+            FROM (
+                SELECT CAST(reagent AS CHAR) AS referrer_id, CAST(user_id AS CHAR) AS invited_id
+                FROM reagent_report
+                WHERE IFNULL(reagent, \'\') != \'\' AND reagent != \'0\'
+                UNION
+                SELECT CAST(affiliates AS CHAR) AS referrer_id, CAST(id AS CHAR) AS invited_id
+                FROM user
+                WHERE IFNULL(affiliates, \'\') != \'\' AND affiliates != \'0\'
+            ) inv
+            GROUP BY referrer_id
+         ) r
+         LEFT JOIN user u ON CAST(u.id AS CHAR) = r.referrer_id
          LEFT JOIN (
             SELECT u2.affiliates AS referrer_id, COUNT(DISTINCT u2.id) AS buyer_count
             FROM user u2
-            INNER JOIN invoice i ON i.id_user = u2.id
+            INNER JOIN invoice i ON CAST(i.id_user AS CHAR) = CAST(u2.id AS CHAR)
             WHERE i.name_product != \'سرویس تست\'
               AND i.Status != \'Unpaid\'
               AND IFNULL(u2.affiliates, \'\') != \'\'
               AND u2.affiliates != \'0\'
             GROUP BY u2.affiliates
-         ) b ON CAST(b.referrer_id AS CHAR) = CAST(u.id AS CHAR)';
+         ) b ON CAST(b.referrer_id AS CHAR) = r.referrer_id';
 
     $dirSql = strtolower($dir) === 'asc' ? 'ASC' : 'DESC';
     $orderMap = [
-        'balance' => 'CAST(u.Balance AS SIGNED) ' . $dirSql . ', CAST(u.affiliatescount AS UNSIGNED) DESC, u.id DESC',
-        'affiliatescount' => 'CAST(u.affiliatescount AS UNSIGNED) ' . $dirSql . ', u.id DESC',
-        'buyer_count' => 'COALESCE(b.buyer_count, 0) ' . $dirSql . ', CAST(u.affiliatescount AS UNSIGNED) DESC, u.id DESC',
+        'balance' => 'CAST(u.Balance AS SIGNED) ' . $dirSql . ', r.invite_count DESC, r.referrer_id DESC',
+        'affiliatescount' => 'r.invite_count ' . $dirSql . ', r.referrer_id DESC',
+        'buyer_count' => 'COALESCE(b.buyer_count, 0) ' . $dirSql . ', r.invite_count DESC, r.referrer_id DESC',
     ];
     $orderSql = $orderMap[$sort] ?? $orderMap['affiliatescount'];
 
-    $total = db_count($pdo, "SELECT COUNT(*) FROM user u $whereSQL", $params);
+    $total = db_count($pdo, "SELECT COUNT(*) $fromSQL $whereSQL", $params);
     $rows = db_fetchAll(
         $pdo,
-        "SELECT u.id, u.username, u.namecustom, u.affiliatescount, u.Balance,
+        "SELECT COALESCE(u.id, r.referrer_id) AS id,
+                u.username, u.namecustom, u.Balance,
+                r.invite_count AS affiliatescount,
                 COALESCE(b.buyer_count, 0) AS buyer_count
          $fromSQL
          $whereSQL

@@ -186,16 +186,27 @@ function affiliates_lib_list_history(PDO $pdo, string $search = '', int $limit =
     }
 
     $whereSQL = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+    $paidSql = function_exists('invoice_paid_status_sql')
+        ? invoice_paid_status_sql('i.Status')
+        : "i.Status != 'Unpaid'";
     $fromSQL = 'FROM reagent_report r
          LEFT JOIN user invited ON invited.id = r.user_id
-         LEFT JOIN user referrer ON CAST(referrer.id AS CHAR) = CAST(r.reagent AS CHAR)';
+         LEFT JOIN user referrer ON CAST(referrer.id AS CHAR) = CAST(r.reagent AS CHAR)
+         LEFT JOIN (
+            SELECT CAST(i.id_user AS CHAR) AS invited_id, COUNT(*) AS paid_orders
+            FROM invoice i
+            WHERE i.name_product != \'سرویس تست\'
+              AND (' . $paidSql . ')
+            GROUP BY CAST(i.id_user AS CHAR)
+         ) p ON p.invited_id = CAST(r.user_id AS CHAR)';
 
     $total = db_count($pdo, "SELECT COUNT(*) $fromSQL $whereSQL", $params);
     $rows = db_fetchAll(
         $pdo,
-        "SELECT r.id, r.user_id, r.reagent, r.time, r.get_gift,
+        "SELECT r.id, r.user_id, r.reagent, r.time,
                 invited.username AS invited_username,
-                referrer.username AS referrer_username
+                referrer.username AS referrer_username,
+                COALESCE(p.paid_orders, 0) AS paid_orders
          $fromSQL
          $whereSQL
          ORDER BY r.id DESC

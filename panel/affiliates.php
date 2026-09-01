@@ -260,12 +260,12 @@ include __DIR__ . '/inc/referral_nav.php';
             <th>دعوت‌شده</th>
             <th>آیدی دعوت‌شده</th>
             <th>زمان</th>
-            <th>هدیه استارت</th>
+            <th>پورسانت بعد از خرید</th>
           </tr>
         </thead>
         <tbody>
           <?php foreach ($histResult['rows'] as $row): ?>
-            <?php $giftClaimed = (string) ($row['get_gift'] ?? '') === '1' || $row['get_gift'] === true || $row['get_gift'] === 1; ?>
+            <?php $commissionPaid = (int) ($row['paid_orders'] ?? 0) > 0; ?>
             <tr>
               <td>
                 <?php if (!empty($row['reagent'])): ?>
@@ -285,7 +285,7 @@ include __DIR__ . '/inc/referral_nav.php';
               <td class="cm"><?= htmlspecialchars((string) ($row['user_id'] ?? '')) ?></td>
               <td class="cf"><?= htmlspecialchars((string) ($row['time'] ?? '—')) ?></td>
               <td>
-                <span class="tag <?= $giftClaimed ? 'tag-ok' : '' ?>"><?= $giftClaimed ? 'دریافت شده' : 'دریافت نشده' ?></span>
+                <span class="tag <?= $commissionPaid ? 'tag-ok' : '' ?>"><?= $commissionPaid ? 'واریز شده' : 'واریز نشده' ?></span>
               </td>
             </tr>
           <?php endforeach; ?>

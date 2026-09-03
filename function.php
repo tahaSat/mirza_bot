@@ -362,7 +362,7 @@ function invoice_paid_status_sql(string $statusCol = 'Status'): string
 function paid_real_income_sql(): string
 {
     return "payment_Status = 'paid'
-        AND COALESCE(Payment_Method,'') NOT IN ('add balance by admin','low balance by admin')";
+        AND COALESCE(Payment_Method,'') NOT IN ('add balance by admin','low balance by admin','capital_injection')";
 }
 
 /**

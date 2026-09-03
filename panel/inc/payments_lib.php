@@ -834,6 +834,7 @@ function panel_payment_method_map(): array
         'nowpayment' => 'NowPayment',
         'tetraminator' => 'Tetraminator',
         'manual invoice' => 'فاکتور دستی',
+        'capital_injection' => 'ورود سرمایه',
         'add order by admin' => 'سفارش توسط ادمین',
         'extend by admin' => 'تمدید توسط ادمین',
         'refund to wallet' => 'مرجوعی به کیف پول',
@@ -991,17 +992,18 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
         $orderId = panel_payment_new_order_id($pdo);
     }
 
-    $creditWallet = !empty($input['credit_wallet']);
+    $method = trim((string) ($input['method'] ?? 'manual invoice'));
+    if ($method === '' || $method === 'cost') {
+        $method = 'manual invoice';
+    }
+    $isCapital = $method === 'capital_injection';
+
+    $creditWallet = !$isCapital && !empty($input['credit_wallet']);
     $realUser = $userId !== ''
         ? db_fetch($pdo, 'SELECT id FROM user WHERE id = ?', [$userId])
         : null;
     if ($creditWallet && !$realUser) {
         return ['ok' => false, 'msg' => 'برای افزودن به کیف پول باید آیدی کاربر معتبر وارد شود.'];
-    }
-
-    $method = trim((string) ($input['method'] ?? 'manual invoice'));
-    if ($method === '' || $method === 'cost') {
-        $method = 'manual invoice';
     }
     $status = trim((string) ($input['status'] ?? 'paid'));
     if (!in_array($status, panel_payment_status_values(), true)) {
@@ -1009,7 +1011,7 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
     }
 
     $time = panel_payment_format_time(panel_payment_parse_sheet_time($input['time'] ?? ''));
-    $idInvoice = $creditWallet ? 'manual|wallet' : 'manual';
+    $idInvoice = $isCapital ? 'capital' : ($creditWallet ? 'manual|wallet' : 'manual');
 
     db_query(
         $pdo,
@@ -1026,7 +1028,11 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
         );
     }
 
-    return ['ok' => true, 'msg' => 'فاکتور دستی ثبت شد.', 'id_order' => $orderId];
+    return [
+        'ok' => true,
+        'msg' => $isCapital ? 'ورود سرمایه ثبت شد.' : 'فاکتور دستی ثبت شد.',
+        'id_order' => $orderId,
+    ];
 }
 
 /**
@@ -1140,8 +1146,9 @@ function panel_payment_set_status(
     $leavingPaid = $wasPaid && $newStatus !== 'paid';
     $method = (string) ($payment['Payment_Method'] ?? '');
     $idInvoice = (string) ($payment['id_invoice'] ?? '');
-    $skipWalletClawback = in_array($method, ['add balance by admin', 'low balance by admin', 'add order by admin', 'extend by admin', 'refund to wallet', 'cost'], true)
+    $skipWalletClawback = in_array($method, ['add balance by admin', 'low balance by admin', 'add order by admin', 'extend by admin', 'refund to wallet', 'cost', 'capital_injection'], true)
         || $idInvoice === 'manual'
+        || $idInvoice === 'capital'
         || $idInvoice === 'cost';
 
     if ($leavingPaid && panel_payment_is_wallet($payment) && !$skipWalletClawback) {

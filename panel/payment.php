@@ -181,6 +181,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $like = '%' . $q . '%';
         $prefix = $q . '%';
+        $rows = [];
         try {
             $rows = db_fetchAll(
                 $pdo,
@@ -571,6 +572,9 @@ try {
 if (!isset($methodOptions['manual invoice'])) {
     $methodOptions['manual invoice'] = panel_payment_method_label('manual invoice');
 }
+if (!isset($methodOptions['capital_injection'])) {
+    $methodOptions['capital_injection'] = panel_payment_method_label('capital_injection');
+}
 if ($method !== '' && !isset($methodOptions[$method]) && $method !== 'cost') {
     $methodOptions[$method] = panel_payment_method_label($method);
 }
@@ -585,6 +589,14 @@ foreach ($methodOptions as $k => $lbl) {
     $sheetMethodOptions[$k] = $lbl;
 }
 asort($sheetMethodOptions, SORT_STRING);
+$pinnedMethods = [];
+foreach (['manual invoice', 'capital_injection'] as $pinKey) {
+    if (isset($sheetMethodOptions[$pinKey])) {
+        $pinnedMethods[$pinKey] = $sheetMethodOptions[$pinKey];
+        unset($sheetMethodOptions[$pinKey]);
+    }
+}
+$sheetMethodOptions = $pinnedMethods + $sheetMethodOptions;
 $categoryOptions = panel_expense_category_map($pdo);
 if ($category !== '' && !isset($categoryOptions[$category])) {
     $categoryOptions[$category] = panel_expense_category_label($pdo, $category);
@@ -622,6 +634,11 @@ if ($tab !== 'pending') {
     }
 }
 $clearFiltersUrl = payment_redirect_url($tab, $search !== '' ? ['q' => $search] : []);
+$financialExportUrl = 'payment_export.php?' . http_build_query([
+    '_csrf' => csrf_token(),
+    'from' => $fromInput,
+    'to' => $toInput,
+], '', '&', PHP_QUERY_RFC3986);
 
 $pageTitle = 'مالی';
 $pageLede = 'گزارش پرداخت‌ها، فاکتور دستی، هزینه‌ها و درآمد خالص.';
@@ -748,6 +765,9 @@ include __DIR__ . '/inc/layout_head.php';
     <?php elseif ($tab !== 'pending'): ?>
     <div class="toolbar-end pay-toolbar">
       <div class="pay-toolbar-actions">
+        <a href="<?= htmlspecialchars($financialExportUrl, ENT_QUOTES) ?>" class="btn btn-ghost btn-sm">
+          <?= icon('arrow-down', 14) ?> خروجی اکسل مالی
+        </a>
         <button type="button" class="btn btn-ghost btn-sm" onclick="openModal('paymentFilterModal')">
           <?= icon('filter', 14) ?> فیلترها
           <?php if ($activeFilterCount > 0): ?>

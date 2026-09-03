@@ -325,6 +325,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
                 'tetraminator' => $datatextbot['tetraminator'] ?? 'Tetraminator',
                 'add order by admin' => 'سفارش توسط ادمین',
                 'extend by admin' => 'تمدید توسط ادمین',
+                'capital_injection' => 'ورود سرمایه',
 
             ][$tracepay['Payment_Method']] ?? ($tracepay['Payment_Method'] ?: 'سایر');
             $paycount .= "

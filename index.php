@@ -2135,6 +2135,7 @@ $textconnect
     $stmt->execute();
     $stmt->close();
     update("invoice", "Status", "active", "id_invoice", $id_invoice);
+    pay_affiliate_commission($user, $pricelastextend, 'extend');
     if (intval($setting['scorestatus']) == 1 and !in_array($from_id, $admin_ids)) {
         sendmessage($from_id, "📌شما 2 امتیاز جدید کسب کردید.", null, 'html');
         $scorenew = $user['score'] + 2;
@@ -5002,69 +5003,7 @@ $textinvite
             update("setting", "numbercount", $value);
         }
     }
-    $affiliatescommission = select("affiliates", "*", null, null, "select");
-    $marzbanporsant_one_buy = select("affiliates", "*", null, null, "select");
-    $countinvoice = bot_non_test_purchase_count($pdo, $from_id, $randomString);
-    if ($affiliatescommission['status_commission'] == "oncommission" && ($user['affiliates'] != null && intval($user['affiliates']) != 0)) {
-        if ($marzbanporsant_one_buy['porsant_one_buy'] == "on_buy_porsant") {
-            if ($countinvoice == 1) {
-                $result = ($priceproduct * $setting['affiliatespercentage']) / 100;
-                $user_Balance = select("user", "*", "id", $user['affiliates'], "select");
-                $Balance_prim = $user_Balance['Balance'] + $result;
-                if (intval($setting['scorestatus']) == 1 and !in_array($user['affiliates'], $admin_ids)) {
-                    sendmessage($user['affiliates'], "📌شما 2 امتیاز جدید کسب کردید.", null, 'html');
-                    $scorenew = $user_Balance['score'] + 2;
-                    update("user", "score", $scorenew, "id", $user['affiliates']);
-                }
-                update("user", "Balance", $Balance_prim, "id", $user['affiliates']);
-                $result = number_format($result);
-                $dateacc = date('Y/m/d H:i:s');
-                $textadd = "🎁  پرداخت پورسانت 
-        
-        مبلغ $result تومان به حساب شما از طرف  زیر مجموعه تان به کیف پول شما واریز گردید";
-                $textreportport = "
-مبلغ $result به کاربر {$user['affiliates']} برای پورسانت از کاربر $from_id واریز گردید 
-تایم : $dateacc";
-                if (strlen($setting['Channel_Report']) > 0) {
-                    telegram('sendmessage', [
-                        'chat_id' => $setting['Channel_Report'],
-                        'message_thread_id' => $porsantreport,
-                        'text' => $textreportport,
-                        'parse_mode' => "HTML"
-                    ]);
-                }
-                sendmessage($user['affiliates'], $textadd, null, 'HTML');
-            }
-        } else {
-
-            $result = ($priceproduct * $setting['affiliatespercentage']) / 100;
-            $user_Balance = select("user", "*", "id", $user['affiliates'], "select");
-            $Balance_prim = $user_Balance['Balance'] + $result;
-            if (intval($setting['scorestatus']) == 1 and !in_array($user['affiliates'], $admin_ids)) {
-                sendmessage($user['affiliates'], "📌شما 2 امتیاز جدید کسب کردید.", null, 'html');
-                $scorenew = $user_Balance['score'] + 2;
-                update("user", "score", $scorenew, "id", $user['affiliates']);
-            }
-            update("user", "Balance", $Balance_prim, "id", $user['affiliates']);
-            $result = number_format($result);
-            $dateacc = date('Y/m/d H:i:s');
-            $textadd = "🎁  پرداخت پورسانت 
-        
-        مبلغ $result تومان به حساب شما از طرف  زیر مجموعه تان به کیف پول شما واریز گردید";
-            $textreportport = "
-مبلغ $result به کاربر {$user['affiliates']} برای پورسانت از کاربر $from_id واریز گردید 
-تایم : $dateacc";
-            if (strlen($setting['Channel_Report']) > 0) {
-                telegram('sendmessage', [
-                    'chat_id' => $setting['Channel_Report'],
-                    'message_thread_id' => $porsantreport,
-                    'text' => $textreportport,
-                    'parse_mode' => "HTML"
-                ]);
-            }
-            sendmessage($user['affiliates'], $textadd, null, 'HTML');
-        }
-    }
+    pay_affiliate_commission($user, $priceproduct, 'buy', $randomString);
     if (intval($setting['scorestatus']) == 1 and !in_array($from_id, $admin_ids)) {
         sendmessage($from_id, "📌شما 1 امتیاز جدید کسب کردید.", null, 'html');
         $scorenew = $user['score'] + 1;
@@ -8309,6 +8248,9 @@ if (isset($update['message']['successful_payment'])) {
         ':output' => json_encode($extend),
         ':status' => $status,
     ]);
+    if (!agent_is_reseller($user['agent'] ?? 'f')) {
+        pay_affiliate_commission($user, $prodcut['price_product'], 'extend');
+    }
     $prodcut['price_product'] = number_format($prodcut['price_product']);
     $balanceformatsell = number_format(select("user", "Balance", "id", $from_id, "select")['Balance'], 0);
     $textextend = "✅ تمدید برای سرویس شما با موفقیت صورت گرفت

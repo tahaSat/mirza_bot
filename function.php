@@ -1145,6 +1145,92 @@ function bot_is_first_product_purchase(PDO $pdo, $userId, $includeInvoiceId = nu
 }
 
 /**
+ * Pay affiliate commission for a buy or extend.
+ * When first-purchase-only is on, extend never pays and later buys are skipped.
+ *
+ * @param array $buyer user row of the invited customer
+ * @param string $reason buy|extend
+ */
+function pay_affiliate_commission(array $buyer, $amount, string $reason = 'buy', $currentInvoiceId = null): bool
+{
+    global $pdo, $setting, $admin_ids, $porsantreport;
+
+    $amount = (float) $amount;
+    if ($amount <= 0) {
+        return false;
+    }
+    $affiliateId = (string) ($buyer['affiliates'] ?? '0');
+    if ($affiliateId === '' || $affiliateId === '0' || intval($affiliateId) === 0) {
+        return false;
+    }
+    $affSettings = select('affiliates', '*', null, null, 'select');
+    if (!is_array($affSettings) || ($affSettings['status_commission'] ?? '') !== 'oncommission') {
+        return false;
+    }
+
+    $firstBuyOnly = ($affSettings['porsant_one_buy'] ?? 'off_buy_porsant') === 'on_buy_porsant';
+    if ($firstBuyOnly) {
+        if ($reason === 'extend') {
+            return false;
+        }
+        if (!($pdo instanceof PDO)) {
+            return false;
+        }
+        if (bot_non_test_purchase_count($pdo, $buyer['id'] ?? '', $currentInvoiceId) > 1) {
+            return false;
+        }
+    }
+
+    $percent = (float) ($setting['affiliatespercentage'] ?? 0);
+    if ($percent <= 0) {
+        return false;
+    }
+    $commission = ($amount * $percent) / 100;
+    if ($commission <= 0) {
+        return false;
+    }
+
+    $referrer = select('user', '*', 'id', $affiliateId, 'select');
+    if (!is_array($referrer)) {
+        return false;
+    }
+
+    $adminList = (isset($admin_ids) && is_array($admin_ids)) ? $admin_ids : [];
+    if (intval($setting['scorestatus'] ?? 0) === 1 && !in_array($affiliateId, $adminList, false) && !in_array((int) $affiliateId, $adminList, false)) {
+        sendmessage($affiliateId, '📌شما 2 امتیاز جدید کسب کردید.', null, 'html');
+        update('user', 'score', intval($referrer['score'] ?? 0) + 2, 'id', $affiliateId);
+    }
+
+    update('user', 'Balance', ($referrer['Balance'] ?? 0) + $commission, 'id', $affiliateId);
+
+    $commissionFmt = number_format($commission);
+    $dateacc = date('Y/m/d H:i:s');
+    $buyerId = $buyer['id'] ?? '';
+    sendmessage($affiliateId, "🎁  پرداخت پورسانت 
+
+        مبلغ $commissionFmt تومان به حساب شما از طرف  زیر مجموعه تان به کیف پول شما واریز گردید", null, 'HTML');
+
+    $label = $reason === 'extend' ? 'پورسانت تمدید' : 'پورسانت';
+    $textreportport = "مبلغ $commissionFmt به کاربر {$affiliateId} برای {$label} از کاربر {$buyerId} واریز گردید 
+تایم : $dateacc";
+
+    $threadId = $porsantreport ?? null;
+    if ($threadId === null || $threadId === '') {
+        $topic = select('topicid', 'idreport', 'report', 'porsantreport', 'select');
+        $threadId = is_array($topic) ? ($topic['idreport'] ?? null) : null;
+    }
+    if (strlen((string) ($setting['Channel_Report'] ?? '')) > 0) {
+        telegram('sendmessage', [
+            'chat_id' => $setting['Channel_Report'],
+            'message_thread_id' => $threadId,
+            'text' => $textreportport,
+            'parse_mode' => 'HTML',
+        ]);
+    }
+    return true;
+}
+
+/**
  * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,users:int,avg_join:string,total_count:int,total_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
  */
 function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
@@ -3381,69 +3467,7 @@ function DirectPayment($order_id, $image = 'images.jpg')
                 ]);
             }
         }
-        $affiliatescommission = select("affiliates", "*", null, null, "select");
-        $marzbanporsant_one_buy = select("affiliates", "*", null, null, "select");
-        $countinvoice = bot_non_test_purchase_count($pdo, $Balance_id['id'], $get_invoice['id_invoice'] ?? null);
-        if ($affiliatescommission['status_commission'] == "oncommission" && ($Balance_id['affiliates'] != null && intval($Balance_id['affiliates']) != 0)) {
-            if ($marzbanporsant_one_buy['porsant_one_buy'] == "on_buy_porsant") {
-                if ($countinvoice <= 1) {
-                    $result = ($Payment_report['price'] * $setting['affiliatespercentage']) / 100;
-                    $user_Balance = select("user", "*", "id", $Balance_id['affiliates'], "select");
-                    if (intval($setting['scorestatus']) == 1 and !in_array($Balance_id['affiliates'], $admin_ids)) {
-                        sendmessage($Balance_id['affiliates'], "📌شما 2 امتیاز جدید کسب کردید.", null, 'html');
-                        $scorenew = $user_Balance['score'] + 2;
-                        update("user", "score", $scorenew, "id", $Balance_id['affiliates']);
-                    }
-                    $Balance_prim = $user_Balance['Balance'] + $result;
-                    $dateacc = date('Y/m/d H:i:s');
-                    update("user", "Balance", $Balance_prim, "id", $Balance_id['affiliates']);
-                    $result = number_format($result);
-                    $textadd = "🎁  پرداخت پورسانت 
-        
-        مبلغ $result تومان به حساب شما از طرف  زیر مجموعه تان به کیف پول شما واریز گردید";
-                    $textreportport = "
-مبلغ $result به کاربر {$Balance_id['affiliates']} برای پورسانت از کاربر {$Balance_id['id']} واریز گردید 
-تایم : $dateacc";
-                    if (strlen($setting['Channel_Report']) > 0) {
-                        telegram('sendmessage', [
-                            'chat_id' => $setting['Channel_Report'],
-                            'message_thread_id' => $porsantreport,
-                            'text' => $textreportport,
-                            'parse_mode' => "HTML"
-                        ]);
-                    }
-                    sendmessage($Balance_id['affiliates'], $textadd, null, 'HTML');
-                }
-            } else {
-
-                $result = ($Payment_report['price'] * $setting['affiliatespercentage']) / 100;
-                $user_Balance = select("user", "*", "id", $Balance_id['affiliates'], "select");
-                if (intval($setting['scorestatus']) == 1 and !in_array($Balance_id['affiliates'], $admin_ids)) {
-                    sendmessage($Balance_id['affiliates'], "📌شما 2 امتیاز جدید کسب کردید.", null, 'html');
-                    $scorenew = $user_Balance['score'] + 2;
-                    update("user", "score", $scorenew, "id", $Balance_id['affiliates']);
-                }
-                $Balance_prim = $user_Balance['Balance'] + $result;
-                $dateacc = date('Y/m/d H:i:s');
-                update("user", "Balance", $Balance_prim, "id", $Balance_id['affiliates']);
-                $result = number_format($result);
-                $textadd = "🎁  پرداخت پورسانت 
-        
-        مبلغ $result تومان به حساب شما از طرف  زیر مجموعه تان به کیف پول شما واریز گردید";
-                $textreportport = "
-مبلغ $result به کاربر {$Balance_id['affiliates']} برای پورسانت از کاربر {$Balance_id['id']} واریز گردید 
-تایم : $dateacc";
-                if (strlen($setting['Channel_Report']) > 0) {
-                    telegram('sendmessage', [
-                        'chat_id' => $setting['Channel_Report'],
-                        'message_thread_id' => $porsantreport,
-                        'text' => $textreportport,
-                        'parse_mode' => "HTML"
-                    ]);
-                }
-                sendmessage($Balance_id['affiliates'], $textadd, null, 'HTML');
-            }
-        }
+        pay_affiliate_commission($Balance_id, $Payment_report['price'] ?? 0, 'buy', $get_invoice['id_invoice'] ?? null);
         if ($marzban_list_get['MethodUsername'] == "متن دلخواه + عدد ترتیبی" || $marzban_list_get['MethodUsername'] == "نام کاربری + عدد به ترتیب" || $marzban_list_get['MethodUsername'] == "آیدی عددی+عدد ترتیبی" || $marzban_list_get['MethodUsername'] == "متن دلخواه نماینده + عدد ترتیبی") {
             $value = intval($Balance_id['number_username']) + 1;
             update("user", "number_username", $value, "id", $Balance_id['id']);
@@ -3588,6 +3612,7 @@ $textonebuy
         update("service_other", "output", json_encode($extend), "id", $data_order['id']);
         update("service_other", "status", "paid", "id", $data_order['id']);
         update("service_other", "time", $dateacc, "id", $data_order['id']);
+        pay_affiliate_commission($Balance_id, $Payment_report['price'] ?? ($data_order['price'] ?? 0), 'extend');
         $partsdic = explode("_", $Balance_id['Processing_value_four']);
         if ($partsdic[0] == "dis") {
             discount_sell_record_usage([
@@ -5139,6 +5164,7 @@ function invoice_try_auto_renew(array $invoice, array $user, array $userData, $p
         ':status' => $status,
     ]);
     update('invoice', 'Status', 'active', 'id_invoice', $invoice['id_invoice']);
+    pay_affiliate_commission($user, $price, 'extend');
     $priceFormat = number_format($price);
     $success = sprintf(
         $textbotlang['users']['extend']['autorenew_success'] ?? "✅ سرویس %s به‌صورت خودکار تمدید شد.\n\n🛍 بسته: %s\n💸 مبلغ کسر شده: %s تومان",

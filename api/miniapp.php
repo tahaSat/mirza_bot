@@ -930,69 +930,7 @@ switch ($data['actions']) {
                 update("setting", "numbercount", $value);
             }
         }
-        $affiliatescommission = select("affiliates", "*", null, null, "select");
-        $marzbanporsant_one_buy = select("affiliates", "*", null, null, "select");
-        $countinvoice = bot_non_test_purchase_count($pdo, $user_info['id'], $randomString);
-        if ($affiliatescommission['status_commission'] == "oncommission" && ($user_info['affiliates'] != null && intval($user_info['affiliates']) != 0)) {
-            if ($marzbanporsant_one_buy['porsant_one_buy'] == "on_buy_porsant") {
-                if ($countinvoice == 1) {
-                    $result = ($product['price_product'] * $setting['affiliatespercentage']) / 100;
-                    $user_Balance = select("user", "*", "id", $user_info['affiliates'], "select");
-                    $Balance_prim = $user_Balance['Balance'] + $result;
-                    if (intval($setting['scorestatus']) == 1) {
-                        sendmessage($user_info['affiliates'], "📌شما 2 امتیاز جدید کسب کردید.", null, 'html');
-                        $scorenew = $user_Balance['score'] + 2;
-                        update("user", "score", $scorenew, "id", $user_info['affiliates']);
-                    }
-                    update("user", "Balance", $Balance_prim, "id", $user_info['affiliates']);
-                    $result = number_format($result);
-                    $dateacc = date('Y/m/d H:i:s');
-                    $textadd = "🎁  پرداخت پورسانت 
-            
-            مبلغ $result تومان به حساب شما از طرف  زیر مجموعه تان به کیف پول شما واریز گردید";
-                    $textreportport = "
-    مبلغ $result به کاربر {$user_info['affiliates']} برای پورسانت از کاربر {$user_info['id']} واریز گردید 
-    تایم : $dateacc";
-                    if (strlen($setting['Channel_Report']) > 0) {
-                        telegram('sendmessage', [
-                            'chat_id' => $setting['Channel_Report'],
-                            'message_thread_id' => $porsantreport,
-                            'text' => $textreportport,
-                            'parse_mode' => "HTML"
-                        ]);
-                    }
-                    sendmessage($user_info['affiliates'], $textadd, null, 'HTML');
-                } else {
-
-                    $result = ($product['price_product'] * $setting['affiliatespercentage']) / 100;
-                    $user_Balance = select("user", "*", "id", $user_info['affiliates'], "select");
-                    $Balance_prim = $user_Balance['Balance'] + $result;
-                    if (intval($setting['scorestatus']) == 1) {
-                        sendmessage($user_info['affiliates'], "📌شما 2 امتیاز جدید کسب کردید.", null, 'html');
-                        $scorenew = $user_Balance['score'] + 2;
-                        update("user", "score", $scorenew, "id", $user_info['affiliates']);
-                    }
-                    update("user", "Balance", $Balance_prim, "id", $user_info['affiliates']);
-                    $result = number_format($result);
-                    $dateacc = date('Y/m/d H:i:s');
-                    $textadd = "🎁  پرداخت پورسانت 
-        
-        مبلغ $result تومان به حساب شما از طرف  زیر مجموعه تان به کیف پول شما واریز گردید";
-                    $textreportport = "
-مبلغ $result به کاربر {$user_info['affiliates']} برای پورسانت از کاربر {$user_info['id']} واریز گردید 
-تایم : $dateacc";
-                    if (strlen($setting['Channel_Report']) > 0) {
-                        telegram('sendmessage', [
-                            'chat_id' => $setting['Channel_Report'],
-                            'message_thread_id' => $porsantreport,
-                            'text' => $textreportport,
-                            'parse_mode' => "HTML"
-                        ]);
-                    }
-                    sendmessage($user_info['affiliates'], $textadd, null, 'HTML');
-                }
-            }
-        }
+        pay_affiliate_commission($user_info, $product['price_product'] ?? 0, 'buy', $randomString);
         if (intval($setting['scorestatus']) == 1) {
             sendmessage($user_info['id'], "📌شما 1 امتیاز جدید کسب کردید.", null, 'html');
             $scorenew = $user_info['score'] + 1;

@@ -21,24 +21,14 @@ const PANEL_FINANCIAL_EXPORT_SHEETS = [
     'سود و زیان ماهانه',
 ];
 
-/**
- * Return only cash income and recorded expenses. Wallet spending is not a second
- * cash event; administrative balance adjustments and capital are excluded by
- * bot_payment_paid_income_sql().
- */
+/** Return every paid Payment_report row plus recorded expenses. */
 function panel_financial_export_fetch_rows(
     PDO $pdo,
     ?array $fromFilter = null,
     ?array $toFilter = null
 ): array {
     panel_payment_ensure_schema($pdo);
-    $incomeSql = function_exists('bot_payment_paid_income_sql')
-        ? bot_payment_paid_income_sql()
-        : "payment_Status = 'paid'
-            AND COALESCE(Payment_Method,'') NOT IN (
-                'add balance by admin','low balance by admin','capital_injection','cost'
-            )
-            AND COALESCE(id_invoice,'') != 'cost'";
+    $incomeSql = "payment_Status = 'paid'";
     $expenseSql = "(tx_type = 'expense'
         OR payment_Status = 'cost'
         OR Payment_Method = 'cost'
@@ -94,14 +84,7 @@ function panel_financial_export_jalali(int $timestamp, string $format = 'Y/m/d')
 
 function panel_financial_export_is_income(array $row): bool
 {
-    if (panel_payment_is_cost($row) || ($row['payment_Status'] ?? '') !== 'paid') {
-        return false;
-    }
-    return !in_array(
-        (string) ($row['Payment_Method'] ?? ''),
-        ['add balance by admin', 'low balance by admin', 'capital_injection', 'cost'],
-        true
-    ) && (string) ($row['id_invoice'] ?? '') !== 'cost';
+    return (string) ($row['payment_Status'] ?? '') === 'paid';
 }
 
 function panel_financial_export_expense_bucket(string $slug, string $label = ''): string

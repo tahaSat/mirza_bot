@@ -7,7 +7,6 @@ use PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues;
 use PhpOffice\PhpSpreadsheet\Chart\Legend;
 use PhpOffice\PhpSpreadsheet\Chart\PlotArea;
 use PhpOffice\PhpSpreadsheet\Chart\Title;
-use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
@@ -16,16 +15,10 @@ use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 const PANEL_FINANCIAL_EXPORT_SHEETS = [
-    'Dashboard',
-    'Daily Sales',
-    'Expenses',
-    'Servers',
-    'Partner Funding',
-    'Partners',
-    'Monthly P&L',
-    'Daily Rates',
-    'Settings',
-    'Lists',
+    'داشبورد',
+    'فروش روزانه',
+    'هزینه‌ها',
+    'سود و زیان ماهانه',
 ];
 
 /**
@@ -92,6 +85,13 @@ function panel_financial_export_datetime(int $timestamp): DateTime
     return (new DateTime('@' . $timestamp))->setTimezone(new DateTimeZone('Asia/Tehran'));
 }
 
+function panel_financial_export_jalali(int $timestamp, string $format = 'Y/m/d'): string
+{
+    return function_exists('jalali_tehran_format')
+        ? jalali_tehran_format($timestamp, $format, 'en')
+        : panel_financial_export_datetime($timestamp)->format($format);
+}
+
 function panel_financial_export_is_income(array $row): bool
 {
     if (panel_payment_is_cost($row) || ($row['payment_Status'] ?? '') !== 'paid') {
@@ -156,9 +156,8 @@ function panel_financial_export_prepare(array $rows, array $categoryLabels = [])
         if ($amount < 1) {
             continue;
         }
-        $date = panel_financial_export_datetime($timestamp);
-        $day = $date->format('Y-m-d');
-        $month = $date->format('Y-m-01');
+        $day = panel_financial_export_jalali($timestamp, 'Y/m/d');
+        $month = panel_financial_export_jalali($timestamp, 'Y/m');
         $minTs = $minTs === null ? $timestamp : min($minTs, $timestamp);
         $maxTs = $maxTs === null ? $timestamp : max($maxTs, $timestamp);
 
@@ -214,7 +213,9 @@ function panel_financial_export_prepare(array $rows, array $categoryLabels = [])
                 'description' => trim((string) ($row['note'] ?? '')),
                 'vendor' => trim((string) ($row['id_user'] ?? '')),
                 'amount' => $amount,
-                'method' => panel_payment_method_label((string) ($row['Payment_Method'] ?? 'cost')),
+                'method' => (string) ($row['Payment_Method'] ?? '') === 'cost'
+                    ? 'هزینه ثبت‌شده'
+                    : panel_payment_method_label((string) ($row['Payment_Method'] ?? '')),
                 'paid_by' => trim((string) ($row['id_user'] ?? '')),
                 'order_id' => trim((string) ($row['id_order'] ?? '')),
             ];
@@ -224,7 +225,9 @@ function panel_financial_export_prepare(array $rows, array $categoryLabels = [])
     foreach ($sales as &$sale) {
         $sale['buyers_count'] = count($sale['buyers']);
         unset($sale['buyers']);
-        $sale['method_label'] = panel_payment_method_label($sale['method']);
+        $sale['method_label'] = $sale['method'] === 'unknown'
+            ? 'نامشخص'
+            : panel_payment_method_label($sale['method']);
     }
     unset($sale);
     uasort($sales, static fn(array $a, array $b): int => [$a['date'], $a['method']] <=> [$b['date'], $b['method']]);
@@ -296,11 +299,6 @@ function panel_financial_export_table_style(Worksheet $sheet, string $range): vo
     ]);
 }
 
-function panel_financial_export_date_value(string $date): float
-{
-    return ExcelDate::PHPToExcel(new DateTime($date . ' 00:00:00', new DateTimeZone('Asia/Tehran')));
-}
-
 function panel_financial_export_money_format(): string
 {
     return '#,##0;[Red]-#,##0;-';
@@ -326,8 +324,8 @@ function panel_financial_export_build_workbook(array $report, array $filters = [
     $book = new Spreadsheet();
     $book->getProperties()
         ->setCreator('Mirzabot')
-        ->setTitle('Financial Management Report')
-        ->setSubject('Payment-based income and expense report');
+        ->setTitle('گزارش مدیریت مالی')
+        ->setSubject('گزارش درآمد و هزینه بر مبنای پرداخت‌ها');
     $book->removeSheetByIndex(0);
     foreach (PANEL_FINANCIAL_EXPORT_SHEETS as $title) {
         $book->addSheet(new Worksheet($book, $title));
@@ -336,17 +334,17 @@ function panel_financial_export_build_workbook(array $report, array $filters = [
 
     $money = panel_financial_export_money_format();
 
-    // Daily Sales
-    $sales = $book->getSheetByName('Daily Sales');
-    panel_financial_export_base_sheet($sales, 'Daily Sales', 'I');
+    // فروش روزانه
+    $sales = $book->getSheetByName('فروش روزانه');
+    panel_financial_export_base_sheet($sales, 'فروش روزانه', 'I');
     panel_financial_export_header($sales, 2, [
-        'Date', 'Channel', 'Orders / Buyers', 'Gross Sales (Toman)', 'Commission Rate',
-        'Commission (Toman)', 'Net Revenue (Toman)', 'Avg Revenue / Buyer', 'Notes',
+        'تاریخ', 'کانال / روش پرداخت', 'تراکنش / خریدار', 'فروش ناخالص (تومان)', 'نرخ کمیسیون',
+        'کمیسیون (تومان)', 'درآمد خالص (تومان)', 'میانگین درآمد هر خریدار', 'یادداشت',
     ]);
     $salesRow = 3;
     foreach ($report['sales'] as $item) {
         panel_financial_export_set_row($sales, $salesRow, [
-            panel_financial_export_date_value($item['date']),
+            $item['date'],
             $item['method_label'],
             $item['orders'] . ' / ' . $item['buyers_count'],
             $item['gross'],
@@ -359,10 +357,10 @@ function panel_financial_export_build_workbook(array $report, array $filters = [
         $salesRow++;
     }
     if ($salesRow === 3) {
-        $sales->setCellValue('A3', 'No paid income in selected period');
+        $sales->setCellValue('A3', 'در بازه انتخاب‌شده درآمد قطعی ثبت نشده است.');
     }
     $salesLast = max(3, $salesRow - 1);
-    $sales->getStyle("A3:A{$salesLast}")->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+    $sales->getStyle("A3:A{$salesLast}")->getNumberFormat()->setFormatCode('@');
     $sales->getStyle("D3:D{$salesLast}")->getNumberFormat()->setFormatCode($money);
     $sales->getStyle("E3:E{$salesLast}")->getNumberFormat()->setFormatCode('0.0%');
     $sales->getStyle("F3:H{$salesLast}")->getNumberFormat()->setFormatCode($money);
@@ -373,22 +371,22 @@ function panel_financial_export_build_workbook(array $report, array $filters = [
         $sales->getColumnDimension($column)->setWidth($width);
     }
 
-    // Expenses
-    $expenses = $book->getSheetByName('Expenses');
-    panel_financial_export_base_sheet($expenses, 'Expenses', 'K');
+    // هزینه‌ها
+    $expenses = $book->getSheetByName('هزینه‌ها');
+    panel_financial_export_base_sheet($expenses, 'هزینه‌ها', 'K');
     panel_financial_export_header($expenses, 2, [
-        'Date', 'Category', 'Description', 'Vendor / Person', 'Original Amount', 'Currency',
-        'Daily FX Rate (Auto)', 'Amount (Toman)', 'Payment Method', 'Paid By', 'Notes',
+        'تاریخ', 'دسته هزینه', 'شرح', 'فروشنده / شخص', 'مبلغ اصلی', 'ارز',
+        'نرخ تبدیل', 'مبلغ (تومان)', 'روش پرداخت', 'پرداخت‌کننده', 'شناسه تراکنش',
     ]);
     $expenseRow = 3;
     foreach ($report['expenses'] as $item) {
         panel_financial_export_set_row($expenses, $expenseRow, [
-            panel_financial_export_date_value($item['date']),
+            $item['date'],
             $item['category'],
             $item['description'],
             $item['vendor'],
             $item['amount'],
-            'Toman',
+            'تومان',
             1,
             "=E{$expenseRow}*G{$expenseRow}",
             $item['method'],
@@ -398,10 +396,10 @@ function panel_financial_export_build_workbook(array $report, array $filters = [
         $expenseRow++;
     }
     if ($expenseRow === 3) {
-        $expenses->setCellValue('A3', 'No expenses in selected period');
+        $expenses->setCellValue('A3', 'در بازه انتخاب‌شده هزینه‌ای ثبت نشده است.');
     }
     $expenseLast = max(3, $expenseRow - 1);
-    $expenses->getStyle("A3:A{$expenseLast}")->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+    $expenses->getStyle("A3:A{$expenseLast}")->getNumberFormat()->setFormatCode('@');
     $expenses->getStyle("E3:E{$expenseLast}")->getNumberFormat()->setFormatCode($money);
     $expenses->getStyle("G3:G{$expenseLast}")->getNumberFormat()->setFormatCode('0.0000');
     $expenses->getStyle("H3:H{$expenseLast}")->getNumberFormat()->setFormatCode($money);
@@ -412,18 +410,18 @@ function panel_financial_export_build_workbook(array $report, array $filters = [
         $expenses->getColumnDimension($column)->setWidth($width);
     }
 
-    // Monthly P&L
-    $pnl = $book->getSheetByName('Monthly P&L');
-    panel_financial_export_base_sheet($pnl, 'Monthly Profit & Loss', 'N');
+    // سود و زیان ماهانه
+    $pnl = $book->getSheetByName('سود و زیان ماهانه');
+    panel_financial_export_base_sheet($pnl, 'گزارش سود و زیان ماهانه', 'N');
     panel_financial_export_header($pnl, 2, [
-        'Month', 'Gross Sales', 'Affiliate Commission', 'Net Revenue', 'Server', 'Marketing',
-        'Salary', 'Telegram/Bot', 'Software', 'Refund', 'Office/Admin', 'Other Costs',
-        'Total Expenses', 'Net Profit',
+        'ماه', 'فروش ناخالص', 'کمیسیون همکاری', 'درآمد خالص', 'سرور', 'تبلیغات',
+        'حقوق', 'تلگرام / ربات', 'نرم‌افزار', 'بازپرداخت', 'دفتر / اداری', 'سایر هزینه‌ها',
+        'مجموع هزینه‌ها', 'سود خالص',
     ]);
     $pnlRow = 3;
     foreach ($report['months'] as $month => $item) {
         panel_financial_export_set_row($pnl, $pnlRow, [
-            panel_financial_export_date_value($month),
+            $month,
             $item['gross'],
             $item['commission'],
             "=B{$pnlRow}-C{$pnlRow}",
@@ -441,15 +439,14 @@ function panel_financial_export_build_workbook(array $report, array $filters = [
         $pnlRow++;
     }
     if ($pnlRow === 3) {
-        $pnl->setCellValue('A3', panel_financial_export_date_value(date('Y-m-01')));
         panel_financial_export_set_row($pnl, 3, [
-            panel_financial_export_date_value(date('Y-m-01')), 0, 0, '=B3-C3',
+            panel_financial_export_jalali(time(), 'Y/m'), 0, 0, '=B3-C3',
             0, 0, 0, 0, 0, 0, 0, 0, '=SUM(E3:L3)', '=D3-M3',
         ]);
         $pnlRow = 4;
     }
     $pnlLast = $pnlRow - 1;
-    $pnl->getStyle("A3:A{$pnlLast}")->getNumberFormat()->setFormatCode('mmm yyyy');
+    $pnl->getStyle("A3:A{$pnlLast}")->getNumberFormat()->setFormatCode('@');
     $pnl->getStyle("B3:N{$pnlLast}")->getNumberFormat()->setFormatCode($money);
     $pnl->setAutoFilter("A2:N{$pnlLast}");
     $pnl->freezePane('A3');
@@ -459,123 +456,39 @@ function panel_financial_export_build_workbook(array $report, array $filters = [
         $pnl->getColumnDimension($column)->setWidth($column === 'A' ? 15 : 17);
     }
 
-    // Dashboard
-    $dashboard = $book->getSheetByName('Dashboard');
-    panel_financial_export_base_sheet($dashboard, 'Financial Dashboard', 'H');
-    panel_financial_export_header($dashboard, 3, ['KPI', 'Value']);
-    panel_financial_export_set_row($dashboard, 4, ['Gross Sales', "=SUM('Daily Sales'!D3:D{$salesLast})"]);
-    panel_financial_export_set_row($dashboard, 5, ['Total Expenses', "=SUM(Expenses!H3:H{$expenseLast})"]);
-    panel_financial_export_set_row($dashboard, 6, ['Net Profit', '=B4-B5']);
-    panel_financial_export_set_row($dashboard, 7, ['Paid Transactions', $report['totals']['payments']]);
-    panel_financial_export_set_row($dashboard, 8, ['Unique Buyers', $report['totals']['buyers']]);
-    panel_financial_export_set_row($dashboard, 9, ['Skipped Invalid Rows', $report['skipped']]);
+    // داشبورد
+    $dashboard = $book->getSheetByName('داشبورد');
+    panel_financial_export_base_sheet($dashboard, 'داشبورد مدیریت مالی', 'H');
+    panel_financial_export_header($dashboard, 3, ['شاخص', 'مقدار']);
+    panel_financial_export_set_row($dashboard, 4, ['فروش ناخالص', "=SUM('فروش روزانه'!D3:D{$salesLast})"]);
+    panel_financial_export_set_row($dashboard, 5, ['مجموع هزینه‌ها', "=SUM('هزینه‌ها'!H3:H{$expenseLast})"]);
+    panel_financial_export_set_row($dashboard, 6, ['سود خالص', '=B4-B5']);
+    panel_financial_export_set_row($dashboard, 7, ['تعداد تراکنش‌های موفق', $report['totals']['payments']]);
+    panel_financial_export_set_row($dashboard, 8, ['تعداد خریداران یکتا', $report['totals']['buyers']]);
+    panel_financial_export_set_row($dashboard, 9, ['ردیف‌های دارای تاریخ نامعتبر', $report['skipped']]);
     $dashboard->getStyle('B4:B6')->getNumberFormat()->setFormatCode($money);
     panel_financial_export_table_style($dashboard, 'A3:B9');
     panel_financial_export_add_profit_condition($dashboard, 'B6');
-    panel_financial_export_header($dashboard, 12, ['Partner Snapshot', 'Value']);
-    panel_financial_export_set_row($dashboard, 13, ['Partner data', 'Not connected to Payment_report']);
-    panel_financial_export_table_style($dashboard, 'A12:B13');
     $dashboard->getColumnDimension('A')->setWidth(28);
     $dashboard->getColumnDimension('B')->setWidth(24);
     foreach (range('C', 'H') as $column) {
         $dashboard->getColumnDimension($column)->setWidth(15);
     }
-    $labels = [new DataSeriesValues('String', "'Monthly P&L'!\$N\$2", null, 1)];
-    $categories = [new DataSeriesValues('String', "'Monthly P&L'!\$A\$3:\$A\${$pnlLast}", null, $pnlLast - 2)];
-    $values = [new DataSeriesValues('Number', "'Monthly P&L'!\$N\$3:\$N\${$pnlLast}", null, $pnlLast - 2)];
+    $labels = [new DataSeriesValues('String', "'سود و زیان ماهانه'!\$N\$2", null, 1)];
+    $categories = [new DataSeriesValues('String', "'سود و زیان ماهانه'!\$A\$3:\$A\${$pnlLast}", null, $pnlLast - 2)];
+    $values = [new DataSeriesValues('Number', "'سود و زیان ماهانه'!\$N\$3:\$N\${$pnlLast}", null, $pnlLast - 2)];
     $series = new DataSeries(DataSeries::TYPE_LINECHART, null, range(0, count($values) - 1), $labels, $categories, $values);
-    $chart = new Chart('monthly_performance', new Title('Monthly Performance'), new Legend(Legend::POSITION_BOTTOM), new PlotArea(null, [$series]));
+    $chart = new Chart('monthly_performance', new Title('روند سود خالص ماهانه'), new Legend(Legend::POSITION_BOTTOM), new PlotArea(null, [$series]));
     $chart->setTopLeftPosition('D3');
     $chart->setBottomRightPosition('H18');
     $dashboard->addChart($chart);
-
-    // Empty/reference templates
-    $templates = [
-        'Servers' => [
-            'J',
-            ['Server / Service', 'Provider', 'Purpose', 'Billing Cycle', 'Cost', 'Currency', 'Reference FX Rate', 'Cost (Toman)', 'Next Renewal', 'Status'],
-        ],
-        'Partner Funding' => [
-            'K',
-            ['Date', 'Partner', 'Transaction Type', 'Description', 'Original Amount', 'Currency', 'Daily FX Rate (Auto)', 'Amount in Toman', 'Cash Impact', 'Partner Balance Impact', 'Notes'],
-        ],
-        'Partners' => [
-            'H',
-            ['Partner', 'Profit Share', 'Total Contributions', 'Total Withdrawals / Settlements', 'Net Funding Balance', 'Allocated Profit Share', 'Final Partner Position', 'Notes'],
-        ],
-    ];
-    foreach ($templates as $name => [$lastColumn, $headers]) {
-        $sheet = $book->getSheetByName($name);
-        panel_financial_export_base_sheet($sheet, $name, $lastColumn);
-        panel_financial_export_header($sheet, 2, $headers);
-        $sheet->setCellValue('A3', 'Template - no Payment_report data source');
-        $sheet->freezePane('A3');
-        panel_financial_export_table_style($sheet, "A2:{$lastColumn}3");
-        foreach (range('A', $lastColumn) as $column) {
-            $sheet->getColumnDimension($column)->setWidth(20);
-        }
-    }
-
-    $rates = $book->getSheetByName('Daily Rates');
-    panel_financial_export_base_sheet($rates, 'Daily Rates', 'D');
-    $rates->mergeCells('A2:D2');
-    $rates->setCellValue('A2', 'All Payment_report amounts are stored in Toman; rates are not used in this export.');
-    panel_financial_export_header($rates, 4, ['Date', 'USD → Toman', 'USDT → Toman', 'Notes']);
-    $rates->freezePane('A5');
-    foreach (['A' => 15, 'B' => 20, 'C' => 20, 'D' => 36] as $column => $width) {
-        $rates->getColumnDimension($column)->setWidth($width);
-    }
-
-    $settings = $book->getSheetByName('Settings');
-    panel_financial_export_base_sheet($settings, 'Settings', 'D');
-    panel_financial_export_header($settings, 3, ['Setting', 'Value', 'Source', 'Notes']);
-    $from = $filters['from'] ?? '';
-    $to = $filters['to'] ?? '';
-    $settingsRows = [
-        ['Reporting Currency', 'Toman', 'Payment_report.price', 'All amounts are stored in Toman'],
-        ['Accounting Basis', 'Cash / Payment based', 'Payment_report', 'Only paid income and recorded costs'],
-        ['Wallet Policy', 'Recharge is income', 'Selected policy', 'Later wallet spending is not counted again'],
-        ['Affiliate Commission', '0%', 'Not in Payment_report', 'No assumed commission is deducted'],
-        ['From', $from !== '' ? $from : 'All time', 'Panel filter', 'Asia/Tehran'],
-        ['To', $to !== '' ? $to : 'All time', 'Panel filter', 'Asia/Tehran'],
-        ['Generated At', panel_financial_export_datetime(time())->format('Y-m-d H:i:s'), 'System', 'Asia/Tehran'],
-    ];
-    $row = 4;
-    foreach ($settingsRows as $values) {
-        panel_financial_export_set_row($settings, $row++, $values);
-    }
-    panel_financial_export_table_style($settings, 'A3:D10');
-    foreach (['A' => 24, 'B' => 26, 'C' => 25, 'D' => 42] as $column => $width) {
-        $settings->getColumnDimension($column)->setWidth($width);
-    }
-
-    $lists = $book->getSheetByName('Lists');
-    panel_financial_export_base_sheet($lists, 'Lists', 'D');
-    panel_financial_export_header($lists, 3, ['Sales Channels', 'Expense Categories', 'Currencies', 'Partner Transaction Types']);
-    $methodLabels = array_map('panel_payment_method_label', $report['methods']);
-    $categoryValues = array_values($report['categories']);
-    $currencies = ['Toman', 'IRR', 'USD', 'USDT'];
-    $partnerTypes = ['Contribution', 'Withdrawal', 'Settlement'];
-    $listRows = max(1, count($methodLabels), count($categoryValues), count($currencies), count($partnerTypes));
-    for ($i = 0; $i < $listRows; $i++) {
-        panel_financial_export_set_row($lists, $i + 4, [
-            $methodLabels[$i] ?? '',
-            $categoryValues[$i] ?? '',
-            $currencies[$i] ?? '',
-            $partnerTypes[$i] ?? '',
-        ]);
-    }
-    panel_financial_export_table_style($lists, 'A3:D' . ($listRows + 3));
-    foreach (range('A', 'D') as $column) {
-        $lists->getColumnDimension($column)->setWidth(28);
-    }
 
     foreach ($book->getAllSheets() as $sheet) {
         $sheet->getDefaultRowDimension()->setRowHeight(20);
         $sheet->getStyle($sheet->calculateWorksheetDimension())
             ->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
     }
-    $book->setActiveSheetIndexByName('Dashboard');
+    $book->setActiveSheetIndexByName('داشبورد');
     return $book;
 }
 

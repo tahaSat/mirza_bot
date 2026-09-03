@@ -38,9 +38,15 @@ try {
     $writer = new PhpOffice\PhpSpreadsheet\Writer\Xlsx($workbook);
     $writer->setIncludeCharts(true);
 
-    $filename = 'Financial_Report_' . date('Y-m-d_H-i') . '.xlsx';
+    $jalaliTimestamp = function_exists('jalali_tehran_format')
+        ? jalali_tehran_format(time(), 'Y-m-d_H-i', 'en')
+        : date('Y-m-d_H-i');
+    $filename = 'گزارش_مالی_' . $jalaliTimestamp . '.xlsx';
     header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header(
+        "Content-Disposition: attachment; filename=\"financial_report.xlsx\"; filename*=UTF-8''"
+        . rawurlencode($filename)
+    );
     header('Cache-Control: no-store, no-cache, must-revalidate');
     header('Pragma: public');
     header('Expires: 0');

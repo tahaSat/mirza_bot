@@ -2,6 +2,7 @@
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/icons.php';
 require_once __DIR__ . '/inc/payments_lib.php';
+require_once __DIR__ . '/inc/payment_import_lib.php';
 require_auth();
 
 $pdo = panel_ensure_pdo();
@@ -220,6 +221,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
         }
         payment_json_exit(['ok' => true, 'users' => $users]);
+    }
+
+    if ($action === 'import_parse') {
+        $r = panel_payment_import_parse_file($pdo, $_FILES['file'] ?? null, $_POST['usd_rate'] ?? '');
+        payment_json_exit($r, !empty($r['ok']) ? 200 : 400);
+    }
+
+    if ($action === 'import_commit') {
+        $rows = json_decode((string) ($_POST['rows'] ?? ''), true);
+        if (!is_array($rows)) {
+            payment_json_exit(['ok' => false, 'msg' => 'داده پیش‌نمایش نامعتبر است.'], 400);
+        }
+        $r = panel_payment_import_commit($pdo, $rows);
+        payment_json_exit($r, !empty($r['ok']) ? 200 : 400);
     }
 
     if ($action === 'save_row') {
@@ -684,6 +699,36 @@ include __DIR__ . '/inc/layout_head.php';
   .pay-time-now { flex-shrink: 0; font-size: .72rem; padding: 0 8px; height: 32px; }
   .pay-filter-group { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; border: 1px solid var(--bd); border-radius: 10px; background: var(--sf); }
   .pay-filter-group-title { grid-column: 1 / -1; font-size: .75rem; font-weight: 700; color: var(--mute); }
+  .pay-btn-export {
+    color: #c05621;
+    border-color: color-mix(in srgb, #c05621 50%, var(--bd));
+    background: color-mix(in srgb, #c05621 12%, transparent);
+  }
+  .pay-btn-export:hover { background: color-mix(in srgb, #c05621 20%, transparent); }
+  .pay-btn-import {
+    color: #2f855a;
+    border-color: color-mix(in srgb, #2f855a 50%, var(--bd));
+    background: color-mix(in srgb, #2f855a 12%, transparent);
+  }
+  .pay-btn-import:hover { background: color-mix(in srgb, #2f855a 20%, transparent); }
+  #paymentImportModal .modal { width: min(1100px, 96vw); max-width: 1100px; overflow: visible; }
+  .pay-import-drop {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    padding: 28px 16px; border: 1px dashed var(--bd); border-radius: 12px; background: var(--sf); cursor: pointer;
+  }
+  .pay-import-drop strong { font-size: .9rem; }
+  .pay-import-drop span { font-size: .78rem; color: var(--mute); }
+  .pay-import-file-name { margin-top: 10px; font-size: .8rem; color: var(--text-dim); }
+  .pay-import-stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .pay-import-table-wrap { max-height: min(58vh, 560px); overflow: auto; border: 1px solid var(--bd); border-radius: 10px; }
+  .pay-import-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+  .pay-import-table th, .pay-import-table td { padding: 6px 8px; border-bottom: 1px solid var(--bd); vertical-align: middle; }
+  .pay-import-table th { position: sticky; top: 0; background: var(--sf); z-index: 1; font-size: .72rem; color: var(--mute); }
+  .pay-import-table .input, .pay-import-table .select { height: 32px; padding: 0 8px; font-size: .78rem; width: 100%; }
+  .pay-import-row-warn { background: color-mix(in srgb, #c05621 10%, transparent); }
+  .pay-import-cat-missing { color: #c05621; font-weight: 700; }
+  .pay-import-hint { font-size: .75rem; color: var(--mute); line-height: 1.6; }
+  .pay-import-error { color: #c53030; font-size: .8rem; margin-top: 8px; }
 </style>
 <?php endif; ?>
 
@@ -765,7 +810,10 @@ include __DIR__ . '/inc/layout_head.php';
     <?php elseif ($tab !== 'pending'): ?>
     <div class="toolbar-end pay-toolbar">
       <div class="pay-toolbar-actions">
-        <a href="<?= htmlspecialchars($financialExportUrl, ENT_QUOTES) ?>" class="btn btn-ghost btn-sm">
+        <button type="button" class="btn btn-ghost btn-sm pay-btn-import" id="payImportOpenBtn">
+          <?= icon('arrow-up', 14) ?> ورود دیتا با اکسل
+        </button>
+        <a href="<?= htmlspecialchars($financialExportUrl, ENT_QUOTES) ?>" class="btn btn-ghost btn-sm pay-btn-export">
           <?= icon('arrow-down', 14) ?> خروجی اکسل مالی
         </a>
         <button type="button" class="btn btn-ghost btn-sm" onclick="openModal('paymentFilterModal')">
@@ -1224,6 +1272,58 @@ function openRejectModal(orderId) {
     </form>
   </div>
 </div>
+
+<div class="modal-veil" id="paymentImportModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="payImportTitle">ورود دیتا با اکسل</h3>
+      <button type="button" class="modal-x" onclick="closeModal('paymentImportModal')"><?= icon('close', 14) ?></button>
+    </div>
+    <div class="modal-body">
+      <div id="payImportStepFile">
+        <label class="pay-import-drop" for="payImportFile">
+          <?= icon('arrow-up', 20) ?>
+          <strong>انتخاب فایل CSV یا XLSX</strong>
+          <span>حداکثر ۵ مگابایت — ستون‌ها مطابق نمونه مالی</span>
+        </label>
+        <input type="file" id="payImportFile" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+        <div class="pay-import-file-name" id="payImportFileName"></div>
+      </div>
+      <div id="payImportStepRate" hidden>
+        <p class="pay-import-hint">نرخ تبدیل برای سطرهایی که واحد آن‌ها دلار است استفاده می‌شود. اگر فایل فقط تومان دارد می‌توانید این فیلد را خالی بگذارید.</p>
+        <div class="field" style="margin-top:12px">
+          <label class="lbl">هر ۱ دلار چند تومان؟</label>
+          <input type="number" class="input" id="payImportUsdRate" min="1" step="1" placeholder="مثلاً 100000">
+        </div>
+      </div>
+      <div id="payImportStepPreview" hidden>
+        <div class="pay-import-stats" id="payImportStats"></div>
+        <p class="pay-import-hint">مبالغ به تومان تبدیل شده‌اند. قبل از ورود به دیتابیس همه فیلدها را بررسی و در صورت نیاز ویرایش کنید. سطرهای بدون دسته باید دستی انتخاب شوند.</p>
+        <div class="pay-import-table-wrap" style="margin-top:10px">
+          <table class="pay-import-table">
+            <thead>
+              <tr>
+                <th style="width:42px">#</th>
+                <th style="width:110px">نوع</th>
+                <th style="width:170px">تاریخ</th>
+                <th style="width:140px">مبلغ (تومان)</th>
+                <th>یادداشت</th>
+                <th style="width:180px">دسته‌بندی</th>
+              </tr>
+            </thead>
+            <tbody id="payImportPreviewBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="pay-import-error" id="payImportError" hidden></div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn btn-ghost" id="payImportBackBtn" hidden>بازگشت</button>
+      <button type="button" class="btn btn-primary" id="payImportNextBtn" disabled>ادامه</button>
+      <button type="button" class="btn btn-ghost" onclick="closeModal('paymentImportModal')">انصراف</button>
+    </div>
+  </div>
+</div>
 <?php endif; ?>
 
 <?php if ($tab !== 'pending'): ?>
@@ -1255,8 +1355,13 @@ window.PAYMENT_SHEET = <?= json_encode([
         'trash' => icon('trash', 14),
     ],
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+window.PAYMENT_IMPORT = <?= json_encode([
+    'csrf' => csrf_token(),
+    'tab' => $tab,
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 </script>
 <script src="<?= htmlspecialchars(panel_asset('js/payment_sheet.js')) ?>"></script>
+<script src="<?= htmlspecialchars(panel_asset('js/payment_import.js')) ?>"></script>
 <?php endif; ?>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

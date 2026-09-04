@@ -205,6 +205,28 @@ function payment_filter_date_presets(): array
     return $items;
 }
 
+function payment_sum_report_price(PDO $pdo, array $where, array $params): int
+{
+    if (!$where) {
+        return 0;
+    }
+    $sql = 'WHERE ' . implode(' AND ', $where);
+    return (int) db_query(
+        $pdo,
+        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report $sql",
+        $params
+    )->fetchColumn();
+}
+
+function payment_system_method_in_clause(): array
+{
+    $methods = array_keys(panel_payment_system_method_map());
+    if (!$methods) {
+        return ['', []];
+    }
+    return [implode(',', array_fill(0, count($methods), '?')), $methods];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check_post();
     $action = $_POST['action'] ?? '';
@@ -547,6 +569,8 @@ if ($userIds) {
 }
 
 $totalSuccess = 0;
+$totalTxnIncome = 0;
+$totalCapitalIncome = 0;
 $totalCosts = 0;
 $forecastIncome = 0;
 $todayCount = 0;
@@ -570,12 +594,18 @@ try {
     $successWhere = array_merge(["payment_Status = 'paid'"], $cardWhere);
     $successParams = $cardParams;
     payment_append_income_filters($successWhere, $successParams, $status, $tab === 'costs' ? '' : $method);
-    $successSQL = 'WHERE ' . implode(' AND ', $successWhere);
-    $totalSuccess = $hideIncomeCards ? 0 : (int) db_query(
-        $pdo,
-        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report $successSQL",
-        $successParams
-    )->fetchColumn();
+    if ($hideIncomeCards) {
+        $totalSuccess = $totalTxnIncome = $totalCapitalIncome = 0;
+    } else {
+        $totalSuccess = payment_sum_report_price($pdo, $successWhere, $successParams);
+        [$sysPlaceholders, $sysMethods] = payment_system_method_in_clause();
+        if ($sysPlaceholders !== '') {
+            $txnWhere = array_merge($successWhere, ["Payment_Method IN ($sysPlaceholders)"]);
+            $totalTxnIncome = payment_sum_report_price($pdo, $txnWhere, array_merge($successParams, $sysMethods));
+            $capitalWhere = array_merge($successWhere, ["(Payment_Method NOT IN ($sysPlaceholders) OR Payment_Method IS NULL OR Payment_Method = '')"]);
+            $totalCapitalIncome = payment_sum_report_price($pdo, $capitalWhere, array_merge($successParams, $sysMethods));
+        }
+    }
 
     $costWhere = array_merge(["payment_Status = 'cost'"], $cardWhere);
     $costParams = $cardParams;
@@ -623,6 +653,8 @@ $cardsFiltered = $search !== '' || $priceMin !== null || $priceMax !== null || $
     || $method !== '' || $category !== '' || $kind !== '' || $expenseStatus !== ''
     || ($tab !== 'costs' && $status !== '');
 $successMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'از ابتدای فعالیت';
+$txnMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'درگاه‌ها و متدهای پرداخت';
+$capitalMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'دسته‌های غیرتراکنش ثبت‌شده';
 $costMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'هزینه شده';
 $netMeta = $cardsFiltered ? 'بر اساس فیلترهای انتخاب‌شده' : 'درآمد منهای هزینه';
 
@@ -871,9 +903,19 @@ include __DIR__ . '/inc/layout_head.php';
 <?php if ($tab !== 'pending'): ?>
 <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
   <div class="stat success">
-    <div class="stat-label">جمع تراکنش‌های موفق</div>
+    <div class="stat-label">جمع درآمد کل</div>
     <div class="stat-num"><?= number_format($totalSuccess) ?><small>تومان</small></div>
     <div class="stat-meta"><?= $successMeta ?></div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">جمع کل تراکنش‌ها</div>
+    <div class="stat-num"><?= number_format($totalTxnIncome) ?><small>تومان</small></div>
+    <div class="stat-meta"><?= $txnMeta ?></div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">جمع سرمایه ورودی</div>
+    <div class="stat-num"><?= number_format($totalCapitalIncome) ?><small>تومان</small></div>
+    <div class="stat-meta"><?= $capitalMeta ?></div>
   </div>
   <div class="stat">
     <div class="stat-label">درآمد پیش‌بینی‌شده ماهانه</div>

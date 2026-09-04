@@ -730,8 +730,29 @@ include __DIR__ . '/inc/layout_head.php';
 <?php if ($tab !== 'pending'): ?>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.min.css">
 <style>
-  .datepicker-plot-area { z-index: 3000 !important; }
-  #paymentFilterModal .modal { overflow: visible; }
+  .datepicker-plot-area { z-index: 3000 !important; position: fixed !important; }
+  #paymentFilterModal .modal {
+    display: flex;
+    flex-direction: column;
+    max-height: min(90vh, 100%);
+    overflow: hidden;
+  }
+  #paymentFilterModal .modal > form {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #paymentFilterModal .modal-head,
+  #paymentFilterModal .modal-foot { flex-shrink: 0; }
+  #paymentFilterModal .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
   .pay-sheet-row td { vertical-align: middle; }
   .pay-sheet-row .pay-edit { display: none; width: 100%; min-width: 0; }
   .pay-sheet-row .pay-cell-input { height: 32px; padding: 0 8px; font-size: .8rem; }

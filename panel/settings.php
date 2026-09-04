@@ -220,9 +220,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(($_POST['action'] ?? ''), 
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(($_POST['action'] ?? ''), ['income_add', 'income_edit', 'income_delete'], true)) {
+    csrf_check_post();
+    $action = (string) ($_POST['action'] ?? '');
+    if ($action === 'income_add') {
+        $r = panel_income_add($pdo, (string) ($_POST['label'] ?? ''), (int) ($_POST['sort_order'] ?? 0));
+    } elseif ($action === 'income_edit') {
+        $sortRaw = trim((string) ($_POST['sort_order'] ?? ''));
+        $r = panel_income_rename(
+            $pdo,
+            (int) ($_POST['edit_id'] ?? 0),
+            (string) ($_POST['label'] ?? ''),
+            $sortRaw === '' ? null : (int) $sortRaw
+        );
+    } else {
+        $r = panel_income_delete($pdo, (int) ($_POST['delete_id'] ?? 0));
+    }
+    flash(!empty($r['ok']) ? 'success' : 'error', $r['msg'] ?? '');
+    header('Location: settings.php?tab=finance');
+    exit;
+}
+
 if (isset($_GET['delete_expense'])) {
     csrf_check_get();
     $r = panel_expense_delete($pdo, (int) ($_GET['delete_expense'] ?? 0));
+    flash(!empty($r['ok']) ? 'success' : 'error', $r['msg'] ?? '');
+    header('Location: settings.php?tab=finance');
+    exit;
+}
+
+if (isset($_GET['delete_income'])) {
+    csrf_check_get();
+    $r = panel_income_delete($pdo, (int) ($_GET['delete_income'] ?? 0));
     flash(!empty($r['ok']) ? 'success' : 'error', $r['msg'] ?? '');
     header('Location: settings.php?tab=finance');
     exit;
@@ -355,10 +384,14 @@ $tabs = [
 
 $expenseCategories = [];
 $expenseUsage = [];
+$incomeCategories = [];
+$incomeUsage = [];
 if ($tab === 'finance') {
     panel_payment_ensure_schema($pdo);
     $expenseCategories = panel_expense_categories($pdo);
     $expenseUsage = panel_expense_usage_counts($pdo);
+    $incomeCategories = panel_income_categories($pdo);
+    $incomeUsage = panel_income_usage_counts($pdo);
 }
 
 $pageTitle = $tab === 'bot' ? 'منوی ربات' : 'تنظیمات';
@@ -633,6 +666,83 @@ include __DIR__ . '/inc/layout_head.php';
 
 <?php elseif ($tab === 'finance'): ?>
 
+    <div class="card fade-up" style="margin-bottom:16px">
+        <div class="card-head">
+            <div>
+                <div class="card-title">دسته‌های درآمد</div>
+                <div class="card-subtitle">متدها و درگاه‌های پرداخت ثابت‌اند؛ دسته‌های دستی درآمد را اینجا اضافه کنید</div>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="openModal('incomeAddModal')"><?= icon('plus', 14) ?> افزودن دسته</button>
+        </div>
+        <?php if (empty($incomeCategories)): ?>
+            <div class="empty" style="padding:48px 20px">
+                <p>هنوز دسته‌ای ثبت نشده</p>
+                <button type="button" class="btn btn-primary" style="margin-top:14px" onclick="openModal('incomeAddModal')"><?= icon('plus', 14) ?> افزودن دسته</button>
+            </div>
+        <?php else: ?>
+            <div class="tbl-wrap">
+                <table class="tbl-lg">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>نام دسته</th>
+                            <th>تعداد درآمد</th>
+                            <th>ترتیب</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php $i = 1; foreach ($incomeCategories as $cat):
+                            $slug = (string) ($cat['slug'] ?? '');
+                            $isProtected = in_array($slug, panel_income_protected_slugs(), true);
+                            $used = (int) ($incomeUsage[$slug] ?? 0);
+                            $editPayload = [
+                                'id' => (int) ($cat['id'] ?? 0),
+                                'label' => (string) ($cat['label'] ?? ''),
+                                'sort_order' => (int) ($cat['sort_order'] ?? 0),
+                            ];
+                        ?>
+                        <tr>
+                            <td class="cf"><?= $i++ ?></td>
+                            <td>
+                                <?= htmlspecialchars((string) ($cat['label'] ?? '')) ?>
+                                <?php if ($isProtected): ?>
+                                    <span class="tag tag-plain" style="margin-right:6px">سیستمی</span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="cn"><?= number_format($used) ?></td>
+                            <td class="cf"><?= (int) ($cat['sort_order'] ?? 0) ?></td>
+                            <td>
+                                <div style="display:flex;gap:5px;flex-wrap:wrap">
+                                    <?php if (!$isProtected): ?>
+                                    <button type="button" class="btn btn-ghost btn-sm btn-icon" title="ویرایش"
+                                        onclick="openIncomeEditModal(<?= htmlspecialchars(json_encode($editPayload, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)">
+                                        <?= icon('edit', 13) ?>
+                                    </button>
+                                    <?php if ($used > 0): ?>
+                                    <button type="button" class="btn btn-no btn-sm btn-icon" title="این دسته روی <?= number_format($used) ?> درآمد استفاده شده" disabled>
+                                        <?= icon('trash', 13) ?>
+                                    </button>
+                                    <?php else: ?>
+                                    <a href="settings.php?tab=finance&delete_income=<?= (int) ($cat['id'] ?? 0) ?>&_csrf=<?= csrf_token() ?>"
+                                        class="btn btn-no btn-sm btn-icon" title="حذف"
+                                        data-confirm="حذف دسته «<?= htmlspecialchars((string) ($cat['label'] ?? '')) ?>»؟">
+                                        <?= icon('trash', 13) ?>
+                                    </a>
+                                    <?php endif; ?>
+                                    <?php else: ?>
+                                    <span class="cf" style="font-size:.75rem">غیرقابل تغییر</span>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+    </div>
+
     <div class="card fade-up">
         <div class="card-head">
             <div>
@@ -770,7 +880,68 @@ include __DIR__ . '/inc/layout_head.php';
         document.getElementById('expense_edit_sort').value = c.sort_order != null ? c.sort_order : 0;
         openModal('expenseEditModal');
     };
+    window.openIncomeEditModal = function (c) {
+        document.getElementById('income_edit_id').value = c.id || '';
+        document.getElementById('income_edit_label').value = c.label || '';
+        document.getElementById('income_edit_sort').value = c.sort_order != null ? c.sort_order : 0;
+        openModal('incomeEditModal');
+    };
     </script>
+
+    <div class="modal-veil" id="incomeAddModal">
+        <div class="modal" style="max-width:480px">
+            <div class="modal-head">
+                <h3>افزودن دسته درآمد</h3>
+                <button type="button" class="modal-x" onclick="closeModal('incomeAddModal')"><?= icon('close', 14) ?></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                    <input type="hidden" name="action" value="income_add">
+                    <div class="field">
+                        <label>نام دسته *</label>
+                        <input type="text" name="label" class="input" placeholder="مثلاً فروش سخت‌افزار، اجاره، ..." required maxlength="64">
+                    </div>
+                    <div class="field">
+                        <label>ترتیب نمایش</label>
+                        <input type="number" name="sort_order" class="input" value="0" step="1">
+                    </div>
+                </div>
+                <div class="modal-foot">
+                    <button type="submit" class="btn btn-primary"><?= icon('plus', 13) ?> ذخیره</button>
+                    <button type="button" class="btn btn-ghost" onclick="closeModal('incomeAddModal')">انصراف</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-veil" id="incomeEditModal">
+        <div class="modal" style="max-width:480px">
+            <div class="modal-head">
+                <h3>ویرایش دسته درآمد</h3>
+                <button type="button" class="modal-x" onclick="closeModal('incomeEditModal')"><?= icon('close', 14) ?></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                    <input type="hidden" name="action" value="income_edit">
+                    <input type="hidden" name="edit_id" id="income_edit_id">
+                    <div class="field">
+                        <label>نام دسته *</label>
+                        <input type="text" name="label" id="income_edit_label" class="input" required maxlength="64">
+                    </div>
+                    <div class="field">
+                        <label>ترتیب نمایش</label>
+                        <input type="number" name="sort_order" id="income_edit_sort" class="input" step="1">
+                    </div>
+                </div>
+                <div class="modal-foot">
+                    <button type="submit" class="btn btn-primary"><?= icon('check', 13) ?> ذخیره تغییرات</button>
+                    <button type="button" class="btn btn-ghost" onclick="closeModal('incomeEditModal')">انصراف</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
 <?php elseif ($tab === 'security'): ?>
 

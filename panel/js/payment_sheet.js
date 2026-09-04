@@ -450,7 +450,7 @@
     removeEmptyRow();
     var oid = randomOrderId();
     var now = cfg.nowJalali || '';
-    var defaultMethod = 'manual invoice';
+    var defaultMethod = cfg.defaultMethod || 'manual invoice';
     var defaultStatus = 'paid';
     var defaultCategory = cfg.defaultCategory || Object.keys(cfg.categoryOptions || {})[0] || 'other';
     var methodLabel = (cfg.methodOptions && cfg.methodOptions[defaultMethod]) || 'فاکتور دستی';

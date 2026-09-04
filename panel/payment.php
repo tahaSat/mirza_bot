@@ -565,32 +565,32 @@ try {
         if ($key === '') {
             continue;
         }
-        $methodOptions[$key] = panel_payment_method_label($key);
+        $methodOptions[$key] = panel_payment_method_label($key, $pdo);
     }
 } catch (Exception $e) {
 }
-if (!isset($methodOptions['manual invoice'])) {
-    $methodOptions['manual invoice'] = panel_payment_method_label('manual invoice');
-}
-if (!isset($methodOptions['capital_injection'])) {
-    $methodOptions['capital_injection'] = panel_payment_method_label('capital_injection');
+foreach (panel_income_category_map($pdo) as $key => $lbl) {
+    if (!isset($methodOptions[$key])) {
+        $methodOptions[$key] = $lbl;
+    }
 }
 if ($method !== '' && !isset($methodOptions[$method]) && $method !== 'cost') {
-    $methodOptions[$method] = panel_payment_method_label($method);
+    $methodOptions[$method] = panel_payment_method_label($method, $pdo);
 }
 asort($methodOptions, SORT_STRING);
 
-$sheetMethodOptions = panel_payment_method_map();
-unset($sheetMethodOptions['cost']);
+// Sheet picker: income categories first (editable in settings), then system gateways/methods.
+$sheetMethodOptions = panel_payment_income_method_options($pdo);
 foreach ($methodOptions as $k => $lbl) {
     if ($k === 'cost') {
         continue;
     }
-    $sheetMethodOptions[$k] = $lbl;
+    if (!isset($sheetMethodOptions[$k])) {
+        $sheetMethodOptions[$k] = $lbl;
+    }
 }
-asort($sheetMethodOptions, SORT_STRING);
 $pinnedMethods = [];
-foreach (['manual invoice', 'capital_injection'] as $pinKey) {
+foreach (array_keys(panel_income_category_map($pdo)) as $pinKey) {
     if (isset($sheetMethodOptions[$pinKey])) {
         $pinnedMethods[$pinKey] = $sheetMethodOptions[$pinKey];
         unset($sheetMethodOptions[$pinKey]);
@@ -700,7 +700,7 @@ include __DIR__ . '/inc/layout_head.php';
     <a href="payment.php?tab=costs" class="btn btn-sm <?= $tab === 'costs' ? 'btn-primary' : 'btn-ghost' ?>">هزینه‌ها</a>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <a href="settings.php?tab=finance" class="btn btn-ghost btn-sm"><?= icon('wallet', 14) ?> دسته‌های هزینه</a>
+    <a href="settings.php?tab=finance" class="btn btn-ghost btn-sm"><?= icon('wallet', 14) ?> دسته‌های مالی</a>
     <a href="payment_methods.php" class="btn btn-ghost btn-sm"><?= icon('settings', 14) ?> درگاه‌های پرداخت</a>
   </div>
 </div>
@@ -853,7 +853,7 @@ include __DIR__ . '/inc/layout_head.php';
             $st = $p['payment_Status'] ?? '';
             [$cls, $lbl] = $statusMap[$st] ?? ['tag-plain', $st ?: '—'];
             $methodKey = (string) ($p['Payment_Method'] ?? '');
-            $methodLabel = panel_payment_method_label($methodKey);
+            $methodLabel = panel_payment_method_label($methodKey, $pdo);
             $categoryKey = panel_expense_resolve_slug($pdo, (string) ($p['expense_category'] ?? ''));
             $categoryLabel = panel_expense_category_label($pdo, $categoryKey);
             $oid = (string) ($p['id_order'] ?? '');
@@ -1248,6 +1248,7 @@ window.PAYMENT_SHEET = <?= json_encode([
     'methodOptions' => $sheetMethodOptions,
     'categoryOptions' => $categoryOptions,
     'defaultCategory' => panel_expense_default_slug(),
+    'defaultMethod' => panel_income_default_slug(),
     'icons' => [
         'edit' => icon('edit', 14),
         'save' => icon('check', 14),

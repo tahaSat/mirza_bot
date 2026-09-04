@@ -473,6 +473,17 @@ function panel_expense_default_slug(): string
     return 'other';
 }
 
+/** Built-in income methods that must stay in DB and cannot be deleted. */
+function panel_income_protected_slugs(): array
+{
+    return ['manual invoice', 'capital_injection'];
+}
+
+function panel_income_default_slug(): string
+{
+    return 'manual invoice';
+}
+
 function panel_payment_ensure_schema(PDO $pdo): void
 {
     static $ready = false;
@@ -514,6 +525,34 @@ function panel_payment_ensure_schema(PDO $pdo): void
         }
     } catch (Throwable $e) {
         error_log('panel_payment_ensure_schema expense_category: ' . $e->getMessage());
+    }
+
+    try {
+        $pdo->exec(
+            "CREATE TABLE IF NOT EXISTS income_category (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                slug VARCHAR(64) NOT NULL,
+                label VARCHAR(128) NOT NULL,
+                sort_order INT NOT NULL DEFAULT 0,
+                PRIMARY KEY (id),
+                UNIQUE KEY uq_income_category_slug (slug)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+        $seeds = [
+            ['manual invoice', 'فاکتور دستی', 0],
+            ['capital_injection', 'ورود سرمایه', 10],
+        ];
+        foreach ($seeds as [$slug, $label, $sort]) {
+            if (!db_fetch($pdo, 'SELECT id FROM income_category WHERE slug = ?', [$slug])) {
+                db_query(
+                    $pdo,
+                    'INSERT INTO income_category (slug, label, sort_order) VALUES (?,?,?)',
+                    [$slug, $label, $sort]
+                );
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('panel_payment_ensure_schema income_category: ' . $e->getMessage());
     }
 
     try {
@@ -746,6 +785,227 @@ function panel_expense_delete(PDO $pdo, int $id): array
     return ['ok' => true, 'msg' => 'دسته حذف شد.'];
 }
 
+function panel_income_category_map(PDO $pdo, bool $refresh = false): array
+{
+    static $map = null;
+    if ($map !== null && !$refresh) {
+        return $map;
+    }
+    panel_payment_ensure_schema($pdo);
+    $map = [];
+    try {
+        $rows = db_fetchAll($pdo, 'SELECT slug, label FROM income_category ORDER BY sort_order ASC, id ASC');
+        foreach ($rows as $row) {
+            $slug = (string) ($row['slug'] ?? '');
+            if ($slug === '') {
+                continue;
+            }
+            $map[$slug] = (string) ($row['label'] ?? $slug);
+        }
+    } catch (Throwable $e) {
+        error_log('panel_income_category_map: ' . $e->getMessage());
+    }
+    foreach (panel_income_protected_slugs() as $slug) {
+        if (!isset($map[$slug])) {
+            $fallback = [
+                'manual invoice' => 'فاکتور دستی',
+                'capital_injection' => 'ورود سرمایه',
+            ];
+            $map[$slug] = $fallback[$slug] ?? $slug;
+        }
+    }
+    return $map;
+}
+
+function panel_income_categories(PDO $pdo): array
+{
+    panel_payment_ensure_schema($pdo);
+    try {
+        return db_fetchAll($pdo, 'SELECT * FROM income_category ORDER BY sort_order ASC, id ASC') ?: [];
+    } catch (Throwable $e) {
+        error_log('panel_income_categories: ' . $e->getMessage());
+        return [];
+    }
+}
+
+function panel_income_category_label(PDO $pdo, string $slug): string
+{
+    $map = panel_income_category_map($pdo);
+    $slug = trim($slug);
+    if ($slug !== '' && isset($map[$slug])) {
+        return $map[$slug];
+    }
+    return $map[panel_income_default_slug()] ?? ($slug !== '' ? $slug : '—');
+}
+
+function panel_income_resolve_slug(PDO $pdo, string $slug): string
+{
+    $map = panel_income_category_map($pdo);
+    $slug = trim($slug);
+    if ($slug !== '' && isset($map[$slug])) {
+        return $slug;
+    }
+    return panel_income_default_slug();
+}
+
+function panel_income_usage_counts(PDO $pdo): array
+{
+    panel_payment_ensure_schema($pdo);
+    $counts = [];
+    try {
+        $rows = db_fetchAll(
+            $pdo,
+            "SELECT Payment_Method AS slug, COUNT(*) AS cnt
+             FROM Payment_report
+             WHERE Payment_Method IS NOT NULL AND Payment_Method != '' AND Payment_Method != 'cost'
+               AND (tx_type IS NULL OR tx_type = '' OR tx_type = 'income')
+               AND payment_Status <> 'cost'
+             GROUP BY Payment_Method"
+        );
+        foreach ($rows as $row) {
+            $counts[(string) ($row['slug'] ?? '')] = (int) ($row['cnt'] ?? 0);
+        }
+    } catch (Throwable $e) {
+        error_log('panel_income_usage_counts: ' . $e->getMessage());
+    }
+    return $counts;
+}
+
+function panel_income_reserved_slugs(): array
+{
+    $reserved = array_keys(panel_payment_system_method_map());
+    $reserved[] = 'cost';
+    return $reserved;
+}
+
+function panel_income_make_slug(PDO $pdo, string $label, ?int $excludeId = null): string
+{
+    $base = strtolower(trim($label));
+    $base = preg_replace('/[^a-z0-9]+/', '-', $base) ?? '';
+    $base = trim($base, '-');
+    if ($base === '' || in_array($base, panel_income_reserved_slugs(), true)) {
+        $base = 'inc-' . substr(bin2hex(random_bytes(4)), 0, 8);
+    }
+    $slug = $base;
+    $n = 2;
+    while (true) {
+        if (in_array($slug, panel_income_reserved_slugs(), true)) {
+            $slug = $base . '-' . $n;
+            $n++;
+            continue;
+        }
+        $row = db_fetch($pdo, 'SELECT id FROM income_category WHERE slug = ?', [$slug]);
+        if (!$row || ($excludeId !== null && (int) $row['id'] === $excludeId)) {
+            return $slug;
+        }
+        $slug = $base . '-' . $n;
+        $n++;
+        if ($n > 50) {
+            return 'inc-' . bin2hex(random_bytes(4));
+        }
+    }
+}
+
+/**
+ * @return array{ok:bool,msg:string}
+ */
+function panel_income_add(PDO $pdo, string $label, int $sortOrder = 0): array
+{
+    panel_payment_ensure_schema($pdo);
+    $label = trim($label);
+    if ($label === '') {
+        return ['ok' => false, 'msg' => 'نام دسته الزامی است.'];
+    }
+    if (mb_strlen($label) > 64) {
+        return ['ok' => false, 'msg' => 'نام دسته خیلی طولانی است.'];
+    }
+    if (db_fetch($pdo, 'SELECT id FROM income_category WHERE label = ?', [$label])) {
+        return ['ok' => false, 'msg' => 'دسته‌ای با این نام قبلاً ثبت شده.'];
+    }
+    foreach (panel_payment_system_method_map() as $sysLabel) {
+        if ($sysLabel === $label) {
+            return ['ok' => false, 'msg' => 'این نام متعلق به متد/درگاه سیستمی است.'];
+        }
+    }
+    $slug = panel_income_make_slug($pdo, $label);
+    db_query(
+        $pdo,
+        'INSERT INTO income_category (slug, label, sort_order) VALUES (?,?,?)',
+        [$slug, $label, $sortOrder]
+    );
+    panel_income_category_map($pdo, true);
+    return ['ok' => true, 'msg' => 'دسته «' . $label . '» اضافه شد.'];
+}
+
+/**
+ * @return array{ok:bool,msg:string}
+ */
+function panel_income_rename(PDO $pdo, int $id, string $label, ?int $sortOrder = null): array
+{
+    panel_payment_ensure_schema($pdo);
+    $label = trim($label);
+    if ($id < 1 || $label === '') {
+        return ['ok' => false, 'msg' => 'نام دسته الزامی است.'];
+    }
+    if (mb_strlen($label) > 64) {
+        return ['ok' => false, 'msg' => 'نام دسته خیلی طولانی است.'];
+    }
+    $row = db_fetch($pdo, 'SELECT * FROM income_category WHERE id = ?', [$id]);
+    if (!$row) {
+        return ['ok' => false, 'msg' => 'دسته یافت نشد.'];
+    }
+    $slug = (string) ($row['slug'] ?? '');
+    if (in_array($slug, panel_income_protected_slugs(), true)) {
+        return ['ok' => false, 'msg' => 'دسته سیستمی «' . ($row['label'] ?? $slug) . '» قابل ویرایش نیست.'];
+    }
+    $dup = db_fetch($pdo, 'SELECT id FROM income_category WHERE label = ? AND id != ?', [$label, $id]);
+    if ($dup) {
+        return ['ok' => false, 'msg' => 'دسته‌ای با این نام قبلاً ثبت شده.'];
+    }
+    foreach (panel_payment_system_method_map() as $sysLabel) {
+        if ($sysLabel === $label) {
+            return ['ok' => false, 'msg' => 'این نام متعلق به متد/درگاه سیستمی است.'];
+        }
+    }
+    if ($sortOrder === null) {
+        db_query($pdo, 'UPDATE income_category SET label = ? WHERE id = ?', [$label, $id]);
+    } else {
+        db_query($pdo, 'UPDATE income_category SET label = ?, sort_order = ? WHERE id = ?', [$label, $sortOrder, $id]);
+    }
+    panel_income_category_map($pdo, true);
+    return ['ok' => true, 'msg' => 'دسته ویرایش شد.'];
+}
+
+/**
+ * @return array{ok:bool,msg:string}
+ */
+function panel_income_delete(PDO $pdo, int $id): array
+{
+    panel_payment_ensure_schema($pdo);
+    $row = db_fetch($pdo, 'SELECT * FROM income_category WHERE id = ?', [$id]);
+    if (!$row) {
+        return ['ok' => false, 'msg' => 'دسته یافت نشد.'];
+    }
+    $slug = (string) ($row['slug'] ?? '');
+    if (in_array($slug, panel_income_protected_slugs(), true)) {
+        return ['ok' => false, 'msg' => 'دسته سیستمی «' . ($row['label'] ?? $slug) . '» قابل حذف نیست.'];
+    }
+    $used = (int) db_query(
+        $pdo,
+        "SELECT COUNT(*) FROM Payment_report
+         WHERE Payment_Method = ?
+           AND (tx_type IS NULL OR tx_type = '' OR tx_type = 'income')
+           AND payment_Status <> 'cost'",
+        [$slug]
+    )->fetchColumn();
+    if ($used > 0) {
+        return ['ok' => false, 'msg' => 'این دسته روی ' . number_format($used) . ' درآمد استفاده شده و قابل حذف نیست.'];
+    }
+    db_query($pdo, 'DELETE FROM income_category WHERE id = ?', [$id]);
+    panel_income_category_map($pdo, true);
+    return ['ok' => true, 'msg' => 'دسته حذف شد.'];
+}
+
 function panel_payment_parse_time($raw): int
 {
     $raw = trim((string) $raw);
@@ -817,7 +1077,8 @@ function panel_payment_status_meta(): array
     ];
 }
 
-function panel_payment_method_map(): array
+/** Hardcoded payment gateways & system methods (not editable in settings). */
+function panel_payment_system_method_map(): array
 {
     return [
         'cart to cart' => 'کارت به کارت',
@@ -833,12 +1094,39 @@ function panel_payment_method_map(): array
         'Star Telegram' => 'استار تلگرام',
         'nowpayment' => 'NowPayment',
         'tetraminator' => 'Tetraminator',
-        'manual invoice' => 'فاکتور دستی',
-        'capital_injection' => 'ورود سرمایه',
         'add order by admin' => 'سفارش توسط ادمین',
         'extend by admin' => 'تمدید توسط ادمین',
         'refund to wallet' => 'مرجوعی به کیف پول',
     ];
+}
+
+/**
+ * Full method label map: system methods + income categories from DB.
+ * @param PDO|null $pdo When null, only system methods (+ protected income fallbacks) are returned.
+ */
+function panel_payment_method_map(?PDO $pdo = null): array
+{
+    $map = panel_payment_system_method_map();
+    if ($pdo instanceof PDO) {
+        foreach (panel_income_category_map($pdo) as $slug => $label) {
+            $map[$slug] = $label;
+        }
+    } else {
+        $map['manual invoice'] = 'فاکتور دستی';
+        $map['capital_injection'] = 'ورود سرمایه';
+    }
+    return $map;
+}
+
+/**
+ * Options for registering/editing income rows (DB categories first, then system methods).
+ */
+function panel_payment_income_method_options(PDO $pdo): array
+{
+    $income = panel_income_category_map($pdo);
+    $system = panel_payment_system_method_map();
+    // Prefer income-category labels; keep system methods available for filters / existing rows.
+    return $income + $system;
 }
 
 function panel_payment_row_has_product(array $payment): bool
@@ -992,9 +1280,15 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
         $orderId = panel_payment_new_order_id($pdo);
     }
 
-    $method = trim((string) ($input['method'] ?? 'manual invoice'));
+    $method = trim((string) ($input['method'] ?? panel_income_default_slug()));
     if ($method === '' || $method === 'cost') {
-        $method = 'manual invoice';
+        $method = panel_income_default_slug();
+    }
+    $systemMethods = panel_payment_system_method_map();
+    $incomeMethods = panel_income_category_map($pdo);
+    if (!isset($systemMethods[$method]) && !isset($incomeMethods[$method])) {
+        // Allow unknown methods only if they already exist in history; otherwise fall back.
+        $method = panel_income_default_slug();
     }
     $isCapital = $method === 'capital_injection';
 
@@ -1264,6 +1558,12 @@ function panel_payment_update_row(PDO $pdo, string $orderId, array $input): arra
         );
     } elseif ($method === '' || $method === 'cost') {
         $method = (string) ($payment['Payment_Method'] ?? '');
+    } else {
+        $systemMethods = panel_payment_system_method_map();
+        $incomeMethods = panel_income_category_map($pdo);
+        if (!isset($systemMethods[$method]) && !isset($incomeMethods[$method])) {
+            $method = (string) ($payment['Payment_Method'] ?? panel_income_default_slug());
+        }
     }
 
     $timeRaw = trim((string) ($input['time'] ?? ''));
@@ -1321,8 +1621,29 @@ function panel_payment_delete_row(PDO $pdo, string $orderId): array
     return ['ok' => true, 'msg' => 'تراکنش حذف شد.'];
 }
 
-function panel_payment_method_label(string $method): string
+function panel_payment_method_label(string $method, ?PDO $db = null): string
 {
-    $map = panel_payment_method_map();
-    return $map[$method] ?? ($method !== '' ? $method : '—');
+    if ($db === null) {
+        global $pdo;
+        $db = ($pdo instanceof PDO) ? $pdo : null;
+    }
+    $method = trim($method);
+    $system = panel_payment_system_method_map();
+    if ($method !== '' && isset($system[$method])) {
+        return $system[$method];
+    }
+    if ($db instanceof PDO) {
+        $income = panel_income_category_map($db);
+        if ($method !== '' && isset($income[$method])) {
+            return $income[$method];
+        }
+    }
+    $fallback = [
+        'manual invoice' => 'فاکتور دستی',
+        'capital_injection' => 'ورود سرمایه',
+    ];
+    if ($method !== '' && isset($fallback[$method])) {
+        return $fallback[$method];
+    }
+    return $method !== '' ? $method : '—';
 }

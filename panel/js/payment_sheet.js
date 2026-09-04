@@ -814,9 +814,4 @@
     });
   }
 
-  if (window.jQuery) {
-    window.jQuery(function () {
-      document.querySelectorAll('#paymentFilterModal .jalali-datetime-picker').forEach(initJalaliPicker);
-    });
-  }
 })();

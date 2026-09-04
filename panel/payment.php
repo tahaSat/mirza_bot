@@ -762,7 +762,15 @@ include __DIR__ . '/inc/layout_head.php';
 <?php if ($tab !== 'pending'): ?>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.min.css">
 <style>
-  .datepicker-plot-area { z-index: 3000 !important; position: fixed !important; }
+  .pay-stats { grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+  .pay-stats .stat { padding: 12px 14px; min-height: 0; gap: 4px; }
+  .pay-stats .stat-label { font-size: .68rem; letter-spacing: 0; text-transform: none; }
+  .pay-stats .stat-num { font-size: 1.25rem; }
+  .pay-stats .stat-num small { font-size: .68rem; }
+  .pay-stats .stat-meta { font-size: .68rem; }
+  @media (max-width: 1100px) {
+    .pay-stats { grid-template-columns: repeat(2, 1fr); }
+  }
   #paymentFilterModal .modal {
     display: flex;
     flex-direction: column;
@@ -901,7 +909,7 @@ include __DIR__ . '/inc/layout_head.php';
 </div>
 
 <?php if ($tab !== 'pending'): ?>
-<div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
+<div class="stats pay-stats">
   <div class="stat success">
     <div class="stat-label">جمع درآمد کل</div>
     <div class="stat-num"><?= number_format($totalSuccess) ?><small>تومان</small></div>
@@ -918,7 +926,7 @@ include __DIR__ . '/inc/layout_head.php';
     <div class="stat-meta"><?= $capitalMeta ?></div>
   </div>
   <div class="stat">
-    <div class="stat-label">درآمد پیش‌بینی‌شده ماهانه</div>
+    <div class="stat-label">تراکنش‌های پیش‌بینی‌شده ماهانه</div>
     <div class="stat-num"><?= number_format($forecastIncome) ?><small>تومان</small></div>
     <div class="stat-meta">بر اساس ۲۸ روز اخیر</div>
   </div>

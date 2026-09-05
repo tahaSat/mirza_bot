@@ -359,12 +359,46 @@ function invoice_paid_status_sql(string $statusCol = 'Status'): string
     return "$statusCol NOT IN (" . implode(',', $quoted) . ") AND $statusCol IS NOT NULL AND $statusCol != ''";
 }
 
+/**
+ * Keep n2 agent purchases (and their sell-bot payments) out of the main Payment_report ledger.
+ */
+function payment_exclude_n2_sql(string $idUserCol = 'id_user', string $bottypeCol = 'bottype'): string
+{
+    return "(
+        NOT EXISTS (
+            SELECT 1 FROM user _n2u
+            WHERE _n2u.agent = 'n2'
+              AND CAST(_n2u.id AS CHAR) = CAST($idUserCol AS CHAR)
+        )
+        AND (
+            COALESCE($bottypeCol, '') = ''
+            OR COALESCE($bottypeCol, '0') = '0'
+            OR NOT EXISTS (
+                SELECT 1 FROM botsaz _n2b
+                INNER JOIN user _n2bu ON CAST(_n2bu.id AS CHAR) = CAST(_n2b.id_user AS CHAR)
+                WHERE _n2bu.agent = 'n2'
+                  AND _n2b.bot_token = $bottypeCol
+            )
+        )
+    )";
+}
+
+function payment_should_skip_for_n2_user($userId): bool
+{
+    if ($userId === null || $userId === '') {
+        return false;
+    }
+    $row = select('user', 'agent', 'id', $userId, 'select');
+    return is_array($row) && agent_is_n2($row['agent'] ?? 'f');
+}
+
 function paid_real_income_sql(): string
 {
     return "payment_Status = 'paid'
         AND COALESCE(tx_type,'') NOT IN ('expense','investment')
         AND COALESCE(id_invoice,'') <> 'capital'
-        AND COALESCE(Payment_Method,'') NOT IN ('add balance by admin','low balance by admin','capital_injection')";
+        AND COALESCE(Payment_Method,'') NOT IN ('add balance by admin','low balance by admin','capital_injection')
+        AND " . payment_exclude_n2_sql();
 }
 
 /**
@@ -447,6 +481,9 @@ function record_admin_order_payment(PDO $pdo, $userId, $price, string $username,
     if ($userId === null || $userId === '' || trim($username) === '') {
         return null;
     }
+    if (payment_should_skip_for_n2_user($userId)) {
+        return null;
+    }
     $dateacc = date('Y/m/d H:i:s');
     $orderId = bin2hex(random_bytes(5));
     $invoiceRef = 'getconfigafterpay|' . $username;
@@ -487,6 +524,9 @@ function record_admin_order_payment(PDO $pdo, $userId, $price, string $username,
 function record_admin_extend_payment(PDO $pdo, $userId, $price, string $username, string $productName = '', string $orderId = ''): ?string
 {
     if ($userId === null || $userId === '' || trim($username) === '') {
+        return null;
+    }
+    if (payment_should_skip_for_n2_user($userId)) {
         return null;
     }
     $dateacc = date('Y/m/d H:i:s');
@@ -936,7 +976,8 @@ function bot_payment_ledger_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = 
             ];
         }
         $investmentSql = "(tx_type = 'investment' OR payment_Status = 'investment' OR Payment_Method = 'capital_injection' OR id_invoice = 'capital')";
-        $incomeSql = "payment_Status = 'paid' AND NOT $investmentSql";
+        $n2Sql = payment_exclude_n2_sql();
+        $incomeSql = "payment_Status = 'paid' AND NOT $investmentSql AND $n2Sql";
         $sql = "SELECT
                 COALESCE(SUM(CASE WHEN $incomeSql THEN 1 ELSE 0 END), 0) AS income_count,
                 COALESCE(SUM(CASE WHEN $incomeSql THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS income_sum,
@@ -1448,7 +1489,58 @@ function pay_affiliate_commission(array $buyer, $amount, string $reason = 'buy',
 }
 
 /**
- * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,expenses:int,expenses_sum:float,users:int,avg_join:string,total_count:int,period_income_sum:float,period_net_sum:float,period_investment_sum:float,income_sum:float,total_sum:float,investment_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
+ * Successful non-test invoices created by regular (n) and advanced (n2) agents.
+ *
+ * @return array{n_count:int,n_sum:float,n2_count:int,n2_sum:float}
+ */
+function bot_agent_invoice_purchase_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = null): array
+{
+    $empty = [
+        'n_count' => 0,
+        'n_sum' => 0.0,
+        'n2_count' => 0,
+        'n2_sum' => 0.0,
+    ];
+    try {
+        $paidSql = invoice_paid_status_sql('i.Status');
+        $timeSql = '';
+        $params = [];
+        if ($startTs !== null && $endTs !== null) {
+            $timeSql = ' AND i.time_sell BETWEEN :start AND :end';
+            $params[':start'] = $startTs;
+            $params[':end'] = $endTs;
+        }
+        $sql = "SELECT u.agent AS agent,
+                COUNT(*) AS cnt,
+                COALESCE(SUM(CAST(i.price_product AS DECIMAL(20,0))), 0) AS sum
+            FROM invoice i
+            INNER JOIN user u ON CAST(u.id AS CHAR) = CAST(i.id_user AS CHAR)
+            WHERE $paidSql
+              AND i.name_product != 'سرویس تست'
+              AND u.agent IN ('n', 'n2')
+              $timeSql
+            GROUP BY u.agent";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $agent = (string) ($row['agent'] ?? '');
+            if ($agent === 'n') {
+                $empty['n_count'] = (int) ($row['cnt'] ?? 0);
+                $empty['n_sum'] = (float) ($row['sum'] ?? 0);
+            } elseif ($agent === 'n2') {
+                $empty['n2_count'] = (int) ($row['cnt'] ?? 0);
+                $empty['n2_sum'] = (float) ($row['sum'] ?? 0);
+            }
+        }
+        return $empty;
+    } catch (Throwable $e) {
+        error_log('bot_agent_invoice_purchase_stats: ' . $e->getMessage());
+        return $empty;
+    }
+}
+
+/**
+ * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,expenses:int,expenses_sum:float,users:int,avg_join:string,total_count:int,period_income_sum:float,period_net_sum:float,period_investment_sum:float,income_sum:float,total_sum:float,investment_sum:float,agent_n_count:int,agent_n_sum:float,agent_n2_count:int,agent_n2_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
  */
 function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
 {
@@ -1494,6 +1586,7 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
     $withdrawSum = (float) ($withdraw['sum'] ?? 0);
     $ledger = bot_payment_ledger_stats($pdo, $startTs, $endTs);
     $ledgerAll = bot_payment_ledger_stats($pdo);
+    $agentInvoices = bot_agent_invoice_purchase_stats($pdo, $startTs, $endTs);
     $expenseCount = (int) ($ledger['expenses_count'] ?? 0);
     $expenseSum = (float) ($ledger['expenses_sum'] ?? 0);
 
@@ -1529,6 +1622,10 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
         'income_sum' => (float) ($ledgerAll['income_sum'] ?? 0),
         'total_sum' => (float) ($ledgerAll['net_sum'] ?? 0),
         'investment_sum' => (float) ($ledgerAll['investment_sum'] ?? 0),
+        'agent_n_count' => (int) ($agentInvoices['n_count'] ?? 0),
+        'agent_n_sum' => (float) ($agentInvoices['n_sum'] ?? 0),
+        'agent_n2_count' => (int) ($agentInvoices['n2_count'] ?? 0),
+        'agent_n2_sum' => (float) ($agentInvoices['n2_sum'] ?? 0),
         'sold_volume' => bot_sold_volume_stats($pdo, $startTs, $endTs),
         'first_purchase' => bot_first_purchase_stats($pdo, $startTs, $endTs),
         'forecast_sold_volume' => ($endTs - $startTs) >= (7 * 86400)
@@ -1557,6 +1654,10 @@ function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = 
     $sumIncome = number_format((float) ($s['income_sum'] ?? 0), 0);
     $sumTotal = number_format($s['total_sum'], 0);
     $sumInvestment = number_format((float) ($s['investment_sum'] ?? 0), 0);
+    $agentNCount = (int) ($s['agent_n_count'] ?? 0);
+    $agentNSum = number_format((float) ($s['agent_n_sum'] ?? 0), 0);
+    $agentN2Count = (int) ($s['agent_n2_count'] ?? 0);
+    $agentN2Sum = number_format((float) ($s['agent_n2_sum'] ?? 0), 0);
     $soldVolumeBlock = bot_format_sold_volume_block($s['sold_volume'] ?? []);
     $forecastVolume = $s['forecast_sold_volume'] ?? null;
     if ($forecastVolume !== null) {
@@ -1574,6 +1675,9 @@ $rangeLine
 🛍 تعداد سفارشات : {$s['orders']} عدد
 💸 جمع مبلغ سفارشات  : $sumOrder تومان
 $firstPurchaseBlock
+
+🛒 خرید نمایندگان عادی : $agentNCount عدد — $agentNSum تومان
+🛒 خرید نمایندگان پیشرفته : $agentN2Count عدد — $agentN2Sum تومان
 
 🧲 تعداد تمدید  : {$s['extends']} عدد
 💰 جمع مبلغ تمدید: $sumExtend تومان
@@ -3432,6 +3536,9 @@ function admin_provision_user_service($userId, array $opts): array
     ]);
 
     $recordPayment = !array_key_exists('record_payment', $opts) || !empty($opts['record_payment']);
+    if ($recordPayment && payment_should_skip_for_n2_user($userId)) {
+        $recordPayment = false;
+    }
     if ($recordPayment) {
         record_admin_order_payment(
             $pdo,

@@ -661,6 +661,9 @@ function panel_extend_user_service(PDO $pdo, $userId, string $idInvoice, string 
     $gb = (int) ($extra['gb'] ?? 0);
     $months = (int) ($extra['months'] ?? 0);
     $recordPayment = !array_key_exists('record_payment', $extra) || !empty($extra['record_payment']);
+    if ($recordPayment && function_exists('payment_should_skip_for_n2_user') && payment_should_skip_for_n2_user($userId)) {
+        $recordPayment = false;
+    }
     $isCustom = !empty($extra['custom']) || is_custom_service_product_choice($panel, $productName);
 
     if ($isCustom) {

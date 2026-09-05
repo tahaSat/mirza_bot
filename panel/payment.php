@@ -121,7 +121,8 @@ function payment_income_type_sql(): string
     return "payment_Status NOT IN ('cost', 'investment')
         AND COALESCE(tx_type,'') NOT IN ('expense', 'investment')
         AND COALESCE(Payment_Method,'') <> 'capital_injection'
-        AND COALESCE(id_invoice,'') <> 'capital'";
+        AND COALESCE(id_invoice,'') <> 'capital'
+        AND " . payment_exclude_n2_sql();
 }
 
 function payment_expense_type_sql(): string
@@ -569,6 +570,9 @@ if ($tab === 'pending') {
         $params[] = $priceMax;
     }
     panel_payment_append_time_range($where, $params, $fromFilter, $toFilter);
+    if ($tab !== 'list' || $kind !== 'expense') {
+        $where[] = payment_exclude_n2_sql();
+    }
 }
 $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 $orderSQL = 'ORDER BY (' . panel_payment_time_sort_sql() . ') DESC, id DESC';

@@ -312,6 +312,11 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $extendsum = number_format($extendsum, 0);
     $avgJoinBuy = avg_join_to_first_purchase_label($pdo);
     $soldVolumeText = bot_format_sold_volume_block(bot_sold_volume_stats($pdo), true);
+    $agentInvoiceStats = bot_agent_invoice_purchase_stats($pdo);
+    $agentNCountAll = (int) ($agentInvoiceStats['n_count'] ?? 0);
+    $agentNSumAll = number_format((float) ($agentInvoiceStats['n_sum'] ?? 0), 0);
+    $agentN2CountAll = (int) ($agentInvoiceStats['n2_count'] ?? 0);
+    $agentN2SumAll = number_format((float) ($agentInvoiceStats['n2_sum'] ?? 0), 0);
     $firstPurchaseText = bot_format_first_purchase_block($firstPurchaseStats, (int) $invoice, $invoicePaidSum, true);
     $autoRenewStats = invoice_auto_renew_stats($pdo);
     $autoRenewUsers = $autoRenewStats['users'];
@@ -359,6 +364,8 @@ $firstPurchaseText
 🧾 <b>تعداد کل فروش سرویس های فعال:</b> <code>$invoiceactive</code> عدد
 💵 <b>جمع کل فروش سرویس های فعال:</b> <code>$invoicesumFmt</code> تومان
 🔄 <b>جمع کل تمدید:</b> <code>$extendsum</code> تومان
+🛒 <b>خرید نمایندگان عادی:</b> <code>$agentNCountAll</code> عدد — <code>$agentNSumAll</code> تومان
+🛒 <b>خرید نمایندگان پیشرفته:</b> <code>$agentN2CountAll</code> عدد — <code>$agentN2SumAll</code> تومان
 $paycount
 <b>💰 درآمد کل: <code>$incomeSumAllFmt</code> تومان</b>
 🏦 <b>ورود سرمایه: <code>$investmentSumAllFmt</code> تومان</b>

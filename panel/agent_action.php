@@ -111,7 +111,20 @@ switch ($action) {
         }
         $current = (int) ($user['agent_volume_remaining'] ?? 0);
         db_query($pdo, 'UPDATE user SET agent_volume_remaining = ? WHERE id = ?', [(string) ($current + $volume), $id]);
+        panel_notify_user($id, '🔋 کاربر عزیز ' . number_format($volume) . ' گیگ به سهمیه حجم نمایندگی شما اضافه شد.');
         flash('success', number_format($volume) . ' گیگ به سهمیه افزوده شد.');
+        break;
+
+    case 'low_volume':
+        $volume = (int) ($_POST['volume'] ?? 0);
+        if ($volume < 1) {
+            flash('error', 'مقدار کسر باید حداقل ۱ گیگ باشد.');
+            break;
+        }
+        $current = (int) ($user['agent_volume_remaining'] ?? 0);
+        db_query($pdo, 'UPDATE user SET agent_volume_remaining = ? WHERE id = ?', [(string) ($current - $volume), $id]);
+        panel_notify_user($id, '❌ کاربر عزیز ' . number_format($volume) . ' گیگ از سهمیه حجم نمایندگی شما کسر شد.');
+        flash('success', number_format($volume) . ' گیگ از سهمیه کسر شد.');
         break;
 
     case 'set_price_per_gb':
@@ -179,7 +192,7 @@ switch ($action) {
             break;
         }
         db_query($pdo, 'UPDATE user SET maxbuyagent = ? WHERE id = ?', [(string) $max, $id]);
-        flash('success', 'سقف خرید نماینده ذخیره شد.');
+        flash('success', 'سقف حجم منفی نماینده ذخیره شد.');
         break;
 
     case 'set_expire':

@@ -4868,8 +4868,10 @@ $caption";
             [['text' => "🕚 وضعیت ارسال پیام های کرون", 'callback_data' => "statuscronuser-" . $id_user]],
         ]
     ];
-    if ($user['agent'] == "n2")
-        $keyboardmanage['inline_keyboard'][] = [['text' => "سقف خرید  نماینده", 'callback_data' => "maxbuyagent_" . $id_user]];
+    if ($user['agent'] == "n2") {
+        $keyboardmanage['inline_keyboard'][] = [['text' => "سقف حجم منفی نماینده (گیگ)", 'callback_data' => "maxbuyagent_" . $id_user]];
+        $keyboardmanage['inline_keyboard'][] = [['text' => "📦 محصولات نماینده", 'callback_data' => "n2ownadmin_" . $id_user]];
+    }
     if ($user['agent'] != "f") {
         $keyboardmanage['inline_keyboard'][] = [
             ['text' => "🤖 فعالسازی ربات فروش", 'callback_data' => "createbot_" . $id_user],
@@ -6982,12 +6984,21 @@ n2", $backadmin, 'HTML');
     sendmessage($from_id, "تغییرات با موفقیت اعمال شد", $keyboardadmin, 'HTML');
     update("user", "pricediscount", $text, "id", $user['Processing_value']);
     step('home', $from_id);
+} elseif (preg_match('/n2ownadmin_(\w+)/', $datain, $dataget)) {
+    $n2id = $dataget[1];
+    $n2user = select('user', '*', 'id', $n2id, 'select');
+    if (!$n2user || !agent_is_n2($n2user['agent'] ?? 'f')) {
+        sendmessage($from_id, '❌ این کاربر نماینده پیشرفته نیست.', $keyboardadmin, 'HTML');
+        return;
+    }
+    update('user', 'Processing_value_one', $n2id, 'id', $from_id);
+    sendmessage($from_id, "📦 مدیریت محصولات نماینده <code>{$n2id}</code>\nدسته بسازید، سپس محصول اضافه کنید.", agent_own_menu_keyboard(), 'HTML');
+    step('n2own_menu', $from_id);
 } elseif (preg_match('/maxbuyagent_(\w+)/', $datain, $dataget)) {
     $id_user = $dataget[1];
     update("user", "Processing_value", $id_user, "id", $from_id);
-    sendmessage($from_id, "📌 حداکثر مبلغی که کاربر می توانید موجودی  اش در زمان خرید منفی شود را ارسال نمایید
-توجه : عدد بدون خط تیره یا نماد منفی باشد
-در صورتی که می خواهید کاربر نامحدود خریداری کند عدد 0 ارسال کنید", $backadmin, 'HTML');
+    sendmessage($from_id, "📌 حداکثر حجم (گیگابایت) که موجودی حجم نماینده می‌تواند منفی شود را ارسال کنید.
+عدد بدون خط تیره باشد. ۰ = نامحدود.", $backadmin, 'HTML');
     step('getmaxbuyagent', $from_id);
 } elseif ($user['step'] == "getmaxbuyagent") {
     if (!ctype_digit($text)) {

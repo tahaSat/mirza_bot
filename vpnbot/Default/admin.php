@@ -25,6 +25,20 @@ if ($text == "بازگشت به منوی ادمین") {
     step("home", $from_id);
     return;
 }
+$n2ownTexts = ['📦 مدیریت محصولات', '➕ افزودن دسته', '➕ افزودن محصول', '🗂 لیست دسته‌ها', '🛍 لیست محصولات'];
+if (
+    (isset($userbot) && agent_is_n2($userbot['agent'] ?? 'f'))
+    && (
+        strpos((string) ($user['step'] ?? ''), 'n2own') === 0
+        || strpos((string) $datain, 'n2own') === 0
+        || in_array($text, $n2ownTexts, true)
+    )
+) {
+    $n2Target = (string) ($dataBase['id_user'] ?? ($userbot['id'] ?? ''));
+    if (agent_own_telegram_handle($from_id, $text, $datain, $user, $n2Target, $keyboardadmin)) {
+        return;
+    }
+}
 if ($text == "📞 تنظیم نام کاربری پشتیبانی") {
     sendmessage($from_id, "📌 نام کاربری جدید خود را بدون @ ارسال کنید", $backadmin, 'HTML');
     step("getusernamesupport", $from_id);

@@ -73,7 +73,14 @@ $allCategories = [];
 $enabledCategories = [];
 $agentPurchases = [];
 $agentPurchaseTotal = 0;
-if ($usesCategoryWhitelist) {
+$ownCategories = [];
+$ownProducts = [];
+if ($isN2) {
+    agent_ensure_n2_tables();
+    $ownCategories = agent_own_list_categories($id);
+    $ownProducts = agent_own_list_products($id);
+}
+if ($usesCategoryWhitelist || $isN2) {
     agent_ensure_n2_tables();
     try {
         $allCategories = db_fetchAll($pdo, 'SELECT id, remark FROM category ORDER BY remark ASC');
@@ -177,12 +184,21 @@ include __DIR__ . '/inc/layout_head.php';
         <div class="stat-label">مصرف تجمعی</div>
         <div class="stat-num"><?= number_format($consumedTb, 2) ?><small>TB</small></div>
     </div>
+    <?php else: ?>
+    <div class="stat">
+        <div class="stat-label">موجودی حجم</div>
+        <div class="stat-num"><?= number_format($volRemaining) ?><small>GB</small></div>
+    </div>
+    <div class="stat">
+        <div class="stat-label">سقف منفی</div>
+        <div class="stat-num"><?= $maxBuy === 0 ? '∞' : number_format($maxBuy) ?><small>GB</small></div>
+    </div>
     <?php endif; ?>
     <div class="stat">
-        <div class="stat-label">دسته‌های فعال</div>
-        <div class="stat-num"><?= number_format(count($enabledCategories)) ?></div>
+        <div class="stat-label"><?= $isN2 ? 'دسته‌های خود نماینده' : 'دسته‌های فعال' ?></div>
+        <div class="stat-num"><?= number_format($isN2 ? count($ownCategories) : count($enabledCategories)) ?></div>
     </div>
-    <?php if ($usesCategoryWhitelist): ?>
+    <?php if ($usesCategoryWhitelist || $isN2): ?>
     <div class="stat">
         <div class="stat-label">خریدها</div>
         <div class="stat-num"><?= number_format($agentPurchaseTotal) ?></div>
@@ -242,12 +258,14 @@ include __DIR__ . '/inc/layout_head.php';
         </div>
         <?php else: ?>
         <div class="card">
-            <div class="card-head"><strong>موجودی و سقف خرید</strong></div>
+            <div class="card-head"><strong>موجودی و سقف حجم</strong></div>
             <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
-                <div class="cf">موجودی فعلی: <strong><?= number_format($balance) ?></strong> تومان</div>
+                <div class="cf">موجودی حجم: <strong><?= number_format($volRemaining) ?></strong> گیگابایت</div>
+                <p class="cf" style="margin:0;font-size:.8rem">هر خرید محصول اختصاصی این نماینده، حجم همان محصول را از سهمیه کم می‌کند. اگر سقف منفی صفر باشد محدودیتی برای منفی شدن نیست.</p>
+                <p class="cf" style="margin:0;font-size:.8rem">اگر قبلاً سقف را به تومان گذاشته‌اید، آن را دوباره به گیگ تنظیم کنید.</p>
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
-                    <button type="button" class="btn btn-ok btn-sm" onclick="openModal('addBalModal')">افزایش موجودی</button>
-                    <button type="button" class="btn btn-no btn-sm" onclick="openModal('lowBalModal')">کسر موجودی</button>
+                    <button type="button" class="btn btn-ok btn-sm" onclick="openModal('addVolModal')">افزایش حجم</button>
+                    <button type="button" class="btn btn-no btn-sm" onclick="openModal('lowVolModal')">کسر حجم</button>
                 </div>
                 <form method="POST" action="agent_action.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
@@ -255,7 +273,7 @@ include __DIR__ . '/inc/layout_head.php';
                     <input type="hidden" name="id" value="<?= $id ?>">
                     <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
                     <div class="field" style="flex:1;margin:0">
-                        <label>سقف خرید منفی (۰ = نامحدود)</label>
+                        <label>سقف حجم منفی (گیگ — ۰ = نامحدود)</label>
                         <input type="number" name="max" class="input" min="0" value="<?= $maxBuy ?>" required>
                     </div>
                     <button type="submit" class="btn btn-primary btn-sm">ذخیره</button>
@@ -334,18 +352,68 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
     <?php endif; ?>
 
+    <?php if ($isN2): ?>
+    <div class="card">
+        <div class="card-head">
+            <div>
+                <div class="card-title">محصولات اختصاصی نماینده</div>
+                <div class="card-subtitle"><?= number_format(count($ownCategories)) ?> دسته · <?= number_format(count($ownProducts)) ?> محصول — ساخت از تلگرام</div>
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="cf" style="margin-bottom:14px">ادمین اصلی و خود نماینده از ربات تلگرام (پنل نمایندگی یا ربات فروش) دسته و محصول می‌سازند. ربات‌های فروش قدیمی تا «تعمیر / بازسازی ربات» منوی جدید را نمی‌گیرند.</p>
+            <?php if (empty($ownCategories) && empty($ownProducts)): ?>
+                <p class="cf">هنوز دسته یا محصولی ساخته نشده است.</p>
+            <?php else: ?>
+                <?php if ($ownCategories): ?>
+                    <div class="cf" style="margin-bottom:8px"><strong>دسته‌ها</strong></div>
+                    <div class="agent-cat-grid" style="margin-bottom:16px">
+                        <?php foreach ($ownCategories as $oc): ?>
+                            <span class="agent-cat-item is-on"><span><?= htmlspecialchars((string) ($oc['remark'] ?? '')) ?></span></span>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+                <?php if ($ownProducts): ?>
+                    <div class="tbl-wrap">
+                        <table class="table tbl-lg" style="width:100%;border-collapse:collapse">
+                            <thead>
+                                <tr>
+                                    <th style="text-align:right;padding:8px">نام</th>
+                                    <th style="text-align:right;padding:8px">دسته</th>
+                                    <th style="text-align:right;padding:8px">حجم</th>
+                                    <th style="text-align:right;padding:8px">زمان</th>
+                                    <th style="text-align:right;padding:8px">قیمت</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($ownProducts as $op): ?>
+                                    <tr>
+                                        <td style="padding:8px"><?= htmlspecialchars((string) ($op['name_product'] ?? '')) ?></td>
+                                        <td style="padding:8px"><?= htmlspecialchars((string) ($op['category'] ?? '')) ?></td>
+                                        <td style="padding:8px"><?= htmlspecialchars((string) ($op['Volume_constraint'] ?? '')) ?> GB</td>
+                                        <td style="padding:8px"><?= htmlspecialchars((string) ($op['Service_time'] ?? '')) ?></td>
+                                        <td style="padding:8px"><?= number_format((int) ($op['price_product'] ?? 0)) ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <?php if ($usesCategoryWhitelist): ?>
     <div class="card">
         <div class="card-head">
             <div>
-                <div class="card-title">دسته‌بندی‌های مجاز<?= $isN2 ? ' — پیشرفته' : '' ?></div>
+                <div class="card-title">دسته‌بندی‌های مجاز</div>
                 <div class="card-subtitle"><?= number_format(count($enabledCategories)) ?> از <?= number_format(count($allCategories)) ?> فعال</div>
             </div>
         </div>
         <div class="card-body">
-            <p class="cf" style="margin-bottom:14px"><?= $isN2
-                ? 'دسته‌هایی که این نماینده می‌تواند ببیند و از محصولات داخلشان (بدون اعتبار) بخرد را فعال کنید.'
-                : 'دسته‌هایی که این نماینده می‌تواند ببیند و از محصولات داخلشان بخرد را فعال کنید. هزینه هر خرید از کیف پول با پله‌های قیمتی محاسبه می‌شود.' ?></p>
+            <p class="cf" style="margin-bottom:14px">دسته‌هایی که این نماینده می‌تواند ببیند و از محصولات داخلشان بخرد را فعال کنید. هزینه هر خرید از کیف پول با پله‌های قیمتی محاسبه می‌شود.</p>
             <form method="POST" action="agent_action.php">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                 <input type="hidden" name="action" value="set_n2_categories">
@@ -371,7 +439,9 @@ include __DIR__ . '/inc/layout_head.php';
             </form>
         </div>
     </div>
+    <?php endif; ?>
 
+    <?php if ($usesCategoryWhitelist || $isN2): ?>
     <div class="card">
         <div class="card-head">
             <div>
@@ -618,6 +688,50 @@ include __DIR__ . '/inc/layout_head.php';
             <div class="modal-foot">
                 <button type="submit" class="btn btn-no">کسر</button>
                 <button type="button" class="btn btn-ghost" onclick="closeModal('lowBalModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="addVolModal">
+    <div class="modal">
+        <div class="modal-head"><h3>افزایش حجم</h3><button class="modal-x" onclick="closeModal('addVolModal')"><?= icon('close', 14) ?></button></div>
+        <form method="POST" action="agent_action.php">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="add_volume">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
+                <div class="field">
+                    <label>حجم (گیگابایت)</label>
+                    <input type="number" name="volume" class="input" min="1" required>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-ok">افزودن</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('addVolModal')">انصراف</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="lowVolModal">
+    <div class="modal">
+        <div class="modal-head"><h3>کسر حجم</h3><button class="modal-x" onclick="closeModal('lowVolModal')"><?= icon('close', 14) ?></button></div>
+        <form method="POST" action="agent_action.php">
+            <div class="modal-body">
+                <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
+                <input type="hidden" name="action" value="low_volume">
+                <input type="hidden" name="id" value="<?= $id ?>">
+                <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
+                <div class="field">
+                    <label>حجم (گیگابایت)</label>
+                    <input type="number" name="volume" class="input" min="1" required>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button type="submit" class="btn btn-no">کسر</button>
+                <button type="button" class="btn btn-ghost" onclick="closeModal('lowVolModal')">انصراف</button>
             </div>
         </form>
     </div>

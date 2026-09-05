@@ -61,6 +61,19 @@ class ManagePanel
             $stmt->bindParam(':code_product', $code_product);
             $stmt->execute();
             $Get_Data_Product = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$Get_Data_Product) {
+                $ownStmt = $pdo->prepare("SELECT * FROM agent_own_product WHERE (Location = :name_panel OR Location = '/all') AND code_product = :code_product LIMIT 1");
+                $ownStmt->bindParam(':name_panel', $name_panel);
+                $ownStmt->bindParam(':code_product', $code_product);
+                $ownStmt->execute();
+                $Get_Data_Product = $ownStmt->fetch(PDO::FETCH_ASSOC);
+            }
+            if (!$Get_Data_Product) {
+                $Get_Data_Product = [
+                    'name_product' => $code_product,
+                    'data_limit_reset' => 'no_reset',
+                ];
+            }
         } else {
             if ($code_product == "usertest") {
                 $Get_Data_Product['name_product'] = "usertest";

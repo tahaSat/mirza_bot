@@ -88,6 +88,17 @@ function DirectPaymentbot($order_id, $image = 'images.jpg')
                 ':Service_location' => $get_invoice['Service_location'],
             ]);
             $info_product = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$info_product) {
+                $ownerBot = select('botsaz', '*', 'bot_token', $bottype, 'select');
+                if ($ownerBot && !empty($ownerBot['id_user'])) {
+                    foreach (agent_own_list_products($ownerBot['id_user'], $get_invoice['Service_location']) as $ownRow) {
+                        if (($ownRow['name_product'] ?? '') === ($get_invoice['name_product'] ?? '')) {
+                            $info_product = $ownRow;
+                            break;
+                        }
+                    }
+                }
+            }
             $codeProduct = $info_product['code_product'] ?? 'customvolume';
         }
 

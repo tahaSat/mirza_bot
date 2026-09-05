@@ -103,6 +103,13 @@ $keyboardadmin = json_encode([
     ],
     'resize_keyboard' =>  true
 ]);
+if (is_array($userbot) && function_exists('agent_is_n2') && agent_is_n2($userbot['agent'] ?? 'f')) {
+    $adminKb = json_decode($keyboardadmin, true);
+    if (is_array($adminKb) && isset($adminKb['keyboard'])) {
+        array_splice($adminKb['keyboard'], 2, 0, [[['text' => '📦 مدیریت محصولات']]]);
+        $keyboardadmin = json_encode($adminKb, JSON_UNESCAPED_UNICODE);
+    }
+}
 
 $keyboardprice = json_encode([
     'keyboard' => [
@@ -257,21 +264,27 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
 {
     global $pdo, $textbotlang, $from_id, $botinfo;
     $uid = $agentUserId;
-    if ($uid === null && agent_uses_category_whitelist($agent) && !empty($botinfo['id_user'])) {
+    if ($uid === null && (agent_uses_category_whitelist($agent) || agent_is_n2($agent)) && !empty($botinfo['id_user'])) {
         $uid = $botinfo['id_user'];
     }
     if ($uid === null) {
         $uid = $from_id;
     }
     $accessSql = agent_product_access_sql($agent, $uid);
-    $stmt = $pdo->prepare("SELECT * FROM category");
-    $stmt->execute();
+    $productTable = agent_product_table($agent);
+    if (agent_is_n2($agent)) {
+        $catRows = agent_own_list_categories($uid, true);
+    } else {
+        $catStmt = $pdo->prepare("SELECT * FROM category");
+        $catStmt->execute();
+        $catRows = $catStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
     $list_category = ['inline_keyboard' => [],];
-    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+    foreach ($catRows as $row) {
         if (!category_is_active($row)) {
             continue;
         }
-        $stmts = $pdo->prepare("SELECT * FROM product WHERE (Location = :location OR Location = '/all') AND category = :category AND {$accessSql}");
+        $stmts = $pdo->prepare("SELECT * FROM {$productTable} WHERE (Location = :location OR Location = '/all') AND category = :category AND {$accessSql}");
         $stmts->bindParam(':location', $location, PDO::PARAM_STR);
         $stmts->bindParam(':category', $row['remark'], PDO::PARAM_STR);
         $stmts->execute();
@@ -296,7 +309,7 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
         )];
     }
     $panel = select("marzban_panel", "*", "name_panel", $location, "select");
-    if (is_array($panel) && panel_custom_enabled($panel, (string) $agent)) {
+    if (!agent_is_n2($agent) && is_array($panel) && panel_custom_enabled($panel, (string) $agent)) {
         $list_category['inline_keyboard'][] = [
             panel_custom_service_inline_button($panel, 'customvolumebuy'),
         ];

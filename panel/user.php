@@ -332,7 +332,7 @@ include __DIR__ . '/inc/layout_head.php';
                 <?php endif; ?>
                 <?php if ($agent === 'n2'): ?>
                     <button class="btn btn-ghost btn-sm" style="justify-content:center" onclick="openModal('maxBuyModal')">
-                        سقف خرید نماینده
+                        سقف حجم منفی (گیگ)
                     </button>
                 <?php endif; ?>
                 </div>
@@ -845,7 +845,7 @@ include __DIR__ . '/inc/layout_head.php';
 
 <div class="modal-veil" id="maxBuyModal">
     <div class="modal">
-        <div class="modal-head"><h3>سقف خرید نماینده</h3><button class="modal-x" onclick="closeModal('maxBuyModal')"><?= icon('close', 14) ?></button></div>
+        <div class="modal-head"><h3>سقف حجم منفی نماینده</h3><button class="modal-x" onclick="closeModal('maxBuyModal')"><?= icon('close', 14) ?></button></div>
         <form method="POST" action="user_action.php">
             <div class="modal-body">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
@@ -853,7 +853,7 @@ include __DIR__ . '/inc/layout_head.php';
                 <input type="hidden" name="id" value="<?= $id ?>">
                 <input type="hidden" name="back" value="user.php?id=<?= $id ?>">
                 <div class="field">
-                    <label>حداکثر بدهی مجاز (۰ = نامحدود)</label>
+                    <label>حداکثر حجم منفی مجاز به گیگ (۰ = نامحدود)</label>
                     <input type="number" name="max" class="input" min="0" value="<?= htmlspecialchars((string) ($user['maxbuyagent'] ?? '0')) ?>" required>
                 </div>
             </div>

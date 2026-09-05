@@ -4628,12 +4628,19 @@ function product_category_is_active($product): bool
     if ($remark === '') {
         return true;
     }
-    if (array_key_exists($remark, $cache)) {
-        return $cache[$remark];
+    $ownerKey = trim((string) ($product['agent_id'] ?? ''));
+    $cacheKey = $ownerKey . '|' . $remark;
+    if (array_key_exists($cacheKey, $cache)) {
+        return $cache[$cacheKey];
+    }
+    if ($ownerKey !== '') {
+        $own = agent_own_get_category_by_remark($ownerKey, $remark);
+        $cache[$cacheKey] = $own ? category_is_active($own) : false;
+        return $cache[$cacheKey];
     }
     $category = select("category", "*", "remark", $remark, "select");
-    $cache[$remark] = category_is_active($category);
-    return $cache[$remark];
+    $cache[$cacheKey] = category_is_active($category);
+    return $cache[$cacheKey];
 }
 
 /**
@@ -4729,16 +4736,15 @@ function extend_products_message($category = null): string
 
 function extend_product_query(string $location, array $user, $from_id, $categoryRemark = null, $month = null): string
 {
-    $accessSql = agent_product_access_sql($user['agent'] ?? '', $from_id);
     $locEsc = addslashes($location);
-    $query = "SELECT * FROM product WHERE (Location = '{$locEsc}' OR Location = '/all') AND {$accessSql} AND one_buy_status = '0'";
+    $where = "(Location = '{$locEsc}' OR Location = '/all') AND one_buy_status = '0'";
     if (is_string($categoryRemark) && $categoryRemark !== '') {
-        $query .= " AND category = '" . addslashes($categoryRemark) . "'";
+        $where .= " AND category = '" . addslashes($categoryRemark) . "'";
     }
     if ($month !== null && $month !== '' && preg_match('/^\d+$/', (string) $month)) {
-        $query .= " AND Service_time = '" . $month . "'";
+        $where .= " AND Service_time = '" . $month . "'";
     }
-    return $query;
+    return agent_product_select_sql($user['agent'] ?? '', $from_id, $where);
 }
 
 function extend_category_keyboard($location, $agent, $backCb, $invoice = null, $month = null): string
@@ -4980,17 +4986,15 @@ function invoice_auto_renew_final_price(array $product, array $user): int
     return max(0, $price);
 }
 
-function invoice_auto_renew_balance_short(array $user, int $price): bool
+function invoice_auto_renew_balance_short(array $user, int $price, $volumeGb = null): bool
 {
     $agent = (string) ($user['agent'] ?? 'f');
-    $balance = (int) ($user['Balance'] ?? 0);
-    $notEnough = $balance < $price && $agent !== 'n2' && $price != 0;
-    if ($agent === 'n2' && intval($user['maxbuyagent'] ?? 0) != 0) {
-        if (($balance - $price) < intval('-' . $user['maxbuyagent'])) {
-            $notEnough = true;
-        }
+    if (agent_is_n2($agent)) {
+        $check = agent_check_volume_quota($user['id'] ?? 0, (int) ($volumeGb ?? 0));
+        return empty($check['ok']);
     }
-    return $notEnough;
+    $balance = (int) ($user['Balance'] ?? 0);
+    return $balance < $price && $price != 0;
 }
 
 function invoice_auto_renew_volume_low(array $userData, $volumewarnGb): bool
@@ -5141,7 +5145,7 @@ function invoice_auto_renew_wallet_prewarn(array $invoice, array $user, array $u
         return;
     }
     $price = invoice_auto_renew_final_price($product, $user);
-    if (!invoice_auto_renew_balance_short($user, $price)) {
+    if (!invoice_auto_renew_balance_short($user, $price, (int) ($product['Volume_constraint'] ?? 0))) {
         return;
     }
     if (!is_array($textbotlang)) {
@@ -5216,6 +5220,15 @@ function invoice_similar_extend_product(array $invoice, array $user)
     }
     if ($codeProduct === '') {
         $named = select('product', '*', 'name_product', $invoice['name_product'] ?? '', 'select');
+        if ($named == false && agent_is_n2($user['agent'] ?? 'f')) {
+            $ownList = agent_own_list_products($user['id'] ?? '');
+            foreach ($ownList as $ownRow) {
+                if (($ownRow['name_product'] ?? '') === ($invoice['name_product'] ?? '')) {
+                    $named = $ownRow;
+                    break;
+                }
+            }
+        }
         if ($named == false) {
             return false;
         }
@@ -5224,8 +5237,8 @@ function invoice_similar_extend_product(array $invoice, array $user)
     if ($codeProduct === '') {
         return false;
     }
-    $accessSql = agent_product_access_sql($user['agent'] ?? 'f', $user['id'] ?? '');
-    $stmt = $pdo->prepare("SELECT * FROM product WHERE (Location = :service_location OR Location = '/all') AND {$accessSql} AND code_product = :code_product LIMIT 1");
+    $sql = agent_product_select_sql($user['agent'] ?? 'f', $user['id'] ?? '', "(Location = :service_location OR Location = '/all') AND code_product = :code_product") . ' LIMIT 1';
+    $stmt = $pdo->prepare($sql);
     $stmt->execute([
         ':service_location' => $panelName,
         ':code_product' => $codeProduct,
@@ -5289,7 +5302,7 @@ function invoice_try_auto_renew(array $invoice, array $user, array $userData, $p
     $price = invoice_auto_renew_final_price($product, $user);
     $agent = (string) ($user['agent'] ?? 'f');
     $balance = (int) ($user['Balance'] ?? 0);
-    $notEnough = invoice_auto_renew_balance_short($user, $price);
+    $notEnough = invoice_auto_renew_balance_short($user, $price, (int) ($product['Volume_constraint'] ?? 0));
     if (!is_array($textbotlang)) {
         $textbotlang = languagechange(__DIR__ . '/text.json');
     }
@@ -5423,11 +5436,21 @@ function invoice_panel_manager(): ManagePanel
 /** Load category saved during buy flow (categorynames_*). */
 function category_from_processing($userdate)
 {
-    if (!is_array($userdate) || empty($userdate['category_id'])) {
+    if (!is_array($userdate)) {
+        return null;
+    }
+    if (!empty($userdate['own_category_id'])) {
+        $own = agent_own_get_category_by_id($userdate['own_category_id']);
+        return $own ?: null;
+    }
+    if (empty($userdate['category_id'])) {
         return null;
     }
     $category = select("category", "*", "id", $userdate['category_id'], "select");
-    return $category ?: null;
+    if ($category) {
+        return $category;
+    }
+    return agent_own_get_category_by_id($userdate['category_id']);
 }
 
 /** Active panels visible to this agent (same filter as the buy location list). */
@@ -9469,6 +9492,34 @@ function agent_ensure_n2_tables(): void
             created_at INT(11) NOT NULL,
             INDEX idx_agent_created (agent_id, created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS agent_own_category (
+            id INT(11) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            agent_id VARCHAR(200) NOT NULL,
+            remark VARCHAR(300) NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            description TEXT NULL,
+            UNIQUE KEY uniq_agent_remark (agent_id, remark),
+            INDEX idx_agent_own_cat (agent_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS agent_own_product (
+            id INT(11) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            agent_id VARCHAR(200) NOT NULL,
+            code_product VARCHAR(200) NOT NULL,
+            name_product VARCHAR(500) NOT NULL,
+            price_product VARCHAR(200) NOT NULL DEFAULT '0',
+            Volume_constraint VARCHAR(200) NOT NULL DEFAULT '0',
+            Service_time VARCHAR(200) NOT NULL DEFAULT '0',
+            category VARCHAR(300) NULL,
+            Location VARCHAR(200) NOT NULL DEFAULT '/all',
+            note TEXT NULL,
+            data_limit_reset VARCHAR(200) NOT NULL DEFAULT 'no_reset',
+            one_buy_status VARCHAR(20) NOT NULL DEFAULT '0',
+            hide_panel TEXT NOT NULL,
+            sort_order INT NOT NULL DEFAULT 0,
+            emoji_id VARCHAR(64) NULL,
+            UNIQUE KEY uniq_own_code (code_product),
+            INDEX idx_agent_own_prod (agent_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
         // One-time migrate: product whitelist → category whitelist
         agent_n2_migrate_products_to_categories();
     } catch (Throwable $e) {
@@ -9525,11 +9576,17 @@ function agent_is_n2($agent): bool
 }
 
 /**
- * Roles that buy only from panel-assigned category whitelist (n and n2).
+ * Roles that buy only from panel-assigned category whitelist (n).
+ * n2 uses its own product catalog instead.
  */
 function agent_uses_category_whitelist($agent): bool
 {
-    return in_array((string) $agent, ['n', 'n2'], true);
+    return (string) $agent === 'n';
+}
+
+function agent_owns_catalog($agent): bool
+{
+    return agent_is_n2($agent);
 }
 
 /**
@@ -9578,12 +9635,20 @@ function agent_sum_volume_consumed($agentUserId, $agent = null): float
 
 /**
  * SQL fragment restricting products by role.
- * n / n2: products whose category is enabled for the agent (any catalog product.agent).
+ * n: products whose category is enabled for the agent (catalog).
+ * n2: own products only (use with agent_own_product / agent_product_select_sql).
  * others: product.agent = role.
  */
 function agent_product_access_sql($agent, $agentUserId): string
 {
     agent_ensure_n2_tables();
+    if (agent_is_n2($agent)) {
+        $aid = agent_n2_agent_id($agentUserId);
+        if ($aid === '') {
+            return '0=1';
+        }
+        return "(agent_id = '{$aid}' OR agent_id = '" . addslashes((string) $agentUserId) . "')";
+    }
     if (agent_uses_category_whitelist($agent)) {
         $aid = preg_replace('/\D/', '', (string) $agentUserId);
         if ($aid === '') {
@@ -9594,11 +9659,524 @@ function agent_product_access_sql($agent, $agentUserId): string
     return "product.agent = '" . addslashes((string) $agent) . "'";
 }
 
+function agent_product_table($agent): string
+{
+    return agent_is_n2($agent) ? 'agent_own_product' : 'product';
+}
+
+/**
+ * SELECT * FROM the correct product table with role access applied.
+ */
+function agent_product_select_sql($agent, $agentUserId, string $where = ''): string
+{
+    agent_ensure_n2_tables();
+    $table = agent_product_table($agent);
+    $access = agent_product_access_sql($agent, $agentUserId);
+    $where = trim($where);
+    if ($where === '') {
+        return "SELECT * FROM {$table} WHERE {$access}";
+    }
+    return "SELECT * FROM {$table} WHERE {$where} AND {$access}";
+}
+
+function agent_shop_product_count($agent, $agentUserId): int
+{
+    if (agent_is_n2($agent)) {
+        return agent_own_product_count($agentUserId);
+    }
+    return count_products();
+}
+
+function agent_shop_get_product($agent, $agentUserId, $codeProduct, $location = null): ?array
+{
+    if (agent_is_n2($agent)) {
+        return agent_own_get_product($agentUserId, $codeProduct, $location);
+    }
+    if ($location) {
+        global $pdo;
+        $stmt = $pdo->prepare("SELECT * FROM product WHERE code_product = :code AND (Location = :loc OR Location = '/all') LIMIT 1");
+        $stmt->execute([':code' => $codeProduct, ':loc' => $location]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+    $row = select('product', '*', 'code_product', $codeProduct, 'select');
+    return $row ?: null;
+}
+
 function agent_n2_agent_id($agentUserId): string
 {
     $raw = trim((string) $agentUserId);
     $digits = preg_replace('/\D/', '', $raw);
     return $digits !== '' ? $digits : $raw;
+}
+
+function agent_own_ids($agentUserId): array
+{
+    $raw = (string) $agentUserId;
+    $aid = agent_n2_agent_id($agentUserId);
+    $ids = [$aid];
+    if ($raw !== '' && $raw !== $aid) {
+        $ids[] = $raw;
+    }
+    return $ids;
+}
+
+function agent_own_new_code(): string
+{
+    return 'n2' . bin2hex(random_bytes(4));
+}
+
+function agent_own_list_categories($agentUserId, bool $activeOnly = false): array
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $ids = agent_own_ids($agentUserId);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $sql = "SELECT * FROM agent_own_category WHERE agent_id IN ({$placeholders})";
+    if ($activeOnly) {
+        $sql .= " AND (status = 'active' OR status = '' OR status IS NULL)";
+    }
+    $sql .= ' ORDER BY remark ASC';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($ids);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function agent_own_get_category_by_id($categoryId): ?array
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $stmt = $pdo->prepare('SELECT * FROM agent_own_category WHERE id = ? LIMIT 1');
+    $stmt->execute([(int) $categoryId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function agent_own_get_category_by_remark($agentUserId, $remark): ?array
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $remark = trim((string) $remark);
+    if ($remark === '') {
+        return null;
+    }
+    $ids = agent_own_ids($agentUserId);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = $pdo->prepare("SELECT * FROM agent_own_category WHERE agent_id IN ({$placeholders}) AND remark = ? LIMIT 1");
+    $stmt->execute(array_merge($ids, [$remark]));
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function agent_own_add_category($agentUserId, string $remark, string $description = ''): array
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $remark = trim($remark);
+    if ($remark === '' || mb_strlen($remark) > 80) {
+        return ['ok' => false, 'msg' => '❌ نام دسته‌بندی نامعتبر است.'];
+    }
+    if (agent_own_get_category_by_remark($agentUserId, $remark)) {
+        return ['ok' => false, 'msg' => '❌ این دسته‌بندی از قبل وجود دارد.'];
+    }
+    $stmt = $pdo->prepare('INSERT INTO agent_own_category (agent_id, remark, status, description) VALUES (?, ?, ?, ?)');
+    $stmt->execute([agent_n2_agent_id($agentUserId), $remark, 'active', $description]);
+    return ['ok' => true, 'msg' => '✅ دسته‌بندی اضافه شد.', 'id' => (int) $pdo->lastInsertId(), 'remark' => $remark];
+}
+
+function agent_own_delete_category($agentUserId, $categoryId): array
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $cat = agent_own_get_category_by_id($categoryId);
+    if (!$cat || !in_array((string) $cat['agent_id'], agent_own_ids($agentUserId), true)) {
+        return ['ok' => false, 'msg' => '❌ دسته‌بندی یافت نشد.'];
+    }
+    $ids = agent_own_ids($agentUserId);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $cnt = $pdo->prepare("SELECT COUNT(*) FROM agent_own_product WHERE agent_id IN ({$placeholders}) AND category = ?");
+    $cnt->execute(array_merge($ids, [(string) $cat['remark']]));
+    if ((int) $cnt->fetchColumn() > 0) {
+        return ['ok' => false, 'msg' => '❌ ابتدا محصولات این دسته را حذف کنید.'];
+    }
+    $del = $pdo->prepare('DELETE FROM agent_own_category WHERE id = ?');
+    $del->execute([(int) $categoryId]);
+    return ['ok' => true, 'msg' => '✅ دسته‌بندی حذف شد.'];
+}
+
+function agent_own_list_products($agentUserId, $location = null, $categoryRemark = null): array
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $ids = agent_own_ids($agentUserId);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $sql = "SELECT * FROM agent_own_product WHERE agent_id IN ({$placeholders})";
+    $params = $ids;
+    if ($location !== null && $location !== '') {
+        $sql .= ' AND (Location = ? OR Location = \'/all\')';
+        $params[] = $location;
+    }
+    if ($categoryRemark !== null && $categoryRemark !== '') {
+        $sql .= ' AND category = ?';
+        $params[] = $categoryRemark;
+    }
+    $sql .= ' ORDER BY sort_order ASC, name_product ASC';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function agent_own_product_count($agentUserId): int
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $ids = agent_own_ids($agentUserId);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM agent_own_product WHERE agent_id IN ({$placeholders})");
+    $stmt->execute($ids);
+    return (int) $stmt->fetchColumn();
+}
+
+function agent_own_get_product($agentUserId, $codeProduct, $location = null): ?array
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $codeProduct = (string) $codeProduct;
+    if ($codeProduct === '' || $codeProduct === 'customvolume') {
+        return null;
+    }
+    $ids = agent_own_ids($agentUserId);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $sql = "SELECT * FROM agent_own_product WHERE agent_id IN ({$placeholders}) AND code_product = ?";
+    $params = array_merge($ids, [$codeProduct]);
+    if ($location !== null && $location !== '') {
+        $sql .= ' AND (Location = ? OR Location = \'/all\')';
+        $params[] = $location;
+    }
+    $sql .= ' LIMIT 1';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function agent_own_get_product_by_id($agentUserId, $productId): ?array
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $ids = agent_own_ids($agentUserId);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = $pdo->prepare("SELECT * FROM agent_own_product WHERE agent_id IN ({$placeholders}) AND id = ? LIMIT 1");
+    $stmt->execute(array_merge($ids, [(int) $productId]));
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function agent_own_add_product($agentUserId, array $data): array
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $name = trim((string) ($data['name_product'] ?? ''));
+    $price = (int) ($data['price_product'] ?? 0);
+    $volume = (int) ($data['Volume_constraint'] ?? 0);
+    $time = (int) ($data['Service_time'] ?? 0);
+    $category = trim((string) ($data['category'] ?? ''));
+    if ($name === '' || mb_strlen($name) > 150) {
+        return ['ok' => false, 'msg' => '❌ نام محصول نامعتبر است.'];
+    }
+    if ($price < 0 || $volume < 0 || $time < 0) {
+        return ['ok' => false, 'msg' => '❌ قیمت / حجم / زمان نامعتبر است.'];
+    }
+    if ($volume <= 0) {
+        return ['ok' => false, 'msg' => '❌ حجم محصول باید بیشتر از صفر گیگ باشد.'];
+    }
+    if ($category === '' || !agent_own_get_category_by_remark($agentUserId, $category)) {
+        return ['ok' => false, 'msg' => '❌ ابتدا یک دسته‌بندی معتبر انتخاب کنید.'];
+    }
+    $ids = agent_own_ids($agentUserId);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $dup = $pdo->prepare("SELECT COUNT(*) FROM agent_own_product WHERE agent_id IN ({$placeholders}) AND name_product = ?");
+    $dup->execute(array_merge($ids, [$name]));
+    if ((int) $dup->fetchColumn() > 0) {
+        return ['ok' => false, 'msg' => '❌ محصولی با این نام از قبل وجود دارد.'];
+    }
+    $code = agent_own_new_code();
+    $stmt = $pdo->prepare('INSERT INTO agent_own_product
+        (agent_id, code_product, name_product, price_product, Volume_constraint, Service_time, category, Location, note, data_limit_reset, one_buy_status, hide_panel, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([
+        agent_n2_agent_id($agentUserId),
+        $code,
+        $name,
+        (string) $price,
+        (string) $volume,
+        (string) $time,
+        $category,
+        '/all',
+        (string) ($data['note'] ?? ''),
+        'no_reset',
+        '0',
+        '{}',
+        0,
+    ]);
+    return ['ok' => true, 'msg' => '✅ محصول اضافه شد.', 'code_product' => $code];
+}
+
+function agent_own_delete_product($agentUserId, $productId): array
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $prod = agent_own_get_product_by_id($agentUserId, $productId);
+    if (!$prod) {
+        return ['ok' => false, 'msg' => '❌ محصول یافت نشد.'];
+    }
+    $del = $pdo->prepare('DELETE FROM agent_own_product WHERE id = ?');
+    $del->execute([(int) $productId]);
+    return ['ok' => true, 'msg' => '✅ محصول حذف شد.'];
+}
+
+function keyboard_agent_for_user(array $user): string
+{
+    global $keyboardagent;
+    $kb = json_decode((string) $keyboardagent, true);
+    if (!agent_is_n2($user['agent'] ?? 'f') || !is_array($kb)) {
+        return (string) $keyboardagent;
+    }
+    if (isset($kb['inline_keyboard'])) {
+        array_unshift($kb['inline_keyboard'], [['text' => '📦 مدیریت محصولات', 'callback_data' => 'n2ownmenu']]);
+    } elseif (isset($kb['keyboard'])) {
+        array_unshift($kb['keyboard'], [['text' => '📦 مدیریت محصولات']]);
+    }
+    return json_encode($kb, JSON_UNESCAPED_UNICODE);
+}
+
+function agent_own_menu_keyboard(): string
+{
+    return json_encode([
+        'keyboard' => [
+            [['text' => '➕ افزودن دسته'], ['text' => '➕ افزودن محصول']],
+            [['text' => '🗂 لیست دسته‌ها'], ['text' => '🛍 لیست محصولات']],
+            [['text' => '▶️ بازگشت']],
+        ],
+        'resize_keyboard' => true,
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+function agent_own_draft_get(array $user): array
+{
+    $raw = $user['Processing_value_tow'] ?? '';
+    if (!is_string($raw) || $raw === '') {
+        return [];
+    }
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function agent_own_draft_save($from_id, array $draft): void
+{
+    update('user', 'Processing_value_tow', json_encode($draft, JSON_UNESCAPED_UNICODE), 'id', $from_id);
+}
+
+function agent_own_target_id(array $user, $fallback): string
+{
+    $stored = trim((string) ($user['Processing_value_one'] ?? ''));
+    return $stored !== '' ? $stored : (string) $fallback;
+}
+
+function agent_own_category_pick_keyboard($agentUserId): string
+{
+    $cats = agent_own_list_categories($agentUserId, true);
+    $kb = ['inline_keyboard' => []];
+    foreach ($cats as $cat) {
+        $kb['inline_keyboard'][] = [[
+            'text' => (string) ($cat['remark'] ?? ''),
+            'callback_data' => 'n2ownpickcat_' . (int) $cat['id'],
+        ]];
+    }
+    $kb['inline_keyboard'][] = [['text' => '▶️ بازگشت', 'callback_data' => 'n2ownmenu']];
+    return json_encode($kb, JSON_UNESCAPED_UNICODE);
+}
+
+/**
+ * Shared telegram wizard for n2 own categories/products.
+ * $targetAgentId = catalog owner. $menuKeyboard = reply keyboard to return to.
+ */
+function agent_own_telegram_handle($from_id, $text, $datain, array $user, $targetAgentId, $menuKeyboard): bool
+{
+    $text = (string) $text;
+    $datain = (string) $datain;
+    $step = (string) ($user['step'] ?? '');
+    $ownTexts = ['📦 مدیریت محصولات', '➕ افزودن دسته', '➕ افزودن محصول', '🗂 لیست دسته‌ها', '🛍 لیست محصولات', '▶️ بازگشت'];
+    $isOwnStep = strpos($step, 'n2own') === 0;
+    $isOwnCb = strpos($datain, 'n2own') === 0;
+    $isOwnText = in_array($text, $ownTexts, true);
+    if (!$isOwnStep && !$isOwnCb && !$isOwnText) {
+        return false;
+    }
+
+    $targetAgentId = agent_n2_agent_id($targetAgentId);
+    if ($targetAgentId === '') {
+        $targetAgentId = agent_own_target_id($user, $from_id);
+    }
+    $targetUser = select('user', '*', 'id', $targetAgentId, 'select');
+    if (!$targetUser || !agent_is_n2($targetUser['agent'] ?? 'f')) {
+        sendmessage($from_id, '❌ این کاربر نماینده پیشرفته نیست.', $menuKeyboard, 'HTML');
+        step('home', $from_id);
+        return true;
+    }
+
+    if ($text === '▶️ بازگشت' && in_array($step, ['n2own_menu', 'home', ''], true) && $datain === '') {
+        sendmessage($from_id, '🏠 به منوی قبل بازگشتید.', $menuKeyboard, 'HTML');
+        step('home', $from_id);
+        return true;
+    }
+    if ($text === '▶️ بازگشت' || $datain === 'n2ownmenu' || $text === '📦 مدیریت محصولات') {
+        update('user', 'Processing_value_one', $targetAgentId, 'id', $from_id);
+        sendmessage($from_id, "📦 مدیریت محصولات نماینده <code>{$targetAgentId}</code>\nدسته بسازید، سپس محصول اضافه کنید.", agent_own_menu_keyboard(), 'HTML');
+        step('n2own_menu', $from_id);
+        return true;
+    }
+
+    if ($text === '➕ افزودن دسته' || $datain === 'n2own_addcat') {
+        update('user', 'Processing_value_one', $targetAgentId, 'id', $from_id);
+        sendmessage($from_id, '📌 نام دسته‌بندی را ارسال کنید.', agent_own_menu_keyboard(), 'HTML');
+        step('n2own_cat_add', $from_id);
+        return true;
+    }
+    if ($step === 'n2own_cat_add' && $text !== '' && $datain === '') {
+        $result = agent_own_add_category($targetAgentId, $text);
+        sendmessage($from_id, $result['msg'], agent_own_menu_keyboard(), 'HTML');
+        step('n2own_menu', $from_id);
+        return true;
+    }
+
+    if ($text === '🗂 لیست دسته‌ها' || $datain === 'n2own_listcat') {
+        $cats = agent_own_list_categories($targetAgentId);
+        if (!$cats) {
+            sendmessage($from_id, '❌ هنوز دسته‌بندی‌ای ساخته نشده است.', agent_own_menu_keyboard(), 'HTML');
+            step('n2own_menu', $from_id);
+            return true;
+        }
+        $kb = ['inline_keyboard' => []];
+        foreach ($cats as $cat) {
+            $kb['inline_keyboard'][] = [[
+                'text' => '🗑 ' . ($cat['remark'] ?? ''),
+                'callback_data' => 'n2owndelcat_' . (int) $cat['id'],
+            ]];
+        }
+        $kb['inline_keyboard'][] = [['text' => '▶️ بازگشت', 'callback_data' => 'n2ownmenu']];
+        sendmessage($from_id, "🗂 دسته‌ها — برای حذف روی مورد بزنید:", json_encode($kb, JSON_UNESCAPED_UNICODE), 'HTML');
+        step('n2own_menu', $from_id);
+        return true;
+    }
+    if (preg_match('/^n2owndelcat_(\d+)$/', $datain, $m)) {
+        $result = agent_own_delete_category($targetAgentId, $m[1]);
+        sendmessage($from_id, $result['msg'], agent_own_menu_keyboard(), 'HTML');
+        step('n2own_menu', $from_id);
+        return true;
+    }
+
+    if ($text === '🛍 لیست محصولات' || $datain === 'n2own_listprod') {
+        $prods = agent_own_list_products($targetAgentId);
+        if (!$prods) {
+            sendmessage($from_id, '❌ هنوز محصولی ساخته نشده است.', agent_own_menu_keyboard(), 'HTML');
+            step('n2own_menu', $from_id);
+            return true;
+        }
+        $kb = ['inline_keyboard' => []];
+        foreach ($prods as $prod) {
+            $label = ($prod['name_product'] ?? '') . ' | ' . ($prod['Volume_constraint'] ?? '0') . 'GB | ' . number_format((int) ($prod['price_product'] ?? 0)) . 'ت';
+            $kb['inline_keyboard'][] = [[
+                'text' => '🗑 ' . $label,
+                'callback_data' => 'n2owndelprod_' . (int) $prod['id'],
+            ]];
+        }
+        $kb['inline_keyboard'][] = [['text' => '▶️ بازگشت', 'callback_data' => 'n2ownmenu']];
+        sendmessage($from_id, "🛍 محصولات — برای حذف روی مورد بزنید:", json_encode($kb, JSON_UNESCAPED_UNICODE), 'HTML');
+        step('n2own_menu', $from_id);
+        return true;
+    }
+    if (preg_match('/^n2owndelprod_(\d+)$/', $datain, $m)) {
+        $result = agent_own_delete_product($targetAgentId, $m[1]);
+        sendmessage($from_id, $result['msg'], agent_own_menu_keyboard(), 'HTML');
+        step('n2own_menu', $from_id);
+        return true;
+    }
+
+    if ($text === '➕ افزودن محصول' || $datain === 'n2own_addprod') {
+        if (!agent_own_list_categories($targetAgentId, true)) {
+            sendmessage($from_id, '❌ ابتدا یک دسته‌بندی بسازید.', agent_own_menu_keyboard(), 'HTML');
+            step('n2own_menu', $from_id);
+            return true;
+        }
+        update('user', 'Processing_value_one', $targetAgentId, 'id', $from_id);
+        agent_own_draft_save($from_id, []);
+        sendmessage($from_id, '📌 نام محصول را ارسال کنید.', agent_own_menu_keyboard(), 'HTML');
+        step('n2own_prod_name', $from_id);
+        return true;
+    }
+    if ($step === 'n2own_prod_name' && $text !== '' && $datain === '') {
+        if (mb_strlen($text) > 150) {
+            sendmessage($from_id, '❌ نام محصول حداکثر ۱۵۰ کاراکتر باشد.', agent_own_menu_keyboard(), 'HTML');
+            return true;
+        }
+        agent_own_draft_save($from_id, ['name_product' => $text]);
+        sendmessage($from_id, '💰 قیمت محصول را به تومان ارسال کنید (فقط عدد).', agent_own_menu_keyboard(), 'HTML');
+        step('n2own_prod_price', $from_id);
+        return true;
+    }
+    if ($step === 'n2own_prod_price' && $text !== '' && $datain === '') {
+        if (!ctype_digit($text)) {
+            sendmessage($from_id, '❌ قیمت باید عدد باشد.', agent_own_menu_keyboard(), 'HTML');
+            return true;
+        }
+        $draft = agent_own_draft_get($user);
+        $draft['price_product'] = (int) $text;
+        agent_own_draft_save($from_id, $draft);
+        sendmessage($from_id, '🔋 حجم محصول را به گیگابایت ارسال کنید (فقط عدد، بیشتر از صفر).', agent_own_menu_keyboard(), 'HTML');
+        step('n2own_prod_volume', $from_id);
+        return true;
+    }
+    if ($step === 'n2own_prod_volume' && $text !== '' && $datain === '') {
+        if (!ctype_digit($text) || (int) $text <= 0) {
+            sendmessage($from_id, '❌ حجم باید عدد بزرگ‌تر از صفر باشد.', agent_own_menu_keyboard(), 'HTML');
+            return true;
+        }
+        $draft = agent_own_draft_get($user);
+        $draft['Volume_constraint'] = (int) $text;
+        agent_own_draft_save($from_id, $draft);
+        sendmessage($from_id, '⏳ مدت سرویس را به روز ارسال کنید (۰ = نامحدود).', agent_own_menu_keyboard(), 'HTML');
+        step('n2own_prod_time', $from_id);
+        return true;
+    }
+    if ($step === 'n2own_prod_time' && $text !== '' && $datain === '') {
+        if (!ctype_digit($text)) {
+            sendmessage($from_id, '❌ مدت باید عدد باشد.', agent_own_menu_keyboard(), 'HTML');
+            return true;
+        }
+        $draft = agent_own_draft_get($user);
+        $draft['Service_time'] = (int) $text;
+        agent_own_draft_save($from_id, $draft);
+        sendmessage($from_id, '🗂 دسته‌بندی محصول را انتخاب کنید.', agent_own_category_pick_keyboard($targetAgentId), 'HTML');
+        step('n2own_prod_cat', $from_id);
+        return true;
+    }
+    if ($step === 'n2own_prod_cat' && preg_match('/^n2ownpickcat_(\d+)$/', $datain, $m)) {
+        $cat = agent_own_get_category_by_id($m[1]);
+        if (!$cat || !in_array((string) $cat['agent_id'], agent_own_ids($targetAgentId), true)) {
+            sendmessage($from_id, '❌ دسته‌بندی نامعتبر است.', agent_own_menu_keyboard(), 'HTML');
+            step('n2own_menu', $from_id);
+            return true;
+        }
+        $draft = agent_own_draft_get($user);
+        $draft['category'] = (string) $cat['remark'];
+        $result = agent_own_add_product($targetAgentId, $draft);
+        sendmessage($from_id, $result['msg'], agent_own_menu_keyboard(), 'HTML');
+        step('n2own_menu', $from_id);
+        return true;
+    }
+
+    return $isOwnStep || $isOwnCb;
 }
 
 function agent_n2_category_enabled($agentUserId, $categoryRemark): bool
@@ -9626,59 +10204,30 @@ function agent_n2_category_enabled($agentUserId, $categoryRemark): bool
 }
 
 /**
- * True if this product code belongs to an enabled category for the n2 agent.
- * Uses JOIN (not LIMIT 1 on product alone) so duplicate code_product rows don't break access.
+ * True if this product belongs to the n2 agent's own catalog.
  */
 function agent_n2_product_enabled($agentUserId, $codeProduct, $categoryHint = null): bool
 {
-    global $pdo;
-    agent_ensure_n2_tables();
     if ($codeProduct === '' || $codeProduct === null || $codeProduct === 'customvolume') {
         return false;
     }
-    $hint = trim((string) ($categoryHint ?? ''));
-    if ($hint !== '' && agent_n2_category_enabled($agentUserId, $hint)) {
-        return true;
+    $prod = agent_own_get_product($agentUserId, $codeProduct);
+    if (!$prod) {
+        return false;
     }
-    $aid = agent_n2_agent_id($agentUserId);
-    $stmt = $pdo->prepare("SELECT 1
-        FROM product p
-        INNER JOIN agent_n2_category ac
-            ON ac.enabled = 1
-           AND ac.category = p.category
-           AND (ac.agent_id = :aid OR ac.agent_id = :aid_raw)
-        WHERE p.code_product = :code
-        LIMIT 1");
-    $stmt->execute([
-        ':aid' => $aid,
-        ':aid_raw' => (string) $agentUserId,
-        ':code' => (string) $codeProduct,
-    ]);
-    return (bool) $stmt->fetchColumn();
+    $hint = trim((string) ($categoryHint ?? ''));
+    if ($hint !== '' && (string) ($prod['category'] ?? '') !== $hint) {
+        return false;
+    }
+    return true;
 }
 
 /**
- * Fetch products in enabled categories for an n2 agent (from entire catalog).
+ * Fetch n2 agent's own products.
  */
 function agent_n2_list_products($agentUserId, $location = null): array
 {
-    global $pdo;
-    agent_ensure_n2_tables();
-    $aid = agent_n2_agent_id($agentUserId);
-    $sql = "SELECT p.* FROM product p
-            INNER JOIN agent_n2_category ac
-                ON ac.category = p.category
-               AND ac.enabled = 1
-               AND (ac.agent_id = :agent_id OR ac.agent_id = :agent_id_raw)";
-    $params = [':agent_id' => $aid, ':agent_id_raw' => (string) $agentUserId];
-    if ($location !== null && $location !== '') {
-        $sql .= " WHERE (p.Location = :location OR p.Location = '/all')";
-        $params[':location'] = $location;
-    }
-    $sql .= ' ORDER BY p.sort_order ASC, p.name_product ASC';
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    return agent_own_list_products($agentUserId, $location);
 }
 
 function agent_n2_log_purchase(array $data): void
@@ -9709,10 +10258,10 @@ function agent_n2_log_purchase(array $data): void
 function agent_n2_assert_and_log_purchase($agentUserId, $codeProduct, array $meta = []): array
 {
     if ($codeProduct === 'customvolume') {
-        return ['ok' => false, 'msg' => '❌ نماینده پیشرفته فقط می‌تواند محصولات فعال‌شده را خریداری کند.'];
+        return ['ok' => false, 'msg' => '❌ نماینده پیشرفته فقط می‌تواند محصولات خودش را خریداری کند.'];
     }
     if (!agent_n2_product_enabled($agentUserId, $codeProduct, $meta['category'] ?? null)) {
-        return ['ok' => false, 'msg' => '❌ این محصول / دسته‌بندی برای نمایندگی شما فعال نیست.'];
+        return ['ok' => false, 'msg' => '❌ این محصول برای نمایندگی شما تعریف نشده است.'];
     }
     agent_n2_log_purchase([
         'agent_id' => $agentUserId,
@@ -9791,19 +10340,41 @@ function getUsersHighVolumeUsage($percent = 80, $agent = 'all', $panelName = 'al
 }
 
 /**
- * True if this product/category is allowed for an agent with category whitelist (n / n2).
+ * True if this product/category is allowed for n (whitelist) or n2 (own catalog).
  */
 function agent_category_purchase_allowed($agentUserId, $codeProduct, $categoryRemark = ''): bool
 {
+    $user = select('user', '*', 'id', $agentUserId, 'select');
+    $agent = $user['agent'] ?? 'f';
+    $codeProduct = (string) ($codeProduct ?? '');
     $categoryRemark = trim((string) $categoryRemark);
+    if (agent_is_n2($agent)) {
+        return agent_n2_product_enabled($agentUserId, $codeProduct, $categoryRemark !== '' ? $categoryRemark : null);
+    }
     if ($categoryRemark !== '' && agent_n2_category_enabled($agentUserId, $categoryRemark)) {
         return true;
     }
     $codeProduct = (string) ($codeProduct ?? '');
-    if ($codeProduct !== '' && $codeProduct !== 'customvolume' && agent_n2_product_enabled($agentUserId, $codeProduct, $categoryRemark)) {
-        return true;
+    if ($codeProduct === '' || $codeProduct === 'customvolume') {
+        return false;
     }
-    return false;
+    global $pdo;
+    agent_ensure_n2_tables();
+    $aid = agent_n2_agent_id($agentUserId);
+    $stmt = $pdo->prepare("SELECT 1
+        FROM product p
+        INNER JOIN agent_n2_category ac
+            ON ac.enabled = 1
+           AND ac.category = p.category
+           AND (ac.agent_id = :aid OR ac.agent_id = :aid_raw)
+        WHERE p.code_product = :code
+        LIMIT 1");
+    $stmt->execute([
+        ':aid' => $aid,
+        ':aid_raw' => (string) $agentUserId,
+        ':code' => $codeProduct,
+    ]);
+    return (bool) $stmt->fetchColumn();
 }
 
 /**
@@ -9970,9 +10541,8 @@ function agent_current_price_per_gb($user, $consumedGb = null): int
 
 /**
  * Pre-check whether an agent can create the given GB volume.
- * n: pay-as-you-go — Balance >= step wholesale cost (no volume quota).
- * n2: skips billing (category whitelist enforced separately).
- * Returns ['ok' => bool, 'msg' => string, 'cost' => int, 'user' => array|null]
+ * n: pay-as-you-go — Balance >= step wholesale cost.
+ * n2: remaining GB (agent_volume_remaining) minus volume must stay above -maxbuyagent (0 = unlimited).
  */
 function agent_check_volume_quota($agentUserId, $volumeGb): array
 {
@@ -9982,17 +10552,6 @@ function agent_check_volume_quota($agentUserId, $volumeGb): array
     if (!$user || !agent_is_reseller($user['agent'] ?? 'f')) {
         return ['ok' => true, 'msg' => '', 'cost' => 0, 'user' => $user ?: null, 'skipped' => true];
     }
-    // n2: no volume/balance billing — product whitelist is enforced separately
-    if (agent_is_n2($user['agent'] ?? 'f')) {
-        return [
-            'ok' => true,
-            'msg' => '',
-            'cost' => 0,
-            'user' => $user,
-            'skipped' => false,
-            'skipped_billing' => true,
-        ];
-    }
     if ($volumeGb <= 0) {
         return [
             'ok' => false,
@@ -10000,6 +10559,29 @@ function agent_check_volume_quota($agentUserId, $volumeGb): array
             'cost' => 0,
             'user' => $user,
             'skipped' => false,
+        ];
+    }
+    if (agent_is_n2($user['agent'] ?? 'f')) {
+        $remaining = (int) ($user['agent_volume_remaining'] ?? 0);
+        $after = $remaining - $volumeGb;
+        $maxNeg = (int) ($user['maxbuyagent'] ?? 0);
+        if ($maxNeg != 0 && $after < (-1 * $maxNeg)) {
+            return [
+                'ok' => false,
+                'msg' => '❌ سهمیه حجم نمایندگی کافی نیست. موجودی: ' . number_format($remaining) . ' گیگ | نیاز: ' . number_format($volumeGb) . ' گیگ',
+                'cost' => 0,
+                'user' => $user,
+                'skipped' => false,
+                'volume_after' => $after,
+            ];
+        }
+        return [
+            'ok' => true,
+            'msg' => '',
+            'cost' => 0,
+            'user' => $user,
+            'skipped' => false,
+            'volume_after' => $after,
         ];
     }
     $cost = agent_wholesale_cost($user, $volumeGb);
@@ -10017,20 +10599,24 @@ function agent_check_volume_quota($agentUserId, $volumeGb): array
 }
 
 /**
- * Deduct wholesale cost from agent Balance after a successful create (pay-as-you-go).
- * Call agent_check_volume_quota first; this re-checks and updates.
- * n2 agents skip billing (skipped_billing). Volume quota is not used.
+ * Deduct wholesale cost (n) or remaining GB (n2) after a successful create.
  */
 function agent_consume_volume($agentUserId, $volumeGb): array
 {
     $check = agent_check_volume_quota($agentUserId, $volumeGb);
-    if (!empty($check['skipped']) || !empty($check['skipped_billing'])) {
+    if (!empty($check['skipped'])) {
         return $check;
     }
     if (!$check['ok']) {
         return $check;
     }
     $user = $check['user'];
+    if (agent_is_n2($user['agent'] ?? 'f')) {
+        $after = (int) ($check['volume_after'] ?? ((int) ($user['agent_volume_remaining'] ?? 0) - (int) $volumeGb));
+        update('user', 'agent_volume_remaining', (string) $after, 'id', $agentUserId);
+        $check['volume_remaining'] = $after;
+        return $check;
+    }
     $cost = (int) $check['cost'];
     $balance = (int) ($user['Balance'] ?? 0) - $cost;
     update('user', 'Balance', $balance, 'id', $agentUserId);

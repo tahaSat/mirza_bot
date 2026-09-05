@@ -1610,14 +1610,21 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
     $productExtraSql = trim((string) ($options['product_extra_sql'] ?? ''));
     $uid = $agentUserId !== null ? $agentUserId : $from_id;
     $accessSql = agent_product_access_sql($agent, $uid);
-    $stmt = $pdo->prepare("SELECT * FROM category");
-    $stmt->execute();
+    $productTable = agent_product_table($agent);
+    if (agent_is_n2($agent)) {
+        $includeCustomVolume = false;
+        $catRows = agent_own_list_categories($uid, true);
+    } else {
+        $catStmt = $pdo->prepare("SELECT * FROM category");
+        $catStmt->execute();
+        $catRows = $catStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
     $list_category = ['inline_keyboard' => [],];
-    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+    foreach ($catRows as $row) {
         if (!category_is_active($row)) {
             continue;
         }
-        $productSql = "SELECT * FROM product WHERE (Location = :location OR Location = '/all') AND category = :category AND {$accessSql}";
+        $productSql = "SELECT * FROM {$productTable} WHERE (Location = :location OR Location = '/all') AND category = :category AND {$accessSql}";
         if ($productExtraSql !== '') {
             $productSql .= ' ' . $productExtraSql;
         }
@@ -1660,8 +1667,7 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
 function keyboardTimeCategory($name_panel, $agent, $callback_data = "producttime_", $callback_data_back = "backuser", $statuscustomvolume = false, $statusbtnextend = false)
 {
     global $pdo, $textbotlang, $from_id;
-    $accessSql = agent_product_access_sql($agent, $from_id);
-    $stmt = $pdo->prepare("SELECT * FROM product WHERE (Location = :name_panel OR Location = '/all') AND {$accessSql}");
+    $stmt = $pdo->prepare(agent_product_select_sql($agent, $from_id, "(Location = :name_panel OR Location = '/all')"));
     $stmt->bindValue(':name_panel', $name_panel, PDO::PARAM_STR);
     $stmt->execute();
     $montheproduct = [];

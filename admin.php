@@ -249,11 +249,12 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $withdrawAll = bot_wallet_withdraw_stats($pdo);
     $withdrawCountAll = (int) ($withdrawAll['count'] ?? 0);
     $withdrawSumAll = (float) ($withdrawAll['sum'] ?? 0);
-    $recordedExpensesAll = bot_payment_expense_stats($pdo);
-    $expenseCountAll = (int) ($recordedExpensesAll['count'] ?? 0) + $withdrawCountAll;
-    $expenseSumAll = (float) ($recordedExpensesAll['sum'] ?? 0) + $withdrawSumAll;
+    $ledgerAll = bot_payment_ledger_stats($pdo);
+    $expenseCountAll = (int) ($ledgerAll['expenses_count'] ?? 0);
+    $expenseSumAll = (float) ($ledgerAll['expenses_sum'] ?? 0);
     $expenseSumAllFmt = number_format($expenseSumAll, 0);
-    $invoicesumall = number_format($invoiceTotal - $expenseSumAll, 0);
+    $incomeSumAllFmt = number_format((float) ($ledgerAll['income_sum'] ?? 0), 0);
+    $invoicesumall = number_format((float) ($ledgerAll['net_sum'] ?? 0), 0);
     $withdrawSumAllFmt = number_format($withdrawSumAll, 0);
     $sql3 = "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_extend FROM service_other WHERE type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'";
     $stmt3 = $pdo->query($sql3);
@@ -282,13 +283,14 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $count_users_test = (int) ($statsUsers['users_with_test'] ?? 0);
     $count_users_test_no_purchase = (int) ($statsUsers['users_with_test_no_purchase'] ?? 0);
     $count_users_test_and_purchase = (int) ($statsUsers['users_with_test_and_purchase'] ?? 0);
-    $sqlsum = "SELECT SUM(price) AS sumpay , Payment_Method,COUNT(price) AS countpay FROM Payment_report WHERE " . paid_real_income_sql() . " GROUP BY  Payment_Method;";
+    $sqlsum = "SELECT SUM(price) AS sumpay , Payment_Method,COUNT(price) AS countpay FROM Payment_report WHERE payment_Status = 'paid' GROUP BY  Payment_Method;";
     $stmt = $pdo->prepare($sqlsum);
     $stmt->execute();
     $statispay = $stmt->fetchAll();
     $date = date("Y-m-d");
     $timeacc = jdate('H:i:s', time());
     $invoicesum = (float) ($invoicesum ?? 0);
+    $invoicesumFmt = number_format($invoicesum, 0);
     $extendsum = (float) ($extendsum ?? 0);
     $statistics = (int) ($statistics ?? 0);
     $paycount = "";
@@ -332,10 +334,10 @@ if (in_array($text, $textadmin) || $datain == "admin") {
                 'capital_injection' => 'ورود سرمایه',
 
             ][$tracepay['Payment_Method']] ?? ($tracepay['Payment_Method'] ?: 'سایر');
-            $paycount .= "
-📌 نام درگاه : <code>$status_var</code>
- - تعداد پرداخت موفق : <code>{$tracepay['countpay']}</code>
- - جمع پرداختی ها : <code>{$tracepay['sumpay']}</code>\n";
+            $sumPay = number_format((float) ($tracepay['sumpay'] ?? 0), 0);
+            $countPay = (int) ($tracepay['countpay'] ?? 0);
+            $status_var = htmlspecialchars((string) $status_var, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $paycount .= "\n• {$status_var}: <code>$countPay</code> عدد — <code>$sumPay</code> تومان";
         }
     }
     $statisticsall = "📊 <b>آمار کلی ربات</b>
@@ -348,16 +350,23 @@ if (in_array($text, $textadmin) || $datain == "admin") {
 🧪💳 <b>کاربران دارای تست با خرید:</b> <code>$count_users_test_and_purchase</code> نفر  
 💰 <b>موجودی کل کاربران:</b> <code>$Balanceall</code> تومان  
 
-🧾 <b>تعداد کل فروش:</b> <code>$invoice</code> عدد  
+💰 <b>درآمدها</b>
+🧾 <b>تعداد کل فروش:</b> <code>$invoice</code> عدد
 $firstPurchaseText
-🧾 <b>تعداد کل فروش سرویس های فعال:</b> <code>$invoiceactive</code> عدد  
-💸 <b>تعداد برداشت از کیف پول:</b> <code>$withdrawCountAll</code> عدد  
-💰 <b>مبلغ برداشت از کیف پول:</b> <code>$withdrawSumAllFmt</code> تومان  
+🧾 <b>تعداد کل فروش سرویس های فعال:</b> <code>$invoiceactive</code> عدد
+💵 <b>جمع کل فروش سرویس های فعال:</b> <code>$invoicesumFmt</code> تومان
+🔄 <b>جمع کل تمدید:</b> <code>$extendsum</code> تومان
+$paycount
+<b>💰 درآمد کل: <code>$incomeSumAllFmt</code> تومان</b>
+
+💸 <b>هزینه‌ها</b>
+💸 <b>تعداد برداشت از کیف پول:</b> <code>$withdrawCountAll</code> عدد
+💰 <b>مبلغ برداشت از کیف پول:</b> <code>$withdrawSumAllFmt</code> تومان
 🧾 <b>تعداد کل هزینه‌ها:</b> <code>$expenseCountAll</code> عدد
 💸 <b>مجموع کل هزینه‌ها:</b> <code>$expenseSumAllFmt</code> تومان
-💵 <b>درآمد خالص (درآمد منهای هزینه):</b> <code>$invoicesumall</code> تومان
-💵 <b>جمع کل فروش سرویس های فعال:</b> <code>$invoicesum</code> تومان  
-🔄 <b>جمع کل تمدید:</b> <code>$extendsum</code> تومان  
+
+<b>💵 درآمد خالص: <code>$invoicesumall</code> تومان</b>
+
 ♻️ <b>کاربران با تمدید خودکار:</b> <code>$autoRenewUsers</code> نفر  
 ♻️ <b>سرویس‌های تمدید خودکار:</b> <code>$autoRenewServices</code> عدد  
 $soldVolumeText
@@ -375,8 +384,7 @@ $soldVolumeText
 👨‍💼 <b>تعداد کل نمایندگان:</b> <code>$agentsum</code> نفر  
 🔹 <b>نمایندگان نوع N:</b> <code>$agentsumn</code> نفر  
 🔸 <b>نمایندگان نوع N2:</b> <code>$agentsumn2</code> نفر  
-🧩 <b>تعداد پنل‌ها:</b> <code>$sumpanel</code> عدد  
-$paycount
+🧩 <b>تعداد پنل‌ها:</b> <code>$sumpanel</code> عدد
 ";
     if ($datain == "stat_all_bot") {
         Editmessagetext($from_id, $message_id, $statisticsall, $keyboard_stat, 'HTML');

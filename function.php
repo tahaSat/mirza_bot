@@ -905,6 +905,59 @@ function bot_wallet_withdraw_stats(PDO $pdo, ?int $startTs = null, ?int $endTs =
 }
 
 /**
+ * Same ledger as the payments page cards:
+ * income = Payment_report.paid, expenses = Payment_report.cost, net = income - expenses.
+ *
+ * @return array{income_count:int,income_sum:float,expenses_count:int,expenses_sum:float,net_sum:float}
+ */
+function bot_payment_ledger_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = null): array
+{
+    $empty = [
+        'income_count' => 0,
+        'income_sum' => 0.0,
+        'expenses_count' => 0,
+        'expenses_sum' => 0.0,
+        'net_sum' => 0.0,
+    ];
+    try {
+        $timeSql = '';
+        $params = [];
+        if ($startTs !== null && $endTs !== null) {
+            $timeSql = ' AND ' . sql_unix_or_datetime_between('time');
+            $params = [
+                $startTs,
+                $endTs,
+                tehran_datetime_string($startTs),
+                tehran_datetime_string($endTs),
+            ];
+        }
+        $sql = "SELECT
+                COALESCE(SUM(CASE WHEN payment_Status = 'paid' THEN 1 ELSE 0 END), 0) AS income_count,
+                COALESCE(SUM(CASE WHEN payment_Status = 'paid' THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS income_sum,
+                COALESCE(SUM(CASE WHEN payment_Status = 'cost' THEN 1 ELSE 0 END), 0) AS expenses_count,
+                COALESCE(SUM(CASE WHEN payment_Status = 'cost' THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS expenses_sum
+            FROM Payment_report
+            WHERE payment_Status IN ('paid', 'cost')
+              $timeSql";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $income = (float) ($row['income_sum'] ?? 0);
+        $expenses = (float) ($row['expenses_sum'] ?? 0);
+        return [
+            'income_count' => (int) ($row['income_count'] ?? 0),
+            'income_sum' => $income,
+            'expenses_count' => (int) ($row['expenses_count'] ?? 0),
+            'expenses_sum' => $expenses,
+            'net_sum' => $income - $expenses,
+        ];
+    } catch (Throwable $e) {
+        error_log('bot_payment_ledger_stats: ' . $e->getMessage());
+        return $empty;
+    }
+}
+
+/**
  * Recorded costs other than wallet withdrawals (withdrawals are counted from
  * wallet_withdraw so old requests and their Payment_report mirror are not double-counted).
  *
@@ -1072,20 +1125,16 @@ function bot_format_sold_volume_block(array $vol, bool $html = false): string
     $invoice = $fmt($vol['invoice'] ?? 0);
     $extra = $fmt($vol['extra'] ?? 0);
     if ($html) {
-        $lines = "🔋 <b>حجم فروخته شده:</b> <code>$total</code> گیگابایت\n"
-            . "🛒 <b>از خرید سرویس:</b> <code>$invoice</code> گیگابایت\n"
-            . "📦 <b>از حجم اضافه:</b> <code>$extra</code> گیگابایت";
+        $lines = "🔋 <b>حجم فروخته‌شده:</b> <code>$total</code> گیگابایت"
+            . "\n• از خرید سرویس: <code>$invoice</code> گیگابایت"
+            . "\n• از حجم اضافه: <code>$extra</code> گیگابایت";
     } else {
-        $lines = "🔋 حجم فروخته شده : $total گیگابایت\n"
-            . "🛒 از خرید سرویس : $invoice گیگابایت\n"
-            . "📦 از حجم اضافه : $extra گیگابایت";
+        $lines = "🔋 حجم فروخته‌شده : $total گیگابایت"
+            . "\n• از خرید سرویس : $invoice گیگابایت"
+            . "\n• از حجم اضافه : $extra گیگابایت";
     }
 
     $panels = $vol['panels'] ?? [];
-    if ($panels === []) {
-        return $lines;
-    }
-    $lines .= $html ? "\n\n📡 <b>حجم فروخته‌شده هر پنل:</b>" : "\n\n📡 حجم فروخته‌شده هر پنل :";
     $shown = 0;
     $totalPanels = count($panels);
     foreach ($panels as $panel) {
@@ -1384,7 +1433,7 @@ function pay_affiliate_commission(array $buyer, $amount, string $reason = 'buy',
 }
 
 /**
- * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,expenses:int,expenses_sum:float,users:int,avg_join:string,total_count:int,total_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
+ * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,expenses:int,expenses_sum:float,users:int,avg_join:string,total_count:int,income_sum:float,total_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
  */
 function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
 {
@@ -1428,9 +1477,9 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
     $withdraw = bot_wallet_withdraw_stats($pdo, $startTs, $endTs);
     $withdrawCount = (int) ($withdraw['count'] ?? 0);
     $withdrawSum = (float) ($withdraw['sum'] ?? 0);
-    $recordedExpenses = bot_payment_expense_stats($pdo, $startTs, $endTs);
-    $expenseCount = (int) ($recordedExpenses['count'] ?? 0) + $withdrawCount;
-    $expenseSum = (float) ($recordedExpenses['sum'] ?? 0) + $withdrawSum;
+    $ledger = bot_payment_ledger_stats($pdo, $startTs, $endTs);
+    $expenseCount = (int) ($ledger['expenses_count'] ?? 0);
+    $expenseSum = (float) ($ledger['expenses_sum'] ?? 0);
 
     return [
         'orders' => (int) ($orders['count'] ?? 0),
@@ -1458,7 +1507,8 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
             + $extraVolumeCount
             + $extraTimeCount
             + $walletCount,
-        'total_sum' => $orderSum + $extendSum + $extraVolumeSum + $extraTimeSum + $walletSum - $expenseSum,
+        'income_sum' => (float) ($ledger['income_sum'] ?? 0),
+        'total_sum' => (float) ($ledger['net_sum'] ?? 0),
         'sold_volume' => bot_sold_volume_stats($pdo, $startTs, $endTs),
         'first_purchase' => bot_first_purchase_stats($pdo, $startTs, $endTs),
         'forecast_sold_volume' => ($endTs - $startTs) >= (7 * 86400)
@@ -1475,14 +1525,13 @@ function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = 
     $sumOrder = number_format($s['orders_sum'], 0);
     $sumExtend = number_format($s['extends_sum'], 0);
     $sumExtraVolume = number_format($s['extra_volume_sum'], 0);
-    $sumExtraTime = number_format($s['extra_time_sum'], 0);
-    $sumChange = number_format($s['change_location_sum'], 0);
     $walletCount = (int) ($s['wallet'] ?? 0);
     $sumWallet = number_format((float) ($s['wallet_sum'] ?? 0), 0);
     $withdrawCount = (int) ($s['wallet_withdraw'] ?? 0);
     $sumWithdraw = number_format((float) ($s['wallet_withdraw_sum'] ?? 0), 0);
     $expenseCount = (int) ($s['expenses'] ?? 0);
     $sumExpenses = number_format((float) ($s['expenses_sum'] ?? 0), 0);
+    $sumIncome = number_format((float) ($s['income_sum'] ?? 0), 0);
     $sumTotal = number_format($s['total_sum'], 0);
     $soldVolumeBlock = bot_format_sold_volume_block($s['sold_volume'] ?? []);
     $forecastVolume = $s['forecast_sold_volume'] ?? null;
@@ -1508,12 +1557,6 @@ $firstPurchaseBlock
 📦 حجم‌های اضافه  :{$s['extra_volume']} عدد
 💰 مبلغ حجم‌های اضافه : $sumExtraVolume تومان
 
-⏱️ زمان‌های اضافه  : {$s['extra_time']} عدد
-💰 مبلغ زمان‌های اضافه  : $sumExtraTime تومان
-
-📍 تغییر لوکیشن  : {$s['change_location']} عدد
-💰 مبلغ تغییر لوکیشن : $sumChange تومان
-
 💳 شارژ کیف پول : $walletCount عدد
 💰 مبلغ شارژ کیف پول : $sumWallet تومان
 
@@ -1524,13 +1567,15 @@ $firstPurchaseBlock
 💸 مجموع هزینه‌ها : $sumExpenses تومان
 
 📊 تعداد کل : {$s['total_count']} عدد
-💵 درآمد خالص (درآمد منهای هزینه) : $sumTotal تومان
 
 $soldVolumeBlock
 
 🔑 اکانت‌های تست  : {$s['tests']} عدد
 👤 تعداد کاربران  : {$s['users']} نفر
 ⏱ میانگین زمان عضویت تا اولین خرید : {$s['avg_join']}
+
+💰 درآمد کل : $sumIncome تومان
+💵 درآمد خالص : $sumTotal تومان
 ";
 }
 

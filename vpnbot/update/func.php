@@ -102,6 +102,13 @@ function DirectPaymentbot($order_id, $image = 'images.jpg')
             $codeProduct = $info_product['code_product'] ?? 'customvolume';
         }
 
+        $ownerBotEarly = select('botsaz', '*', 'bot_token', $bottype, 'select');
+        $ownerUserEarly = $ownerBotEarly ? select('user', '*', 'id', $ownerBotEarly['id_user'], 'select') : null;
+        if ($ownerUserEarly && agent_is_n2($ownerUserEarly['agent'] ?? 'f') && in_array((string) $codeProduct, ['customvolume', 'custom_volume'], true)) {
+            sendmessage($uid, agent_n2_custom_volume_denied_text(), $keyboard, 'HTML');
+            return;
+        }
+
         $date = strtotime("+" . $get_invoice['Service_time'] . "days");
         $timestamp = intval($get_invoice['Service_time']) == 0 ? 0 : strtotime(date("Y-m-d H:i:s", $date));
         $datac = [

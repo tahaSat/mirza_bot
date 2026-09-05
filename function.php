@@ -9601,6 +9601,11 @@ function agent_is_n2($agent): bool
     return (string) $agent === 'n2';
 }
 
+function agent_n2_custom_volume_denied_text(): string
+{
+    return '❌ در ربات نماینده پیشرفته خرید با حجم و زمان درخواستی غیرفعال است. فقط محصولات تعریف‌شده قابل خرید هستند.';
+}
+
 /**
  * Roles that buy only from panel-assigned category whitelist (n).
  * n2 uses its own product catalog instead.

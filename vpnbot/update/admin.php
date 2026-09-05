@@ -508,27 +508,32 @@ if ($text == "📞 تنظیم نام کاربری پشتیبانی") {
         '1' => $textbotlang['Admin']['Status']['statuson'],
         '0' => $textbotlang['Admin']['Status']['statusoff']
     ][$setting['active_step_note']];
-    $Bot_Status = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => $textbotlang['Admin']['Status']['statussubject'], 'callback_data' => "subjectde"],
-                ['text' => $textbotlang['Admin']['Status']['subject'], 'callback_data' => "subject"],
-            ],
-            [
-                ['text' => $status_custom, 'callback_data' => "editstsuts-statusvolume-{$setting['show_product']}"],
-                ['text' => "🛍 فروش  حجم دلخواه", 'callback_data' => "statuscustomvolume"],
-            ],
-            [
-                ['text' => $status_note, 'callback_data' => "editstsuts-statusnote-{$setting['active_step_note']}"],
-                ['text' => "✏️ یادداشت ", 'callback_data' => "statusnote"],
-            ]
-        ]
-    ]);
+    $Bot_Status_rows = [
+        [
+            ['text' => $textbotlang['Admin']['Status']['statussubject'], 'callback_data' => "subjectde"],
+            ['text' => $textbotlang['Admin']['Status']['subject'], 'callback_data' => "subject"],
+        ],
+    ];
+    if (!agent_is_n2($userbot['agent'] ?? 'f')) {
+        $Bot_Status_rows[] = [
+            ['text' => $status_custom, 'callback_data' => "editstsuts-statusvolume-{$setting['show_product']}"],
+            ['text' => "🛍 فروش  حجم دلخواه", 'callback_data' => "statuscustomvolume"],
+        ];
+    }
+    $Bot_Status_rows[] = [
+        ['text' => $status_note, 'callback_data' => "editstsuts-statusnote-{$setting['active_step_note']}"],
+        ['text' => "✏️ یادداشت ", 'callback_data' => "statusnote"],
+    ];
+    $Bot_Status = json_encode(['inline_keyboard' => $Bot_Status_rows]);
     sendmessage($from_id, "در این بخش می توانید قابلیت های زیر را خاموش یا روشن کنید", $Bot_Status, 'HTML');
 } elseif (preg_match('/^editstsuts-(.*)-(.*)/', $datain, $dataget)) {
     $type = $dataget[1];
     $value = $dataget[2];
     if ($type == "statusvolume") {
+        if (agent_is_n2($userbot['agent'] ?? 'f')) {
+            sendmessage($from_id, agent_n2_custom_volume_denied_text(), $keyboardadmin, 'HTML');
+            return;
+        }
         if ($value == false) {
             $valuenew = true;
         } else {
@@ -555,22 +560,23 @@ if ($text == "📞 تنظیم نام کاربری پشتیبانی") {
         '1' => $textbotlang['Admin']['Status']['statuson'],
         '0' => $textbotlang['Admin']['Status']['statusoff']
     ][$setting['active_step_note']];
-    $Bot_Status = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => $textbotlang['Admin']['Status']['statussubject'], 'callback_data' => "subjectde"],
-                ['text' => $textbotlang['Admin']['Status']['subject'], 'callback_data' => "subject"],
-            ],
-            [
-                ['text' => $status_custom, 'callback_data' => "editstsuts-statusvolume-{$setting['show_product']}"],
-                ['text' => "🛍 فروش  حجم دلخواه", 'callback_data' => "statuscustomvolume"],
-            ],
-            [
-                ['text' => $status_note, 'callback_data' => "editstsuts-statusnote-{$setting['active_step_note']}"],
-                ['text' => "✏️ یادداشت ", 'callback_data' => "statusnote"],
-            ]
-        ]
-    ]);
+    $Bot_Status_rows = [
+        [
+            ['text' => $textbotlang['Admin']['Status']['statussubject'], 'callback_data' => "subjectde"],
+            ['text' => $textbotlang['Admin']['Status']['subject'], 'callback_data' => "subject"],
+        ],
+    ];
+    if (!agent_is_n2($userbot['agent'] ?? 'f')) {
+        $Bot_Status_rows[] = [
+            ['text' => $status_custom, 'callback_data' => "editstsuts-statusvolume-{$setting['show_product']}"],
+            ['text' => "🛍 فروش  حجم دلخواه", 'callback_data' => "statuscustomvolume"],
+        ];
+    }
+    $Bot_Status_rows[] = [
+        ['text' => $status_note, 'callback_data' => "editstsuts-statusnote-{$setting['active_step_note']}"],
+        ['text' => "✏️ یادداشت ", 'callback_data' => "statusnote"],
+    ];
+    $Bot_Status = json_encode(['inline_keyboard' => $Bot_Status_rows]);
     Editmessagetext($from_id, $message_id, "در این بخش می توانید قابلیت های زیر را خاموش یا روشن کنید", $Bot_Status);
 } elseif ($text == "💳 تنظیمات پرداخت") {
     $setting = botsaz_normalize_setting($setting);

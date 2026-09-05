@@ -250,7 +250,7 @@ function KeyboardProduct($location, $query, $pricediscount, $datakeyboard, $stat
             )
         ];
     }
-    if ($statuscustom) {
+    if ($statuscustom && !agent_is_n2($userbot['agent'] ?? 'f')) {
         $panelRow = select("marzban_panel", "*", "name_panel", $location, "select");
         $customBtn = panel_custom_service_inline_button(is_array($panelRow) ? $panelRow : [], $customvolume);
         $product['inline_keyboard'][] = [$customBtn];

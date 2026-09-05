@@ -118,6 +118,9 @@ $otherservice = select("topicid", "idreport", "report", "otherservice", "select"
 $paymentreports = select("topicid", "idreport", "report", "paymentreport", "select")['idreport'];
 $admin_idsmain = function_exists('admin_telegram_ids') ? admin_telegram_ids() : (select("admin", "id_admin", null, null, "FETCH_COLUMN") ?: []);
 $userbot = select("user", "*", "id", $dataBase['id_user'], "select");
+if (agent_is_n2($userbot['agent'] ?? 'f')) {
+    $setting['show_product'] = false;
+}
 if ($user['bottype'] != $ApiToken) {
     update("user", "bottype", $ApiToken, "id", $from_id);
 }
@@ -664,6 +667,10 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
                 return;
             }
         } else {
+            if (agent_is_n2($userbot['agent'] ?? 'f')) {
+                sendmessage($from_id, agent_n2_custom_volume_denied_text(), $keyboard, 'HTML');
+                return;
+            }
             $marzban_list_get = $locationproduct;
             $eextraprice = $setting['pricevolume'];
             $mainvolume = json_decode($marzban_list_get['mainvolume'], true);
@@ -685,7 +692,7 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     sendmessage($from_id, "📌 موقعیت سرویس خود را انتخاب کنید", $list_marzban_panel_user, 'HTML');
 } elseif ($datain == "customvolumebuy") {
     if (agent_is_n2($userbot['agent'] ?? 'f')) {
-        sendmessage($from_id, '❌ نماینده پیشرفته فقط می‌تواند محصولات خودش را بفروشد.', $keyboard, 'HTML');
+        sendmessage($from_id, agent_n2_custom_volume_denied_text(), $keyboard, 'HTML');
         return;
     }
     $userdate = json_decode($user['Processing_value'], true);
@@ -747,6 +754,10 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
                 : "📌 دسته بندی خود را انتخاب نمایید!", KeyboardCategory($locationproduct['name_panel'], $userbot['agent'], "backuser", $dataBase['id_user']));
         }
     } else {
+        if (agent_is_n2($userbot['agent'] ?? 'f')) {
+            sendmessage($from_id, agent_n2_custom_volume_denied_text(), $keyboard, 'HTML');
+            return;
+        }
         deletemessage($from_id, $message_id);
         $marzban_list_get = $locationproduct;
         $eextraprice = $setting['pricevolume'];
@@ -805,6 +816,11 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $prodcut = KeyboardProduct($locationproduct['name_panel'], $query, 0, $keyboarddata, $statuscustom, "backuser", null, $customvolume = "customvolumebuy");
     Editmessagetext($from_id, $message_id, $categoryMessage, $prodcut, 'HTML');
 } elseif ($user['step'] == "gettimecustomvol") {
+    if (agent_is_n2($userbot['agent'] ?? 'f')) {
+        sendmessage($from_id, agent_n2_custom_volume_denied_text(), $keyboard, 'HTML');
+        step('home', $from_id);
+        return;
+    }
     $userdate = json_decode($user['Processing_value'], true);
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
     if (!$marzban_list_get) {
@@ -829,6 +845,11 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonth_', 'backuser', (int) $text, $userbot), 'html');
     step('selectcustommonth', $from_id);
 } elseif (preg_match('/^custommonth_(\d+)$/', $datain, $dataget) && ($user['step'] == "selectcustommonth" || $user['step'] == "getvolumecustomuser" || $user['step'] == "getvolumecustomusername")) {
+    if (agent_is_n2($userbot['agent'] ?? 'f')) {
+        sendmessage($from_id, agent_n2_custom_volume_denied_text(), $keyboard, 'HTML');
+        step('home', $from_id);
+        return;
+    }
     $months = (int) $dataget[1];
     $userdate = json_decode($user['Processing_value'], true);
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $userdate['name_panel'], "select");
@@ -1077,6 +1098,11 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     $botbalance = select("botsaz", "*", "bot_token", $ApiToken, "select");
     $userbotbalance = select("user", "*", "id", $botbalance['id_user'], "select");
     $agentVolumeGb = (int) $datafactor['Volume_constraint'];
+    if (agent_is_n2($userbotbalance['agent'] ?? 'f') && in_array((string) ($datafactor['code_product'] ?? ''), ['customvolume', 'custom_volume'], true)) {
+        sendmessage($from_id, agent_n2_custom_volume_denied_text(), $keyboard, 'HTML');
+        step("home", $from_id);
+        return;
+    }
     if (agent_uses_category_whitelist($userbotbalance['agent'] ?? 'f') || agent_is_n2($userbotbalance['agent'] ?? 'f')) {
         $n2Code = $datafactor['code_product'] ?? '';
         $n2Cat = category_from_processing($userdate ?? []);
@@ -1719,6 +1745,10 @@ $output
         $prodcut = KeyboardProduct($marzban_list_get['name_panel'], $query, 0, "selectproductextends_", $statuscustom, "backuser", null, $customvolume = "customvolumeextend");
         sendmessage($from_id, "🛍️ لطفاً سرویسی که می‌خواهید تمدید کنید را انتخاب کنید!", $prodcut, 'HTML');
     } else {
+        if (agent_is_n2($userbot['agent'] ?? 'f')) {
+            sendmessage($from_id, agent_n2_custom_volume_denied_text(), $keyboard, 'HTML');
+            return;
+        }
         $custompricevalue = $setting['pricevolume'];
         $mainvolume = json_decode($marzban_list_get['mainvolume'], true);
         $mainvolume = $mainvolume[$userbot['agent']];
@@ -1732,7 +1762,7 @@ $output
     }
 } elseif ($datain == "customvolumeextend") {
     if (agent_is_n2($userbot['agent'] ?? 'f')) {
-        sendmessage($from_id, '❌ نماینده پیشرفته فقط می‌تواند محصولات خودش را بفروشد.', $keyboard, 'HTML');
+        sendmessage($from_id, agent_n2_custom_volume_denied_text(), $keyboard, 'HTML');
         return;
     }
     $userdate = json_decode($user['Processing_value'], true);
@@ -1748,6 +1778,11 @@ $output
     sendmessage($from_id, $textcustom, $backuser, 'html');
     step('gettimecustomvolextend', $from_id);
 } elseif ($user['step'] == "gettimecustomvolextend") {
+    if (agent_is_n2($userbot['agent'] ?? 'f')) {
+        sendmessage($from_id, agent_n2_custom_volume_denied_text(), $keyboard, 'HTML');
+        step('home', $from_id);
+        return;
+    }
     $userdate = json_decode($user['Processing_value'], true);
     $nameloc = select("invoice", "*", "id_invoice", $userdate['id_invoice'], "select");
     $marzban_list_get = select("marzban_panel", "*", "name_panel", $nameloc['Service_location'], "select");
@@ -1772,6 +1807,11 @@ $output
     sendmessage($from_id, $textcustom, KeyboardCustomMonths($marzban_list_get, 'custommonthextend_', $backCb, (int) $text, $userbot), 'html');
     step('selectcustommonthextend', $from_id);
 } elseif (preg_match('/^custommonthextend_(\d+)$/', $datain, $dataget) && ($user['step'] == "selectcustommonthextend" || $user['step'] == "gettimecustomextend")) {
+    if (agent_is_n2($userbot['agent'] ?? 'f')) {
+        sendmessage($from_id, agent_n2_custom_volume_denied_text(), $keyboard, 'HTML');
+        step('home', $from_id);
+        return;
+    }
     $months = (int) $dataget[1];
     $userdate = json_decode($user['Processing_value'], true);
     $nameloc = select("invoice", "*", "id_invoice", $userdate['id_invoice'], "select");
@@ -1935,6 +1975,11 @@ $output
     $botbalance = select("botsaz", "*", "bot_token", $ApiToken, "select");
     $userbotbalance = select("user", "*", "id", $botbalance['id_user'], "select");
     $agentVolumeGb = (int) $datafactor['Volume_constraint'];
+    if (agent_is_n2($userbotbalance['agent'] ?? 'f') && in_array((string) ($datafactor['code_product'] ?? ''), ['customvolume', 'custom_volume'], true)) {
+        sendmessage($from_id, agent_n2_custom_volume_denied_text(), $keyboard, 'HTML');
+        step("home", $from_id);
+        return;
+    }
     if (agent_uses_category_whitelist($userbotbalance['agent'] ?? 'f') || agent_is_n2($userbotbalance['agent'] ?? 'f')) {
         $n2Code = $datafactor['code_product'] ?? '';
         $n2Cat = category_from_processing($userdate ?? []);

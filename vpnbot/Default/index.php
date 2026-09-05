@@ -639,14 +639,28 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
     step("statusnamecustom", $from_id);
     return;
 } elseif ($text == $text_bot_var['btn_keyboard']['buy'] || $user['step'] == "statusnamecustom") {
-    $locationproduct = mysqli_query($connect, "SELECT * FROM marzban_panel  WHERE status = 'active' AND (agent = '{$userbot['agent']}' OR agent = 'all')");
-    if (mysqli_num_rows($locationproduct) == 0) {
-        sendmessage($from_id, $textbotlang['Admin']['managepanel']['nullpanel'], null, 'HTML');
-        return;
+    $n2VisiblePanels = agent_is_n2($userbot['agent'] ?? 'f') ? agent_n2_visible_panels($dataBase['id_user'] ?? 0) : null;
+    if (is_array($n2VisiblePanels)) {
+        if ($n2VisiblePanels === []) {
+            sendmessage($from_id, $textbotlang['Admin']['managepanel']['nullpanel'], null, 'HTML');
+            return;
+        }
+        $locationproduct = null;
+    } else {
+        $locationproduct = mysqli_query($connect, "SELECT * FROM marzban_panel  WHERE status = 'active' AND (agent = '{$userbot['agent']}' OR agent = 'all')");
+        if (mysqli_num_rows($locationproduct) == 0) {
+            sendmessage($from_id, $textbotlang['Admin']['managepanel']['nullpanel'], null, 'HTML');
+            return;
+        }
     }
-    if (mysqli_num_rows($locationproduct) == 1) {
-        $location = mysqli_fetch_assoc($locationproduct)['name_panel'];
-        $locationproduct = select("marzban_panel", "*", "name_panel", $location, "select");
+    if ((is_array($n2VisiblePanels) && count($n2VisiblePanels) === 1) || (!is_array($n2VisiblePanels) && mysqli_num_rows($locationproduct) == 1)) {
+        if (is_array($n2VisiblePanels)) {
+            $locationproduct = $n2VisiblePanels[0];
+            $location = $locationproduct['name_panel'];
+        } else {
+            $location = mysqli_fetch_assoc($locationproduct)['name_panel'];
+            $locationproduct = select("marzban_panel", "*", "name_panel", $location, "select");
+        }
         $query = agent_product_select_sql($userbot['agent'], $dataBase['id_user'], "(Location = '{$locationproduct['name_panel']}' OR Location = '/all')");
         $stmt = $pdo->prepare($query);
         $stmt->execute();

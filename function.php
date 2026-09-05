@@ -9859,6 +9859,106 @@ function agent_own_ids($agentUserId): array
     return $ids;
 }
 
+function agent_n2_botsaz_row($agentUserId): ?array
+{
+    foreach (agent_own_ids($agentUserId) as $id) {
+        $row = select('botsaz', '*', 'id_user', $id, 'select');
+        if (is_array($row)) {
+            return $row;
+        }
+    }
+    return null;
+}
+
+function agent_n2_hidden_panel_names($agentUserId): array
+{
+    $bot = agent_n2_botsaz_row($agentUserId);
+    if (!$bot) {
+        return [];
+    }
+    $decoded = json_decode($bot['hide_panel'] ?? '[]', true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+    $names = [];
+    foreach ($decoded as $name) {
+        $name = trim((string) $name);
+        if ($name !== '') {
+            $names[] = $name;
+        }
+    }
+    return $names;
+}
+
+function agent_n2_visible_panels($agentUserId): array
+{
+    global $pdo;
+    $hidden = agent_n2_hidden_panel_names($agentUserId);
+    try {
+        $stmt = $pdo->query("SELECT * FROM marzban_panel WHERE status = 'active' ORDER BY name_panel ASC");
+        $rows = $stmt ? ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) : [];
+    } catch (Throwable $e) {
+        return [];
+    }
+    $preferred = [];
+    $fallback = [];
+    foreach ($rows as $row) {
+        $name = trim((string) ($row['name_panel'] ?? ''));
+        if ($name === '' || in_array($name, $hidden, true)) {
+            continue;
+        }
+        $fallback[] = $row;
+        $role = (string) ($row['agent'] ?? '');
+        if ($role === '' || in_array($role, ['n2', 'all'], true)) {
+            $preferred[] = $row;
+        }
+    }
+    return $preferred !== [] ? $preferred : $fallback;
+}
+
+function agent_own_allowed_locations($agentUserId): array
+{
+    $names = ['/all'];
+    foreach (agent_n2_visible_panels($agentUserId) as $panel) {
+        $name = trim((string) ($panel['name_panel'] ?? ''));
+        if ($name !== '' && !in_array($name, $names, true)) {
+            $names[] = $name;
+        }
+    }
+    return $names;
+}
+
+function agent_own_normalize_location($agentUserId, $location): string
+{
+    $location = trim((string) $location);
+    $allowed = agent_own_allowed_locations($agentUserId);
+    if ($location !== '' && in_array($location, $allowed, true)) {
+        return $location;
+    }
+    $named = array_values(array_filter($allowed, static fn($name) => $name !== '/all'));
+    return count($named) === 1 ? $named[0] : '/all';
+}
+
+function agent_own_panel_pick_keyboard($agentUserId): string
+{
+    $kb = ['inline_keyboard' => []];
+    $panels = agent_n2_visible_panels($agentUserId);
+    foreach ($panels as $panel) {
+        $name = trim((string) ($panel['name_panel'] ?? ''));
+        $code = trim((string) ($panel['code_panel'] ?? ''));
+        if ($name === '' || $code === '') {
+            continue;
+        }
+        $kb['inline_keyboard'][] = [[
+            'text' => $name,
+            'callback_data' => 'n2ownpickpanel_' . $code,
+        ]];
+    }
+    $kb['inline_keyboard'][] = [['text' => 'همه پنل‌های فعال', 'callback_data' => 'n2ownpickpanel_all']];
+    $kb['inline_keyboard'][] = [['text' => '▶️ بازگشت', 'callback_data' => 'n2ownmenu']];
+    return json_encode($kb, JSON_UNESCAPED_UNICODE);
+}
+
 function agent_own_new_code(): string
 {
     return 'n2' . bin2hex(random_bytes(4));
@@ -10073,7 +10173,7 @@ function agent_own_add_product($agentUserId, array $data): array
         (string) $volume,
         (string) $time,
         $category,
-        '/all',
+        agent_own_normalize_location($agentUserId, $data['Location'] ?? ''),
         (string) ($data['note'] ?? ''),
         'no_reset',
         '0',
@@ -10081,6 +10181,22 @@ function agent_own_add_product($agentUserId, array $data): array
         0,
     ]);
     return ['ok' => true, 'msg' => '✅ محصول اضافه شد.', 'code_product' => $code];
+}
+
+function agent_own_update_product($agentUserId, $productId, array $data): array
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $prod = agent_own_get_product_by_id($agentUserId, $productId);
+    if (!$prod) {
+        return ['ok' => false, 'msg' => '❌ محصول یافت نشد.'];
+    }
+    $location = array_key_exists('Location', $data)
+        ? agent_own_normalize_location($agentUserId, $data['Location'])
+        : (string) ($prod['Location'] ?? '/all');
+    $stmt = $pdo->prepare('UPDATE agent_own_product SET Location = ? WHERE id = ?');
+    $stmt->execute([$location, (int) $productId]);
+    return ['ok' => true, 'msg' => '✅ محصول به‌روزرسانی شد.'];
 }
 
 function agent_own_delete_product($agentUserId, $productId): array
@@ -10372,6 +10488,35 @@ function agent_own_telegram_handle($from_id, $text, $datain, array $user, $targe
         }
         $draft = agent_own_draft_get($user);
         $draft['category'] = (string) $cat['remark'];
+        $panels = agent_n2_visible_panels($targetAgentId);
+        if (count($panels) <= 1) {
+            $draft['Location'] = trim((string) ($panels[0]['name_panel'] ?? '')) ?: '/all';
+            $result = agent_own_add_product($targetAgentId, $draft);
+            sendmessage($from_id, $result['msg'], agent_own_menu_keyboard(), 'HTML');
+            step('n2own_menu', $from_id);
+            return true;
+        }
+        agent_own_draft_save($from_id, $draft);
+        sendmessage($from_id, '🖥 پنل این محصول را انتخاب کنید.', agent_own_panel_pick_keyboard($targetAgentId), 'HTML');
+        step('n2own_prod_panel', $from_id);
+        return true;
+    }
+    if ($step === 'n2own_prod_panel' && preg_match('/^n2ownpickpanel_(.+)$/', $datain, $m)) {
+        $code = (string) $m[1];
+        $location = '/all';
+        if ($code !== 'all') {
+            $panel = select('marzban_panel', '*', 'code_panel', $code, 'select');
+            $name = is_array($panel) ? trim((string) ($panel['name_panel'] ?? '')) : '';
+            if ($name === '' || !in_array($name, agent_own_allowed_locations($targetAgentId), true)) {
+                sendmessage($from_id, '❌ پنل نامعتبر است.', agent_own_menu_keyboard(), 'HTML');
+                step('n2own_menu', $from_id);
+                return true;
+            }
+            $location = $name;
+        }
+        $userFresh = select('user', '*', 'id', $from_id, 'select');
+        $draft = agent_own_draft_get(is_array($userFresh) ? $userFresh : $user);
+        $draft['Location'] = $location;
         $result = agent_own_add_product($targetAgentId, $draft);
         sendmessage($from_id, $result['msg'], agent_own_menu_keyboard(), 'HTML');
         step('n2own_menu', $from_id);

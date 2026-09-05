@@ -182,15 +182,28 @@ $backadmin = json_encode([
 ]);
 
 //------------------  [ listpanelusers ]----------------//
-$stmt = $pdo->prepare("SELECT * FROM marzban_panel WHERE status = 'active' AND (agent = '{$userbot['agent']}' OR agent = 'all')");
-$stmt->execute();
 $list_marzban_panel_users = ['inline_keyboard' => []];
-while ($result = $stmt->fetch(PDO::FETCH_ASSOC)) {
-    if ($result['hide_user'] != null and in_array($from_id, json_decode($result['hide_user'], true))) continue;
-    if (in_array($result['name_panel'], $hide_panel)) continue;
-    $list_marzban_panel_users['inline_keyboard'][] = [
-        ['text' => $result['name_panel'], 'callback_data' => "location_{$result['code_panel']}"]
-    ];
+$n2OwnerId = is_array($botinfo) ? ($botinfo['id_user'] ?? 0) : 0;
+$n2ShopPanels = (is_array($userbot) && agent_is_n2($userbot['agent'] ?? 'f'))
+    ? agent_n2_visible_panels($n2OwnerId)
+    : null;
+if (is_array($n2ShopPanels)) {
+    foreach ($n2ShopPanels as $result) {
+        if ($result['hide_user'] != null and in_array($from_id, json_decode($result['hide_user'], true))) continue;
+        $list_marzban_panel_users['inline_keyboard'][] = [
+            ['text' => $result['name_panel'], 'callback_data' => "location_{$result['code_panel']}"]
+        ];
+    }
+} else {
+    $stmt = $pdo->prepare("SELECT * FROM marzban_panel WHERE status = 'active' AND (agent = '{$userbot['agent']}' OR agent = 'all')");
+    $stmt->execute();
+    while ($result = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        if ($result['hide_user'] != null and in_array($from_id, json_decode($result['hide_user'], true))) continue;
+        if (in_array($result['name_panel'], $hide_panel)) continue;
+        $list_marzban_panel_users['inline_keyboard'][] = [
+            ['text' => $result['name_panel'], 'callback_data' => "location_{$result['code_panel']}"]
+        ];
+    }
 }
 $list_marzban_panel_users['inline_keyboard'][] = [
     ['text' => "🏠 بازگشت به منوی اصلی", 'callback_data' => "backuser"],

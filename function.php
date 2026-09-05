@@ -7788,7 +7788,7 @@ function affiliates_list_view($referrerId, int $page): array
              WHERE CAST(u.affiliates AS CHAR) = CAST(:rid AS CHAR)
                AND IFNULL(u.affiliates, '') != ''
                AND u.affiliates != '0'
-               AND " . affiliates_invitee_not_migrated_sql('u')
+               AND " . affiliates_invitee_not_migrated_sql('u') . "
              ORDER BY CAST(u.register AS UNSIGNED) DESC, u.id DESC
              LIMIT " . (int) $limit . ' OFFSET ' . (int) $offset
         );

@@ -627,7 +627,9 @@ try {
         message_id INT NULL,
         admin_receipt_msgs TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
         id_invoice varchar(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
-        note TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL)
+        note TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+        tx_type VARCHAR(16) NOT NULL DEFAULT 'income',
+        expense_category VARCHAR(64) NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         if (!$result) {
             echo "table Payment_report" . mysqli_error($connect);
@@ -637,6 +639,8 @@ try {
         addFieldToTable("Payment_report", "message_id", null, "INT");
         addFieldToTable("Payment_report", "admin_receipt_msgs", null, "TEXT");
         addFieldToTable("Payment_report", "note", null, "TEXT");
+        addFieldToTable("Payment_report", "tx_type", "income", "VARCHAR(16) NOT NULL");
+        addFieldToTable("Payment_report", "expense_category", null, "VARCHAR(64)");
         $Check_filde = $connect->query("SHOW COLUMNS FROM Payment_report LIKE 'Payment_Method'");
         if (mysqli_num_rows($Check_filde) != 1) {
             $connect->query("ALTER TABLE Payment_report ADD Payment_Method VARCHAR(200)");
@@ -661,6 +665,40 @@ try {
     }
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());
+}
+//-----------------------------------------------------------------
+try {
+    $connect->query(
+        "CREATE TABLE IF NOT EXISTS expense_category (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            slug VARCHAR(64) NOT NULL,
+            label VARCHAR(128) NOT NULL,
+            sort_order INT NOT NULL DEFAULT 0,
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_expense_category_slug (slug)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+    $stmt = $pdo->prepare(
+        "INSERT IGNORE INTO expense_category (slug, label, sort_order)
+         VALUES (?, ?, ?)"
+    );
+    $stmt->execute(['other', 'سایر', 0]);
+    $stmt->execute(['wallet_withdraw', 'برداشت از کیف پول', 10]);
+    $stmt->execute(['admin_balance_deduction', 'کسر موجودی کاربر', 15]);
+    $stmt->execute(['ads', 'هزینه تبلیغ', 20]);
+
+    $pdo->exec(
+        "UPDATE Payment_report
+         SET payment_Status = 'cost',
+             Payment_Method = 'cost',
+             id_invoice = 'cost',
+             tx_type = 'expense',
+             expense_category = 'admin_balance_deduction',
+             note = COALESCE(NULLIF(note, ''), 'کسر موجودی کاربر توسط ادمین')
+         WHERE Payment_Method = 'low balance by admin'"
+    );
+} catch (Throwable $e) {
+    error_log('Payment_report admin balance expense migration: ' . $e->getMessage());
 }
 //-----------------------------------------------------------------
 try {

@@ -249,7 +249,11 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $withdrawAll = bot_wallet_withdraw_stats($pdo);
     $withdrawCountAll = (int) ($withdrawAll['count'] ?? 0);
     $withdrawSumAll = (float) ($withdrawAll['sum'] ?? 0);
-    $invoicesumall = number_format($invoiceTotal - $withdrawSumAll, 0);
+    $recordedExpensesAll = bot_payment_expense_stats($pdo);
+    $expenseCountAll = (int) ($recordedExpensesAll['count'] ?? 0) + $withdrawCountAll;
+    $expenseSumAll = (float) ($recordedExpensesAll['sum'] ?? 0) + $withdrawSumAll;
+    $expenseSumAllFmt = number_format($expenseSumAll, 0);
+    $invoicesumall = number_format($invoiceTotal - $expenseSumAll, 0);
     $withdrawSumAllFmt = number_format($withdrawSumAll, 0);
     $sql3 = "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_extend FROM service_other WHERE type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'";
     $stmt3 = $pdo->query($sql3);
@@ -349,7 +353,9 @@ $firstPurchaseText
 🧾 <b>تعداد کل فروش سرویس های فعال:</b> <code>$invoiceactive</code> عدد  
 💸 <b>تعداد برداشت از کیف پول:</b> <code>$withdrawCountAll</code> عدد  
 💰 <b>مبلغ برداشت از کیف پول:</b> <code>$withdrawSumAllFmt</code> تومان  
-💵 <b>جمع کل درآمد (پرداخت‌های موفق):</b> <code>$invoicesumall</code> تومان  
+🧾 <b>تعداد کل هزینه‌ها:</b> <code>$expenseCountAll</code> عدد
+💸 <b>مجموع کل هزینه‌ها:</b> <code>$expenseSumAllFmt</code> تومان
+💵 <b>درآمد خالص (درآمد منهای هزینه):</b> <code>$invoicesumall</code> تومان
 💵 <b>جمع کل فروش سرویس های فعال:</b> <code>$invoicesum</code> تومان  
 🔄 <b>جمع کل تمدید:</b> <code>$extendsum</code> تومان  
 ♻️ <b>کاربران با تمدید خودکار:</b> <code>$autoRenewUsers</code> نفر  

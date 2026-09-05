@@ -382,11 +382,14 @@ if ($text == "📞 تنظیم نام کاربری پشتیبانی") {
     }
     $dateacc = date('Y/m/d H:i:s');
     $randomString = bin2hex(random_bytes(5));
-    $stmt = $connect->prepare("INSERT INTO Payment_report (id_user,id_order,time,price,payment_Status,Payment_Method,id_invoice,bottype) VALUES (?,?,?,?,?,?,?,?)");
-    $payment_Status = "paid";
-    $Payment_Method = "low balance by admin";
-    $invoice = null;
-    $stmt->bind_param("ssssssss", $user['Processing_value'], $randomString, $dateacc, $text, $payment_Status, $Payment_Method, $invoice, $ApiToken);
+    $stmt = $connect->prepare("INSERT INTO Payment_report (id_user,id_order,time,price,payment_Status,Payment_Method,id_invoice,bottype,note,tx_type,expense_category) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+    $payment_Status = "cost";
+    $Payment_Method = "cost";
+    $invoice = "cost";
+    $note = "کسر موجودی کاربر توسط ادمین";
+    $txType = "expense";
+    $expenseCategory = "admin_balance_deduction";
+    $stmt->bind_param("sssssssssss", $user['Processing_value'], $randomString, $dateacc, $text, $payment_Status, $Payment_Method, $invoice, $ApiToken, $note, $txType, $expenseCategory);
     $stmt->execute();
     sendmessage($from_id, $textbotlang['Admin']['ManageUser']['lowbalanced'], $keyboardadmin, 'html');
     $userbalance = json_decode(file_get_contents("data/{$user['Processing_value']}/{$user['Processing_value']}.json"), true);

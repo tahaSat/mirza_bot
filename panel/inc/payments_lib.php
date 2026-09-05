@@ -520,6 +520,9 @@ function panel_payment_ensure_schema(PDO $pdo): void
         if (!db_fetch($pdo, "SELECT id FROM expense_category WHERE slug = 'wallet_withdraw'")) {
             $pdo->exec("INSERT INTO expense_category (slug, label, sort_order) VALUES ('wallet_withdraw', 'برداشت از کیف پول', 10)");
         }
+        if (!db_fetch($pdo, "SELECT id FROM expense_category WHERE slug = 'admin_balance_deduction'")) {
+            $pdo->exec("INSERT INTO expense_category (slug, label, sort_order) VALUES ('admin_balance_deduction', 'کسر موجودی کاربر', 15)");
+        }
         if (!db_fetch($pdo, "SELECT id FROM expense_category WHERE slug = 'ads'")) {
             $pdo->exec("INSERT INTO expense_category (slug, label, sort_order) VALUES ('ads', 'هزینه تبلیغ', 20)");
         }
@@ -595,6 +598,22 @@ function panel_payment_ensure_schema(PDO $pdo): void
         }
     } catch (Throwable $e) {
         error_log('panel_payment_ensure_schema migrate: ' . $e->getMessage());
+    }
+
+    try {
+        db_query(
+            $pdo,
+            "UPDATE Payment_report
+             SET payment_Status = 'cost',
+                 Payment_Method = 'cost',
+                 id_invoice = 'cost',
+                 tx_type = 'expense',
+                 expense_category = 'admin_balance_deduction',
+                 note = COALESCE(NULLIF(note, ''), 'کسر موجودی کاربر توسط ادمین')
+             WHERE Payment_Method = 'low balance by admin'"
+        );
+    } catch (Throwable $e) {
+        error_log('panel_payment_ensure_schema admin balance migration: ' . $e->getMessage());
     }
 }
 

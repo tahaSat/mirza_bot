@@ -430,6 +430,21 @@ function panel_n2_bot(?array $admin = null): ?array
     }
 }
 
+function panel_n2_bot_token(?array $admin = null): string
+{
+    $bot = panel_n2_bot($admin);
+    return is_array($bot) ? trim((string) ($bot['bot_token'] ?? '')) : '';
+}
+
+function panel_require_n2(): void
+{
+    if (!panel_is_n2_user()) {
+        flash('error', 'این بخش فقط برای نماینده پیشرفته است.');
+        header('Location: index.php');
+        exit;
+    }
+}
+
 function panel_n2_allowed_scripts(): array
 {
     return [

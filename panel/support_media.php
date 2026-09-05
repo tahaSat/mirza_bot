@@ -16,12 +16,19 @@ if ($mediaId < 1) {
 
 $media = db_fetch(
     $pdo,
-    'SELECT sm.* FROM support_media sm INNER JOIN support_message s ON s.id = sm.message_id WHERE sm.id = ?',
+    'SELECT sm.*, s.bottype AS message_bottype FROM support_media sm INNER JOIN support_message s ON s.id = sm.message_id WHERE sm.id = ?',
     [$mediaId]
 );
 if (!$media) {
     http_response_code(404);
     exit('فایل یافت نشد.');
+}
+if (panel_is_n2_user()) {
+    $token = panel_n2_bot_token();
+    if ($token === '' || (string) ($media['message_bottype'] ?? '') !== $token) {
+        http_response_code(404);
+        exit('فایل یافت نشد.');
+    }
 }
 
 global $APIKEY;

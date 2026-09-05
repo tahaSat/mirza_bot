@@ -9210,6 +9210,50 @@ function support_conversation_touch(PDO $pdo, string $iduser, array $meta = [], 
     }
 }
 
+function support_record_inbound_ticket(PDO $pdo, $fromId, string $text, array $meta = []): array
+{
+    if (!support_ensure_schema($pdo)) {
+        return ['ok' => false, 'msg' => 'سامانه پشتیبانی در دسترس نیست.'];
+    }
+    $fromId = (string) $fromId;
+    $text = trim($text);
+    if ($fromId === '' || $text === '') {
+        return ['ok' => false, 'msg' => 'متن پیام خالی است.'];
+    }
+    $time = date('Y/m/d H:i:s');
+    $tracking = bin2hex(random_bytes(4));
+    $status = 'Unseen';
+    $bottype = isset($meta['bottype']) ? (string) $meta['bottype'] : null;
+    $idsupport = (string) ($meta['idsupport'] ?? 'sellbot');
+    $departman = (string) ($meta['name_departman'] ?? 'ربات فروش');
+    $userName = (string) ($meta['user_name'] ?? '');
+    try {
+        $stmt = $pdo->prepare('INSERT INTO support_message (Tracking,idsupport,iduser,user_name,name_departman,text,time,status,bottype) VALUES (?,?,?,?,?,?,?,?,?)');
+        $stmt->execute([$tracking, $idsupport, $fromId, $userName, $departman, $text, $time, $status, $bottype]);
+        $messageId = (int) $pdo->lastInsertId();
+        if ($messageId > 0 && !empty($meta['media']) && is_array($meta['media'])) {
+            support_store_media($pdo, $messageId, 'in', $meta['media']);
+        }
+        support_conversation_touch(
+            $pdo,
+            $fromId,
+            [
+                'idsupport' => $idsupport,
+                'name_departman' => $departman,
+                'user_name' => $userName,
+                'bottype' => $bottype,
+            ],
+            'Unseen',
+            $messageId > 0 ? $messageId : null,
+            $time
+        );
+        return ['ok' => true, 'tracking' => $tracking, 'id' => $messageId];
+    } catch (Throwable $e) {
+        error_log('support_record_inbound_ticket: ' . $e->getMessage());
+        return ['ok' => false, 'msg' => 'ثبت پیام پشتیبانی ناموفق بود.'];
+    }
+}
+
 function support_record_campaign_message(PDO $pdo, string $userId, string $message, array $admin = []): void
 {
     if ($userId === '' || $message === '' || !support_ensure_schema($pdo)) {
@@ -11045,112 +11089,7 @@ function botsaz_normalize_setting($setting): array
     if (!isset($setting['cart_info']) || $setting['cart_info'] === '') {
         $setting['cart_info'] = 'پس از واریز، تصویر رسید را در همین چت ارسال کنید.';
     }
-    foreach (['minpricetime' => 4000, 'pricetime' => 4000, 'minpricevolume' => 4000, 'pricevolume' => 4000] as $key => $default) {
-        if (!isset($setting[$key]) || $setting[$key] === '' || $setting[$key] === null) {
-            $setting[$key] = $default;
-        }
-    }
     return $setting;
-}
-
-function botsaz_id_list_contains($from_id, $ids): bool
-{
-    if (!is_array($ids)) {
-        return false;
-    }
-    $from = (string) $from_id;
-    foreach ($ids as $id) {
-        if (is_array($id)) {
-            continue;
-        }
-        if ((string) $id === $from) {
-            return true;
-        }
-    }
-    return false;
-}
-
-function botsaz_admin_id_list($botRow): array
-{
-    $ids = [];
-    if (!is_array($botRow)) {
-        return $ids;
-    }
-    $raw = $botRow['admin_ids'] ?? '[]';
-    $decoded = is_string($raw) || is_numeric($raw) ? json_decode((string) $raw, true) : $raw;
-    if (is_array($decoded)) {
-        foreach ($decoded as $id) {
-            if (is_array($id) || $id === null || $id === '') {
-                continue;
-            }
-            $ids[] = (string) $id;
-        }
-    } elseif (is_numeric($decoded) || (is_string($decoded) && $decoded !== '')) {
-        $ids[] = (string) $decoded;
-    }
-    if (!empty($botRow['id_user'])) {
-        $ids[] = (string) $botRow['id_user'];
-    }
-    return array_values(array_unique(array_filter($ids, static function ($id) {
-        return $id !== '' && $id !== '0';
-    })));
-}
-
-function botsaz_viewer_is_admin($from_id, $botRow, $mainAdminIds = []): bool
-{
-    if (botsaz_id_list_contains($from_id, botsaz_admin_id_list($botRow))) {
-        return true;
-    }
-    return botsaz_id_list_contains($from_id, is_array($mainAdminIds) ? $mainAdminIds : []);
-}
-
-function botsaz_user_reply_keyboard($btnKeyboard, $from_id, $botRow, $userbot = null, $mainAdminIds = []): string
-{
-    if (!is_array($btnKeyboard)) {
-        $btnKeyboard = [];
-    }
-    $defaults = [
-        'buy' => '🛍 خرید اشتراک',
-        'test' => '🔑 سرویس تست',
-        'my_service' => '🛒 سرویس های من',
-        'wallet' => '👤 مشخصات کاربری',
-        'support' => '☎️  پشتیبانی',
-    ];
-    $rows = [];
-    $pair = [];
-    foreach ($defaults as $key => $fallback) {
-        $label = trim((string) ($btnKeyboard[$key] ?? $fallback));
-        if ($label === '') {
-            $label = $fallback;
-        }
-        $pair[] = ['text' => $label];
-        if (count($pair) === 2) {
-            $rows[] = $pair;
-            $pair = [];
-        }
-    }
-    if ($pair !== []) {
-        $rows[] = $pair;
-    }
-
-    $isAdmin = botsaz_viewer_is_admin($from_id, $botRow, $mainAdminIds);
-    $isOwner = is_array($botRow) && (string) ($botRow['id_user'] ?? '') === (string) $from_id;
-    $ownerIsN2 = is_array($userbot) && function_exists('agent_is_n2') && agent_is_n2($userbot['agent'] ?? 'f');
-    if ($isAdmin) {
-        $adminRow = [['text' => '👨‍💼 پنل مدیریت']];
-        if ($ownerIsN2 && $isOwner) {
-            $adminRow[] = ['text' => '📦 مدیریت محصولات'];
-        }
-        $rows[] = $adminRow;
-        if ($ownerIsN2 && $isOwner) {
-            $rows[] = [['text' => 'فعالسازی پنل تحت وب']];
-        }
-    }
-
-    return json_encode([
-        'keyboard' => $rows,
-        'resize_keyboard' => true,
-    ], JSON_UNESCAPED_UNICODE);
 }
 
 /**

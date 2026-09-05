@@ -338,15 +338,46 @@ if ($text == "/start") {
     update("user", "pagenumber", $previous_page, "id", $from_id);
     Editmessagetext($from_id, $message_id, "🛍 برای مشاهده اطلاعات سرویس خود از لیست زیر سرویس خود را انتخاب نمایید", $keyboard_json);
 } elseif ($text == $text_bot_var['btn_keyboard']['support']) {
-    $textsupport = "📞 برای ارتباط با ما  روی دکمه زیر کلیک کنید";
-    $Keyboardsupport = json_encode([
-        'inline_keyboard' => [
-            [
-                ['text' => "📞 ارتباط با پشتیبانی", 'url' => 'https://t.me/' . $setting['support_username']],
-            ],
-        ]
+    $replyKb = json_encode([
+        'keyboard' => [[['text' => '🏠 بازگشت به منوی اصلی']]],
+        'resize_keyboard' => true,
+    ], JSON_UNESCAPED_UNICODE);
+    sendmessage($from_id, '📞 متن پیام پشتیبانی خود را ارسال کنید.', $replyKb, 'html');
+    $supportUser = ltrim((string) ($setting['support_username'] ?? ''), '@');
+    if ($supportUser !== '' && $supportUser !== 'support') {
+        $Keyboardsupport = json_encode([
+            'inline_keyboard' => [[
+                ['text' => '📞 ارتباط مستقیم', 'url' => 'https://t.me/' . $supportUser],
+            ]],
+        ]);
+        sendmessage($from_id, 'یا از دکمه زیر برای ارتباط مستقیم استفاده کنید:', $Keyboardsupport, 'html');
+    }
+    step('sellbot_gettextsupport', $from_id);
+    return;
+} elseif (($user['step'] ?? '') === 'sellbot_gettextsupport') {
+    $supportText = trim((string) $text . "\n" . (string) $caption);
+    if ($supportText === '' && empty($photo) && empty($document) && empty($video)) {
+        sendmessage($from_id, '❌ متن پیام را ارسال کنید.', $backuser, 'HTML');
+        return;
+    }
+    if ($supportText === '') {
+        $supportText = '📎 فایل پیوست شد';
+    }
+    $incomingMedia = support_incoming_media($photo, $photoid, $video, $videoid, $document, $fileid, $audio ?? 0, $audioid ?? 0, $voice ?? 0, $voiceid ?? 0);
+    $result = support_record_inbound_ticket($pdo, $from_id, $supportText, [
+        'bottype' => $ApiToken,
+        'idsupport' => (string) ($dataBase['id_user'] ?? 'sellbot'),
+        'name_departman' => 'ربات فروش',
+        'user_name' => $first_name ?? '',
+        'media' => $incomingMedia,
     ]);
-    sendmessage($from_id, $textsupport, $Keyboardsupport, 'html');
+    if (!empty($result['ok'])) {
+        sendmessage($from_id, '✅ پیام شما ثبت شد و پس از بررسی پاسخ داده می‌شود.', $keyboard, 'HTML');
+    } else {
+        sendmessage($from_id, '❌ ' . ($result['msg'] ?? 'ثبت پیام ناموفق بود.'), $keyboard, 'HTML');
+    }
+    step('home', $from_id);
+    return;
 } elseif ($text == $text_bot_var['btn_keyboard']['test']) {
     $locationproduct = select("marzban_panel", "*", "TestAccount", "ONTestAccount", "count");
     if ($locationproduct == 0) {

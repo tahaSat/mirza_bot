@@ -4,6 +4,10 @@ require_once __DIR__ . '/inc/icons.php';
 require_auth();
 $pdo = panel_ensure_pdo();
 
+$isN2Dash = panel_is_n2_user();
+$n2Token = $isN2Dash ? panel_n2_bot_token() : '';
+$n2HasBot = $n2Token !== '';
+
 $totalUsers = 0;
 $newToday = 0;
 $totalRevenue = 0;
@@ -11,6 +15,8 @@ $revenueToday = 0;
 $activeNow = 0;
 $pendingPay = 0;
 $txToday = 0;
+$recentInvoices = [];
+$recentUsers = [];
 
 $today = stats_tehran_named_range('today');
 $mixedTimeSql = sql_unix_or_datetime_between('time');
@@ -21,57 +27,103 @@ $mixedTimeParams = [
     tehran_datetime_string($today['end'], 'Y-m-d H:i:s'),
 ];
 $paidIncomeSql = paid_real_income_sql();
+$userScopeSql = '(bottype = ? OR id IN (SELECT DISTINCT id_user FROM invoice WHERE bottype = ?))';
 
-try {
-    $totalUsers = db_count($pdo, "SELECT COUNT(*) FROM user");
-    $newToday = db_count(
-        $pdo,
-        "SELECT COUNT(*) FROM user
-         WHERE register REGEXP '^[0-9]+$'
-           AND CAST(register AS UNSIGNED) BETWEEN ? AND ?",
-        [$today['start'], $today['end']]
-    );
-} catch (Exception $e) {
-}
+if (!$isN2Dash || $n2HasBot) {
+    try {
+        if ($isN2Dash) {
+            $totalUsers = db_count($pdo, "SELECT COUNT(*) FROM user WHERE $userScopeSql", [$n2Token, $n2Token]);
+            $newToday = db_count(
+                $pdo,
+                "SELECT COUNT(*) FROM user
+                 WHERE $userScopeSql
+                   AND register REGEXP '^[0-9]+$'
+                   AND CAST(register AS UNSIGNED) BETWEEN ? AND ?",
+                [$n2Token, $n2Token, $today['start'], $today['end']]
+            );
+        } else {
+            $totalUsers = db_count($pdo, "SELECT COUNT(*) FROM user");
+            $newToday = db_count(
+                $pdo,
+                "SELECT COUNT(*) FROM user
+                 WHERE register REGEXP '^[0-9]+$'
+                   AND CAST(register AS UNSIGNED) BETWEEN ? AND ?",
+                [$today['start'], $today['end']]
+            );
+        }
+    } catch (Exception $e) {
+    }
 
-try {
-    $totalRevenue = (int) db_query(
-        $pdo,
-        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report WHERE $paidIncomeSql"
-    )->fetchColumn();
-    $revenueToday = (int) db_query(
-        $pdo,
-        "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report
-         WHERE $paidIncomeSql AND $mixedTimeSql",
-        $mixedTimeParams
-    )->fetchColumn();
-    $activeNow = db_count(
-        $pdo,
-        "SELECT COUNT(*) FROM invoice
-         WHERE Status = 'active' AND name_product != 'سرویس تست'"
-    );
-} catch (Exception $e) {
-}
+    try {
+        if ($isN2Dash) {
+            $totalRevenue = (int) db_query(
+                $pdo,
+                "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report WHERE $paidIncomeSql AND bottype = ?",
+                [$n2Token]
+            )->fetchColumn();
+            $revenueToday = (int) db_query(
+                $pdo,
+                "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report
+                 WHERE $paidIncomeSql AND bottype = ? AND $mixedTimeSql",
+                array_merge([$n2Token], $mixedTimeParams)
+            )->fetchColumn();
+            $activeNow = db_count(
+                $pdo,
+                "SELECT COUNT(*) FROM invoice
+                 WHERE Status = 'active' AND name_product != 'سرویس تست' AND bottype = ?",
+                [$n2Token]
+            );
+        } else {
+            $totalRevenue = (int) db_query(
+                $pdo,
+                "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report WHERE $paidIncomeSql"
+            )->fetchColumn();
+            $revenueToday = (int) db_query(
+                $pdo,
+                "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) FROM Payment_report
+                 WHERE $paidIncomeSql AND $mixedTimeSql",
+                $mixedTimeParams
+            )->fetchColumn();
+            $activeNow = db_count(
+                $pdo,
+                "SELECT COUNT(*) FROM invoice
+                 WHERE Status = 'active' AND name_product != 'سرویس تست'"
+            );
+        }
+    } catch (Exception $e) {
+    }
 
-try {
-    $pendingPay = db_count($pdo, "SELECT COUNT(*) FROM Payment_report WHERE payment_Status='waiting'");
-    $txToday = db_count(
-        $pdo,
-        "SELECT COUNT(*) FROM Payment_report WHERE $paidIncomeSql AND $mixedTimeSql",
-        $mixedTimeParams
-    );
-} catch (Exception $e) {
-}
+    try {
+        if ($isN2Dash) {
+            $pendingPay = db_count($pdo, "SELECT COUNT(*) FROM Payment_report WHERE payment_Status='waiting' AND bottype = ?", [$n2Token]);
+            $txToday = db_count(
+                $pdo,
+                "SELECT COUNT(*) FROM Payment_report WHERE $paidIncomeSql AND bottype = ? AND $mixedTimeSql",
+                array_merge([$n2Token], $mixedTimeParams)
+            );
+        } else {
+            $pendingPay = db_count($pdo, "SELECT COUNT(*) FROM Payment_report WHERE payment_Status='waiting'");
+            $txToday = db_count(
+                $pdo,
+                "SELECT COUNT(*) FROM Payment_report WHERE $paidIncomeSql AND $mixedTimeSql",
+                $mixedTimeParams
+            );
+        }
+    } catch (Exception $e) {
+    }
 
-$recentInvoices = [];
-$recentUsers = [];
-try {
-    $recentInvoices = db_fetchAll($pdo, "SELECT * FROM invoice ORDER BY time_sell DESC LIMIT 8");
-} catch (Exception $e) {
-}
-try {
-    $recentUsers = db_fetchAll($pdo, "SELECT * FROM user ORDER BY register DESC LIMIT 8");
-} catch (Exception $e) {
+    try {
+        $recentInvoices = $isN2Dash
+            ? db_fetchAll($pdo, "SELECT * FROM invoice WHERE bottype = ? ORDER BY time_sell DESC LIMIT 8", [$n2Token])
+            : db_fetchAll($pdo, "SELECT * FROM invoice ORDER BY time_sell DESC LIMIT 8");
+    } catch (Exception $e) {
+    }
+    try {
+        $recentUsers = $isN2Dash
+            ? db_fetchAll($pdo, "SELECT * FROM user WHERE $userScopeSql ORDER BY register DESC LIMIT 8", [$n2Token, $n2Token])
+            : db_fetchAll($pdo, "SELECT * FROM user ORDER BY register DESC LIMIT 8");
+    } catch (Exception $e) {
+    }
 }
 
 $pageTitle = 'داشبورد';
@@ -80,6 +132,9 @@ $showPageHead = false;
 include __DIR__ . '/inc/layout_head.php';
 ?>
 
+<?php if ($isN2Dash && !$n2HasBot): ?>
+<div class="notice notice-warn fade-up">ربات فروش برای این حساب یافت نشد. آمار و لیست‌ها خالی می‌مانند تا ربات ساخته شود.</div>
+<?php elseif (!$isN2Dash): ?>
 <div class="notice <?= $devModeOn ? 'notice-warn' : 'notice-ok' ?> fade-up" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
     <div>
         <strong>development_mode</strong>
@@ -92,6 +147,7 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
     <span class="tag <?= $devModeOn ? 'tag-warn' : 'tag-ok' ?>"><?= $devModeOn ? 'فعال' : 'غیرفعال' ?></span>
 </div>
+<?php endif; ?>
 
 <div class="stats fade-up">
     <div class="stat">
@@ -124,7 +180,13 @@ include __DIR__ . '/inc/layout_head.php';
             <?= number_format($pendingPay > 0 ? $pendingPay : $txToday) ?>
         </div>
         <div class="stat-meta">
-            <?= $pendingPay > 0 ? '<a href="payment.php?tab=pending" style="color:var(--no)">بررسی ←</a>' : 'پرداخت موفق' ?>
+            <?php if ($pendingPay > 0): ?>
+                <?= $isN2Dash
+                    ? '<a href="n2_payments.php" style="color:var(--no)">بررسی ←</a>'
+                    : '<a href="payment.php?tab=pending" style="color:var(--no)">بررسی ←</a>' ?>
+            <?php else: ?>
+                پرداخت موفق
+            <?php endif; ?>
         </div>
     </div>
 </div>
@@ -136,7 +198,7 @@ include __DIR__ . '/inc/layout_head.php';
                 <div class="card-title">آخرین سفارشات</div>
                 <div class="card-subtitle"><?= count($recentInvoices) ?> مورد اخیر</div>
             </div>
-            <a href="invoice.php" class="btn-link" style="font-size:.78rem">همه ←</a>
+            <a href="<?= $isN2Dash ? 'n2_purchases.php' : 'invoice.php' ?>" class="btn-link" style="font-size:.78rem">همه ←</a>
         </div>
         <?php
         $statusMap = [
@@ -163,7 +225,11 @@ include __DIR__ . '/inc/layout_head.php';
                                 <div class="data-field">
                                     <span class="data-field-label">کاربر</span>
                                     <span class="data-field-val cm">
-                                        <a href="user.php?id=<?= (int) ($inv['id_user'] ?? 0) ?>"><?= htmlspecialchars($inv['id_user'] ?? '—') ?></a>
+                                        <?php if ($isN2Dash): ?>
+                                            <?= htmlspecialchars((string) ($inv['id_user'] ?? '—')) ?>
+                                        <?php else: ?>
+                                            <a href="user.php?id=<?= (int) ($inv['id_user'] ?? 0) ?>"><?= htmlspecialchars($inv['id_user'] ?? '—') ?></a>
+                                        <?php endif; ?>
                                     </span>
                                 </div>
                                 <div class="data-field">
@@ -184,7 +250,9 @@ include __DIR__ . '/inc/layout_head.php';
                 <div class="card-title">آخرین کاربران</div>
                 <div class="card-subtitle"><?= count($recentUsers) ?> مورد اخیر</div>
             </div>
+            <?php if (!$isN2Dash): ?>
             <a href="users.php" class="btn-link" style="font-size:.78rem">همه ←</a>
+            <?php endif; ?>
         </div>
         <?php if (empty($recentUsers)): ?>
             <div class="empty" style="padding:24px"><p>کاربری ثبت نشده</p></div>
@@ -205,7 +273,11 @@ include __DIR__ . '/inc/layout_head.php';
                         <div class="data-row-body">
                             <div class="data-row-head">
                                 <div class="data-row-title">
-                                    <a href="user.php?id=<?= (int) $u['id'] ?>"><?= htmlspecialchars($displayName) ?></a>
+                                    <?php if ($isN2Dash): ?>
+                                        <?= htmlspecialchars($displayName) ?>
+                                    <?php else: ?>
+                                        <a href="user.php?id=<?= (int) $u['id'] ?>"><?= htmlspecialchars($displayName) ?></a>
+                                    <?php endif; ?>
                                 </div>
                                 <?php if ($isBlocked): ?>
                                     <span class="tag tag-no">مسدود</span>

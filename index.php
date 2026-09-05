@@ -136,7 +136,7 @@ if ($user == false) {
         'limitchangeloc' => ''
     );
 }
-$admin_ids = select("admin", "id_admin", null, null, "FETCH_COLUMN");
+$admin_ids = admin_telegram_ids();
 if (!is_array($admin_ids)) {
     $admin_ids = [];
 }

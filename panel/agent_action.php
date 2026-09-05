@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/inc/config.php';
 require_once __DIR__ . '/inc/users_lib.php';
+require_once __DIR__ . '/inc/payments_lib.php';
 require_auth();
 $pdo = panel_ensure_pdo();
 agent_ensure_volume_columns();
@@ -55,7 +56,12 @@ if ($action === 'promote') {
         flash('error', 'کاربری با این آیدی در ربات یافت نشد.');
         agent_action_redirect('agents.php');
     }
+    $oldRole = (string) ($user['agent'] ?? 'f');
     db_query($pdo, 'UPDATE user SET agent = ?, expire = NULL WHERE id = ?', [$newRole, (int) $telegramId]);
+    if (function_exists('clearSelectCache')) {
+        clearSelectCache('user');
+    }
+    agent_on_role_changed((int) $telegramId, $oldRole, $newRole);
     flash('success', 'کاربر به «' . user_role_label($newRole) . '» تبدیل شد.');
     header('Location: agent.php?id=' . (int) $telegramId);
     exit;
@@ -70,6 +76,36 @@ $user = $id ? db_fetch($pdo, 'SELECT * FROM user WHERE id = ?', [$id]) : null;
 if ($id && !$user) {
     flash('error', 'کاربر یافت نشد.');
     agent_action_redirect('agents.php');
+}
+
+function agent_n2_try_record_quota_payment(PDO $pdo, $userId, array $user, string $context): bool
+{
+    $want = (string) ($_POST['record_payment'] ?? '0');
+    if ($want !== '1' && $want !== 'yes') {
+        return false;
+    }
+    $amount = (int) ($_POST['payment_amount'] ?? 0);
+    if ($amount < 1) {
+        flash('warning', 'تغییر ذخیره شد ولی مبلغ پرداخت نامعتبر بود و رکورد مالی ثبت نشد.');
+        return false;
+    }
+    panel_payment_ensure_schema($pdo);
+    $vol = (int) ($user['agent_volume_remaining'] ?? 0);
+    $max = (int) ($user['maxbuyagent'] ?? 0);
+    $note = trim($context . ' | موجودی ' . number_format($vol) . ' GB | سقف منفی ' . ($max === 0 ? 'نامحدود' : number_format($max) . ' GB'));
+    $result = panel_payment_add_income($pdo, [
+        'id_user' => (string) $userId,
+        'amount' => $amount,
+        'method' => 'agent_payment',
+        'status' => 'paid',
+        'note' => $note,
+        'credit_wallet' => false,
+    ]);
+    if (empty($result['ok'])) {
+        flash('warning', 'تغییر ذخیره شد ولی ثبت درآمد ناموفق بود: ' . ($result['msg'] ?? ''));
+        return false;
+    }
+    return true;
 }
 
 switch ($action) {
@@ -88,7 +124,12 @@ switch ($action) {
             flash('success', 'نمایندگی حذف شد.');
             $back = 'agents.php';
         } else {
+            $oldRole = (string) ($user['agent'] ?? 'f');
             db_query($pdo, 'UPDATE user SET agent = ? WHERE id = ?', [$newRole, $id]);
+            if (function_exists('clearSelectCache')) {
+                clearSelectCache('user');
+            }
+            agent_on_role_changed($id, $oldRole, $newRole);
             flash('success', 'نقش به «' . user_role_label($newRole) . '» تغییر کرد.');
         }
         break;
@@ -100,7 +141,9 @@ switch ($action) {
             break;
         }
         db_query($pdo, 'UPDATE user SET agent_volume_remaining = ? WHERE id = ?', [(string) $volume, $id]);
-        flash('success', 'حجم باقیمانده به ' . number_format($volume) . ' گیگ تنظیم شد.');
+        $user['agent_volume_remaining'] = (string) $volume;
+        $paid = agent_n2_try_record_quota_payment($pdo, $id, $user, 'تنظیم موجودی حجم به ' . number_format($volume) . ' GB');
+        flash('success', 'حجم باقیمانده به ' . number_format($volume) . ' گیگ تنظیم شد.' . ($paid ? ' رکورد پرداخت ثبت شد.' : ''));
         break;
 
     case 'add_volume':
@@ -110,9 +153,12 @@ switch ($action) {
             break;
         }
         $current = (int) ($user['agent_volume_remaining'] ?? 0);
-        db_query($pdo, 'UPDATE user SET agent_volume_remaining = ? WHERE id = ?', [(string) ($current + $volume), $id]);
+        $after = $current + $volume;
+        db_query($pdo, 'UPDATE user SET agent_volume_remaining = ? WHERE id = ?', [(string) $after, $id]);
+        $user['agent_volume_remaining'] = (string) $after;
         panel_notify_user($id, '🔋 کاربر عزیز ' . number_format($volume) . ' گیگ به سهمیه حجم نمایندگی شما اضافه شد.');
-        flash('success', number_format($volume) . ' گیگ به سهمیه افزوده شد.');
+        $paid = agent_n2_try_record_quota_payment($pdo, $id, $user, 'افزایش موجودی ' . number_format($volume) . ' GB');
+        flash('success', number_format($volume) . ' گیگ به سهمیه افزوده شد.' . ($paid ? ' رکورد پرداخت ثبت شد.' : ''));
         break;
 
     case 'low_volume':
@@ -192,7 +238,18 @@ switch ($action) {
             break;
         }
         db_query($pdo, 'UPDATE user SET maxbuyagent = ? WHERE id = ?', [(string) $max, $id]);
-        flash('success', 'سقف حجم منفی نماینده ذخیره شد.');
+        $user['maxbuyagent'] = (string) $max;
+        $paid = agent_n2_try_record_quota_payment($pdo, $id, $user, 'ذخیره سقف حجم منفی ' . ($max === 0 ? 'نامحدود' : number_format($max) . ' GB'));
+        flash('success', 'سقف حجم منفی نماینده ذخیره شد.' . ($paid ? ' رکورد پرداخت ثبت شد.' : ''));
+        break;
+
+    case 'reset_n2_consumed':
+        if (($user['agent'] ?? '') !== 'n2') {
+            flash('error', 'این شمارنده فقط برای نماینده پیشرفته است.');
+            break;
+        }
+        agent_n2_reset_period_counter($id);
+        flash('success', 'شمارنده مصرف دوره‌ای نماینده صفر شد. مصرف کل بدون تغییر ماند.');
         break;
 
     case 'set_expire':

@@ -112,9 +112,16 @@ switch ($action) {
             flash('error', 'گروه نامعتبر است.');
             break;
         }
+        $oldRole = (string) ($user['agent'] ?? 'f');
         db_query($pdo, "UPDATE user SET agent = ? WHERE id = ?", [$newRole, $id]);
         if ($newRole === 'f') {
             db_query($pdo, "UPDATE user SET pricediscount = 0, expire = NULL WHERE id = ?", [$id]);
+        }
+        if (function_exists('clearSelectCache')) {
+            clearSelectCache('user');
+        }
+        if (function_exists('agent_on_role_changed')) {
+            agent_on_role_changed($id, $oldRole, $newRole);
         }
         flash('success', 'گروه کاربری به «' . user_role_label($newRole) . '» تغییر کرد.');
         break;

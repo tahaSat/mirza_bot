@@ -59,6 +59,7 @@ $usesCategoryWhitelist = function_exists('agent_uses_category_whitelist')
     ? agent_uses_category_whitelist($agent)
     : in_array($agent, ['n', 'n2'], true);
 $volumeConsumed = agent_is_reseller($agent) ? agent_sum_volume_consumed($id, $agent) : 0.0;
+$volumeLifetime = function_exists('agent_consumed_total') ? agent_consumed_total($id, $user) : $volumeConsumed;
 $priceTiers = (!$isN2 && function_exists('agent_decode_price_tiers'))
     ? agent_decode_price_tiers($user)
     : [];
@@ -205,9 +206,15 @@ include __DIR__ . '/inc/layout_head.php';
     </div>
     <?php endif; ?>
     <div class="stat">
-        <div class="stat-label">حجم مصرفی ساخت سرویس</div>
+        <div class="stat-label"><?= $isN2 ? 'شمارنده مصرف' : 'حجم مصرفی ساخت سرویس' ?></div>
         <div class="stat-num"><?= number_format($volumeConsumed) ?><small>GB</small></div>
     </div>
+    <?php if ($isN2): ?>
+    <div class="stat">
+        <div class="stat-label">مصرف کل</div>
+        <div class="stat-num"><?= number_format($volumeLifetime) ?><small>GB</small></div>
+    </div>
+    <?php endif; ?>
     <div class="stat">
         <div class="stat-label">نقش</div>
         <div class="stat-num" style="font-size:1rem">
@@ -261,17 +268,22 @@ include __DIR__ . '/inc/layout_head.php';
             <div class="card-head"><strong>موجودی و سقف حجم</strong></div>
             <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
                 <div class="cf">موجودی حجم: <strong><?= number_format($volRemaining) ?></strong> گیگابایت</div>
+                <div class="cf">شمارنده مصرف: <strong><?= number_format($volumeConsumed) ?></strong> گیگ · مصرف کل: <strong><?= number_format($volumeLifetime) ?></strong> گیگ</div>
                 <p class="cf" style="margin:0;font-size:.8rem">هر خرید محصول اختصاصی این نماینده، حجم همان محصول را از سهمیه کم می‌کند. اگر سقف منفی صفر باشد محدودیتی برای منفی شدن نیست.</p>
-                <p class="cf" style="margin:0;font-size:.8rem">اگر قبلاً سقف را به تومان گذاشته‌اید، آن را دوباره به گیگ تنظیم کنید.</p>
+                <p class="cf" style="margin:0;font-size:.8rem">شمارنده مصرف از زمان تبدیل به n2 شروع می‌شود و جدا از مصرف کل است.</p>
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
                     <button type="button" class="btn btn-ok btn-sm" onclick="openModal('addVolModal')">افزایش حجم</button>
                     <button type="button" class="btn btn-no btn-sm" onclick="openModal('lowVolModal')">کسر حجم</button>
+                    <a href="agent_action.php?action=reset_n2_consumed&id=<?= $id ?>&_csrf=<?= csrf_token() ?>&back=<?= urlencode('agent.php?id=' . $id) ?>"
+                        class="btn btn-ghost btn-sm" data-confirm="شمارنده مصرف دوره‌ای صفر شود؟ مصرف کل باقی می‌ماند.">صفر کردن شمارنده مصرف</a>
                 </div>
-                <form method="POST" action="agent_action.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+                <form method="POST" action="agent_action.php" class="n2-quota-save" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
                     <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                     <input type="hidden" name="action" value="set_max_buy">
                     <input type="hidden" name="id" value="<?= $id ?>">
                     <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
+                    <input type="hidden" name="record_payment" value="0" class="n2-record-payment">
+                    <input type="hidden" name="payment_amount" value="" class="n2-payment-amount">
                     <div class="field" style="flex:1;margin:0">
                         <label>سقف حجم منفی (گیگ — ۰ = نامحدود)</label>
                         <input type="number" name="max" class="input" min="0" value="<?= $maxBuy ?>" required>
@@ -696,12 +708,14 @@ include __DIR__ . '/inc/layout_head.php';
 <div class="modal-veil" id="addVolModal">
     <div class="modal">
         <div class="modal-head"><h3>افزایش حجم</h3><button class="modal-x" onclick="closeModal('addVolModal')"><?= icon('close', 14) ?></button></div>
-        <form method="POST" action="agent_action.php">
+        <form method="POST" action="agent_action.php" class="n2-quota-save">
             <div class="modal-body">
                 <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
                 <input type="hidden" name="action" value="add_volume">
                 <input type="hidden" name="id" value="<?= $id ?>">
                 <input type="hidden" name="back" value="agent.php?id=<?= $id ?>">
+                <input type="hidden" name="record_payment" value="0" class="n2-record-payment">
+                <input type="hidden" name="payment_amount" value="" class="n2-payment-amount">
                 <div class="field">
                     <label>حجم (گیگابایت)</label>
                     <input type="number" name="volume" class="input" min="1" required>
@@ -712,6 +726,35 @@ include __DIR__ . '/inc/layout_head.php';
                 <button type="button" class="btn btn-ghost" onclick="closeModal('addVolModal')">انصراف</button>
             </div>
         </form>
+    </div>
+</div>
+
+<div class="modal-veil" id="n2PayAskModal">
+    <div class="modal">
+        <div class="modal-head"><h3>ثبت رکورد پرداخت</h3><button class="modal-x" onclick="closeModal('n2PayAskModal')"><?= icon('close', 14) ?></button></div>
+        <div class="modal-body">
+            <p class="cf" style="margin:0">رکورد پرداخت برای این سقف حجم ثبت شود؟</p>
+        </div>
+        <div class="modal-foot">
+            <button type="button" class="btn btn-ok" id="n2PayYesBtn">بله</button>
+            <button type="button" class="btn btn-ghost" id="n2PayNoBtn">خیر</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-veil" id="n2PayAmountModal">
+    <div class="modal">
+        <div class="modal-head"><h3>مبلغ دریافتی</h3><button class="modal-x" onclick="closeModal('n2PayAmountModal')"><?= icon('close', 14) ?></button></div>
+        <div class="modal-body">
+            <div class="field">
+                <label>هزینه دریافتی چقدر بوده؟ (تومان)</label>
+                <input type="number" id="n2PayAmountInput" class="input" min="1" step="1">
+            </div>
+        </div>
+        <div class="modal-foot">
+            <button type="button" class="btn btn-primary" id="n2PayAmountOk">ثبت و ذخیره</button>
+            <button type="button" class="btn btn-ghost" onclick="closeModal('n2PayAmountModal')">انصراف</button>
+        </div>
     </div>
 </div>
 
@@ -790,6 +833,59 @@ document.querySelectorAll('.agent-cat-item input[type="checkbox"]').forEach((cb)
         this.closest('.agent-cat-item')?.classList.toggle('is-on', this.checked);
     });
 });
+<?php if ($isN2): ?>
+(function () {
+    var pendingForm = null;
+    function submitQuota(form, record, amount) {
+        var rec = form.querySelector('.n2-record-payment');
+        var amt = form.querySelector('.n2-payment-amount');
+        if (rec) rec.value = record ? '1' : '0';
+        if (amt) amt.value = record ? String(amount || '') : '';
+        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+        else form.submit();
+    }
+    document.querySelectorAll('form.n2-quota-save').forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+            if (form.dataset.n2PayReady === '1') {
+                form.dataset.n2PayReady = '';
+                return;
+            }
+            e.preventDefault();
+            pendingForm = form;
+            if (typeof openModal === 'function') openModal('n2PayAskModal');
+        });
+    });
+    var yesBtn = document.getElementById('n2PayYesBtn');
+    var noBtn = document.getElementById('n2PayNoBtn');
+    var amountOk = document.getElementById('n2PayAmountOk');
+    var amountInput = document.getElementById('n2PayAmountInput');
+    if (yesBtn) yesBtn.addEventListener('click', function () {
+        if (typeof closeModal === 'function') closeModal('n2PayAskModal');
+        if (amountInput) amountInput.value = '';
+        if (typeof openModal === 'function') openModal('n2PayAmountModal');
+        if (amountInput) amountInput.focus();
+    });
+    if (noBtn) noBtn.addEventListener('click', function () {
+        if (typeof closeModal === 'function') closeModal('n2PayAskModal');
+        if (!pendingForm) return;
+        pendingForm.dataset.n2PayReady = '1';
+        submitQuota(pendingForm, false, 0);
+        pendingForm = null;
+    });
+    if (amountOk) amountOk.addEventListener('click', function () {
+        var val = amountInput ? parseInt(amountInput.value, 10) : 0;
+        if (!val || val < 1) {
+            if (amountInput) amountInput.focus();
+            return;
+        }
+        if (typeof closeModal === 'function') closeModal('n2PayAmountModal');
+        if (!pendingForm) return;
+        pendingForm.dataset.n2PayReady = '1';
+        submitQuota(pendingForm, true, val);
+        pendingForm = null;
+    });
+})();
+<?php endif; ?>
 </script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

@@ -544,6 +544,7 @@ function panel_payment_ensure_schema(PDO $pdo): void
         $seeds = [
             ['manual invoice', 'فاکتور دستی', 0],
             ['capital_injection', 'ورود سرمایه', 10],
+            ['agent_payment', 'پرداخت نماینده', 20],
         ];
         foreach ($seeds as [$slug, $label, $sort]) {
             if (!db_fetch($pdo, 'SELECT id FROM income_category WHERE slug = ?', [$slug])) {

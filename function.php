@@ -2359,7 +2359,7 @@ function appendAdminReceiptMessages($orderId, array $messages)
 
 function notifyAdminsCardReceipt($orderId, $text, $keyboard, $photoId = null, $photoCaption = null)
 {
-    $admin_ids = select("admin", "id_admin", null, null, "FETCH_COLUMN") ?: [];
+    $admin_ids = admin_telegram_ids();
     $stored = [];
     foreach ($admin_ids as $id_admin) {
         $adminrulecheck = select("admin", "*", "id_admin", $id_admin, "select");
@@ -3512,7 +3512,7 @@ function DirectPayment($order_id, $image = 'images.jpg')
 {
     global $pdo, $ManagePanel, $textbotlang, $keyboardextendfnished, $keyboard, $Confirm_pay, $from_id, $message_id, $datatextbot;
     $buyreport = select("topicid", "idreport", "report", "buyreport", "select")['idreport'] ?? null;
-    $admin_ids = select("admin", "id_admin", null, null, "FETCH_COLUMN") ?: [];
+    $admin_ids = admin_telegram_ids();
     $otherservice = select("topicid", "idreport", "report", "otherservice", "select")['idreport'] ?? null;
     $otherreport = select("topicid", "idreport", "report", "otherreport", "select")['idreport'] ?? null;
     $errorreport = select("topicid", "idreport", "report", "errorreport", "select")['idreport'] ?? null;
@@ -8902,9 +8902,30 @@ function referral_render_user_message($campaign, $user_id)
     ];
 }
 
+function admin_telegram_staff_rules(): array
+{
+    return ['administrator', 'support', 'Seller'];
+}
+
+function admin_telegram_ids(): array
+{
+    global $pdo;
+    static $ids = null;
+    if ($ids !== null) {
+        return $ids;
+    }
+    try {
+        $stmt = $pdo->query("SELECT id_admin FROM admin WHERE rule IN ('administrator','support','Seller')");
+        $ids = $stmt ? ($stmt->fetchAll(PDO::FETCH_COLUMN) ?: []) : [];
+    } catch (Throwable $e) {
+        $ids = [];
+    }
+    return $ids;
+}
+
 function get_support_admin_ids()
 {
-    $admin_ids = select("admin", "id_admin", null, null, "FETCH_COLUMN");
+    $admin_ids = admin_telegram_ids();
     if (!is_array($admin_ids)) {
         return [];
     }
@@ -8986,6 +9007,7 @@ function support_ensure_schema(PDO $pdo): bool
         support_add_column_if_missing($pdo, 'support_message', 'answered_by_admin_id', 'VARCHAR(100) NULL');
         support_add_column_if_missing($pdo, 'support_message', 'answered_by_admin_username', 'VARCHAR(1000) NULL');
         support_add_column_if_missing($pdo, 'support_message', 'answered_at', 'VARCHAR(200) NULL');
+        support_add_column_if_missing($pdo, 'support_message', 'bottype', 'VARCHAR(200) NULL');
         support_ensure_media_table($pdo);
         support_ensure_conversation_table($pdo);
         return $ready = true;
@@ -9043,6 +9065,7 @@ function support_ensure_conversation_table(PDO $pdo): bool
             INDEX idx_support_conversation_updated (updated_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         support_ensure_conversation_status_enum($pdo);
+        support_add_column_if_missing($pdo, 'support_conversation', 'bottype', 'VARCHAR(200) NULL');
         support_backfill_conversations($pdo);
         return $ready = true;
     } catch (Throwable $e) {
@@ -9133,8 +9156,8 @@ function support_conversation_touch(PDO $pdo, string $iduser, array $meta = [], 
         if (!$row) {
             $stmt = $pdo->prepare(
                 'INSERT INTO support_conversation
-                 (iduser, idsupport, name_departman, user_name, status, last_message_id, last_message_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)'
+                 (iduser, idsupport, name_departman, user_name, status, last_message_id, last_message_at, bottype)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 $iduser,
@@ -9144,13 +9167,14 @@ function support_conversation_touch(PDO $pdo, string $iduser, array $meta = [], 
                 $status ?? 'Unseen',
                 $lastMessageId,
                 $lastMessageAt,
+                $meta['bottype'] ?? null,
             ]);
             return;
         }
 
         $fields = [];
         $params = [];
-        foreach (['idsupport', 'name_departman', 'user_name'] as $key) {
+        foreach (['idsupport', 'name_departman', 'user_name', 'bottype'] as $key) {
             if (array_key_exists($key, $meta) && $meta[$key] !== null && $meta[$key] !== '') {
                 $fields[] = "$key = ?";
                 $params[] = $meta[$key];
@@ -9455,6 +9479,8 @@ function agent_ensure_volume_columns(): void
     addFieldToTable('user', 'agent_volume_remaining', '0', 'VARCHAR(100)');
     addFieldToTable('user', 'agent_price_per_gb', '0', 'VARCHAR(100)');
     addFieldToTable('user', 'agent_price_tiers', '[]', 'TEXT');
+    addFieldToTable('user', 'agent_n2_consumed', '0', 'VARCHAR(100)');
+    addFieldToTable('user', 'agent_consumed_total', '0', 'VARCHAR(100)');
     $ensured = true;
 }
 
@@ -9610,27 +9636,82 @@ function agent_sum_volume_created($agentUserId): float
 }
 
 /**
- * For n2: total GB from purchase log. Falls back to invoice sum.
+ * n2 period counter (resettable). Other roles: invoice sum.
  */
 function agent_sum_volume_consumed($agentUserId, $agent = null): float
 {
-    global $pdo;
+    $user = select('user', '*', 'id', $agentUserId, 'select');
     if ($agent === null) {
-        $user = select('user', '*', 'id', $agentUserId, 'select');
         $agent = $user['agent'] ?? 'f';
     }
     if (agent_is_n2($agent)) {
-        agent_ensure_n2_tables();
+        agent_ensure_volume_columns();
+        if (!is_array($user) || !array_key_exists('agent_n2_consumed', $user)) {
+            $user = select('user', '*', 'id', $agentUserId, 'select');
+        }
+        return (float) (($user['agent_n2_consumed'] ?? 0));
+    }
+    return agent_sum_volume_created($agentUserId);
+}
+
+function agent_consumed_total($agentUserId, $user = null): float
+{
+    agent_ensure_volume_columns();
+    if (!is_array($user)) {
+        $user = select('user', '*', 'id', $agentUserId, 'select');
+    }
+    return (float) ($user['agent_consumed_total'] ?? 0);
+}
+
+function agent_n2_add_consumed($agentUserId, $volumeGb): void
+{
+    agent_ensure_volume_columns();
+    $volumeGb = (float) $volumeGb;
+    if ($volumeGb <= 0) {
+        return;
+    }
+    $user = select('user', '*', 'id', $agentUserId, 'select');
+    if (!$user) {
+        return;
+    }
+    $period = (float) ($user['agent_n2_consumed'] ?? 0) + $volumeGb;
+    $total = (float) ($user['agent_consumed_total'] ?? 0) + $volumeGb;
+    update('user', 'agent_n2_consumed', (string) $period, 'id', $agentUserId);
+    update('user', 'agent_consumed_total', (string) $total, 'id', $agentUserId);
+}
+
+function agent_n2_reset_period_counter($agentUserId): void
+{
+    agent_ensure_volume_columns();
+    update('user', 'agent_n2_consumed', '0', 'id', $agentUserId);
+}
+
+/**
+ * When a user/n becomes n2: period counter starts at zero.
+ * Lifetime keeps previous value; if empty, seed from invoice/purchase history.
+ */
+function agent_on_role_changed($agentUserId, $oldRole, $newRole): void
+{
+    if ((string) $newRole !== 'n2' || (string) $oldRole === 'n2') {
+        return;
+    }
+    agent_ensure_volume_columns();
+    agent_ensure_n2_tables();
+    $user = select('user', '*', 'id', $agentUserId, 'select');
+    $lifetime = (float) ($user['agent_consumed_total'] ?? 0);
+    if ($lifetime <= 0) {
+        $lifetime = agent_sum_volume_created($agentUserId);
+        global $pdo;
         try {
             $stmt = $pdo->prepare("SELECT COALESCE(SUM(CAST(volume AS DECIMAL(12,2))), 0)
                 FROM agent_n2_purchase WHERE agent_id = :id");
             $stmt->execute([':id' => (string) $agentUserId]);
-            return (float) $stmt->fetchColumn();
+            $lifetime = max($lifetime, (float) $stmt->fetchColumn());
         } catch (Throwable $e) {
-            error_log('agent_sum_volume_consumed n2: ' . $e->getMessage());
         }
+        update('user', 'agent_consumed_total', (string) $lifetime, 'id', $agentUserId);
     }
-    return agent_sum_volume_created($agentUserId);
+    update('user', 'agent_n2_consumed', '0', 'id', $agentUserId);
 }
 
 /**
@@ -9943,11 +10024,52 @@ function keyboard_agent_for_user(array $user): string
         return (string) $keyboardagent;
     }
     if (isset($kb['inline_keyboard'])) {
-        array_unshift($kb['inline_keyboard'], [['text' => '📦 مدیریت محصولات', 'callback_data' => 'n2ownmenu']]);
+        array_unshift($kb['inline_keyboard'], [
+            ['text' => '📦 مدیریت محصولات', 'callback_data' => 'n2ownmenu'],
+            ['text' => 'فعالسازی پنل تحت وب', 'callback_data' => 'n2webpanel'],
+        ]);
     } elseif (isset($kb['keyboard'])) {
-        array_unshift($kb['keyboard'], [['text' => '📦 مدیریت محصولات']]);
+        array_unshift($kb['keyboard'], [
+            ['text' => '📦 مدیریت محصولات'],
+            ['text' => 'فعالسازی پنل تحت وب'],
+        ]);
     }
     return json_encode($kb, JSON_UNESCAPED_UNICODE);
+}
+
+function agent_n2_activate_web_panel($telegramId): array
+{
+    global $pdo, $domainhosts;
+    $telegramId = (string) $telegramId;
+    $user = select('user', '*', 'id', $telegramId, 'select');
+    if (!$user || !agent_is_n2($user['agent'] ?? 'f')) {
+        return ['ok' => false, 'msg' => '❌ این قابلیت فقط برای نماینده پیشرفته است.'];
+    }
+    $existing = select('admin', '*', 'id_admin', $telegramId, 'select');
+    if (is_array($existing) && in_array((string) ($existing['rule'] ?? ''), admin_telegram_staff_rules(), true)) {
+        return ['ok' => false, 'msg' => '❌ این حساب از قبل نقش ادمین پنل دارد. نقش آن عوض نمی‌شود.'];
+    }
+    $plain = bin2hex(random_bytes(6));
+    $hash = password_hash($plain, PASSWORD_BCRYPT, ['cost' => 12]);
+    if (is_array($existing)) {
+        $stmt = $pdo->prepare('UPDATE admin SET username = ?, password = ?, rule = ? WHERE id_admin = ?');
+        $stmt->execute([$telegramId, $hash, 'n2_panel', $telegramId]);
+    } else {
+        $stmt = $pdo->prepare('INSERT INTO admin (id_admin, username, password, rule) VALUES (?, ?, ?, ?)');
+        $stmt->execute([$telegramId, $telegramId, $hash, 'n2_panel']);
+    }
+    if (function_exists('clearSelectCache')) {
+        clearSelectCache('admin');
+    }
+    $host = trim((string) ($domainhosts ?? ''));
+    $url = $host !== '' ? ('https://' . $host . '/panel') : '/panel';
+    return [
+        'ok' => true,
+        'username' => $telegramId,
+        'password' => $plain,
+        'url' => $url,
+        'msg' => "✅ پنل تحت وب شما فعال شد.\n\n🔗 آدرس ورود : {$url}\n👤 نام کاربری : <code>{$telegramId}</code>\n🔑 رمز عبور : <code>{$plain}</code>\n\n⚠️ با کلیک دوباره، رمز جدید می‌گیرید.",
+    ];
 }
 
 function agent_own_menu_keyboard(): string
@@ -10614,6 +10736,7 @@ function agent_consume_volume($agentUserId, $volumeGb): array
     if (agent_is_n2($user['agent'] ?? 'f')) {
         $after = (int) ($check['volume_after'] ?? ((int) ($user['agent_volume_remaining'] ?? 0) - (int) $volumeGb));
         update('user', 'agent_volume_remaining', (string) $after, 'id', $agentUserId);
+        agent_n2_add_consumed($agentUserId, (int) $volumeGb);
         $check['volume_remaining'] = $after;
         return $check;
     }

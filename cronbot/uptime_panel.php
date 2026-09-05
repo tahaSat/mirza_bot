@@ -8,7 +8,7 @@ require_once __DIR__ . '/../function.php';
 
 
 
-$admin_ids = select("admin", "id_admin",null,null,"FETCH_COLUMN");
+$admin_ids = admin_telegram_ids();
 $marzbanlist = select("marzban_panel", "*",null ,null ,"fetchAll");
 $setting = select("setting", "*");
 $status_cron = json_decode($setting['cron_status'],true);

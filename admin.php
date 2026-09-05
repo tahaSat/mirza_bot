@@ -4963,6 +4963,10 @@ $caption";
         $volConsumedAgent = agent_sum_volume_consumed($id_user, $user['agent']);
         $volConsumedFmt = number_format($volConsumedAgent);
         $text_agent_volume = "🔋 مجموع حجم مصرفی برای ساخت سرویس‌های حجمی : {$volConsumedFmt} GB\n";
+        if (agent_is_n2($user['agent'] ?? 'f')) {
+            $volLife = number_format(agent_consumed_total($id_user, $user));
+            $text_agent_volume .= "🔋 شمارنده مصرف n2 : {$volConsumedFmt} GB\n🔋 مصرف کل کاربر : {$volLife} GB\n";
+        }
         if (($user['agent'] ?? '') === 'n') {
             $volRem = number_format((int) ($user['agent_volume_remaining'] ?? 0));
             $ppg = number_format((int) ($user['agent_price_per_gb'] ?? 0));
@@ -6962,8 +6966,14 @@ n2", $backadmin, 'HTML');
         return;
     }
     sendmessage($from_id, $textbotlang['Admin']['agent']['useragented'], $keyboardadmin, 'HTML');
-    update("user", "expire", null, "id", $user['Processing_value']);
-    update("user", "agent", $text, "id", $user['Processing_value']);
+    $targetAgentId = $user['Processing_value'];
+    $oldAgentRow = select('user', '*', 'id', $targetAgentId, 'select');
+    update("user", "expire", null, "id", $targetAgentId);
+    update("user", "agent", $text, "id", $targetAgentId);
+    if (function_exists('clearSelectCache')) {
+        clearSelectCache('user');
+    }
+    agent_on_role_changed($targetAgentId, $oldAgentRow['agent'] ?? 'f', $text);
     step('home', $from_id);
 } elseif (preg_match('/Percentlow_(\w+)/', $datain, $dataget)) {
     $id_user = $dataget[1];
@@ -8205,8 +8215,13 @@ if ($datain == "settimecornremove" && $adminrulecheck['rule'] == "administrator"
         ));
         return;
     }
+    $oldAgentRow = select('user', '*', 'id', $id_user, 'select');
     update("user", "agent", $selectedType, "id", $id_user);
     update("Requestagent", "type", $selectedType, "id", $id_user);
+    if (function_exists('clearSelectCache')) {
+        clearSelectCache('user');
+    }
+    agent_on_role_changed($id_user, $oldAgentRow['agent'] ?? 'f', $selectedType);
     $request_agent = select("Requestagent", "*", "id", $id_user, "select");
     if ($request_agent) {
         $agentTypeButtons = [];

@@ -6,7 +6,15 @@ $activeNav = $activeNav ?? '';
 $showPageHead = $showPageHead ?? true;
 $currentUser = $_SESSION['admin_user'] ?? 'ادمین';
 $initials = mb_strtoupper(mb_substr($currentUser, 0, 1, 'UTF-8'), 'UTF-8');
-$supportUnansweredCount = isset($pdo) && $pdo instanceof PDO ? panel_support_unanswered_count($pdo) : 0;
+$panelAdmin = function_exists('panel_current_admin') ? panel_current_admin() : null;
+$panelIsN2 = function_exists('panel_is_n2_user') && panel_is_n2_user($panelAdmin);
+$panelRoleLabel = function_exists('panel_admin_rule_label')
+    ? panel_admin_rule_label((string) ($panelAdmin['rule'] ?? ''))
+    : 'مدیر پنل';
+$supportUnansweredCount = 0;
+if (!$panelIsN2 && isset($pdo) && $pdo instanceof PDO) {
+    $supportUnansweredCount = panel_support_unanswered_count($pdo);
+}
 $withdrawPendingCount = 0;
 if (isset($pdo) && $pdo instanceof PDO) {
     try {
@@ -98,6 +106,32 @@ $devModeOn = function_exists('mirza_is_development_mode')
             <span class="nav-icon"><?= icon('dashboard') ?></span><span class="nav-label">داشبورد</span>
           </a>
         </div>
+        <?php if ($panelIsN2): ?>
+        <div class="nav-section">
+          <div class="nav-heading">نمایندگی</div>
+          <a href="n2_categories.php" class="nav-item <?= $activeNav === 'n2_categories' ? 'active' : '' ?>" title="دسته‌بندی‌ها">
+            <span class="nav-icon"><?= icon('package') ?></span><span class="nav-label">دسته‌بندی‌ها</span>
+          </a>
+          <a href="n2_products.php" class="nav-item <?= $activeNav === 'n2_products' ? 'active' : '' ?>" title="محصولات">
+            <span class="nav-icon"><?= icon('package') ?></span><span class="nav-label">محصولات</span>
+          </a>
+          <a href="n2_messages.php" class="nav-item <?= $activeNav === 'n2_messages' ? 'active' : '' ?>" title="پیام‌ها">
+            <span class="nav-icon"><?= icon('message') ?></span><span class="nav-label">پیام‌ها</span>
+          </a>
+          <a href="n2_payments.php" class="nav-item <?= $activeNav === 'n2_payments' ? 'active' : '' ?>" title="تراکنش‌ها">
+            <span class="nav-icon"><?= icon('card') ?></span><span class="nav-label">تراکنش‌ها</span>
+          </a>
+          <a href="n2_purchases.php" class="nav-item <?= $activeNav === 'n2_purchases' ? 'active' : '' ?>" title="خریدها">
+            <span class="nav-icon"><?= icon('invoice') ?></span><span class="nav-label">خریدها</span>
+          </a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-heading">پنل</div>
+          <a href="logout.php" class="nav-item" title="خروج">
+            <span class="nav-icon"><?= icon('logout') ?></span><span class="nav-label">خروج</span>
+          </a>
+        </div>
+        <?php else: ?>
         <div class="nav-section">
           <div class="nav-heading">مدیریت</div>
           <a href="users.php" class="nav-item <?= $activeNav === 'users' ? 'active' : '' ?>" title="کاربران">
@@ -157,13 +191,14 @@ $devModeOn = function_exists('mirza_is_development_mode')
             <span class="nav-icon"><?= icon('logout') ?></span><span class="nav-label">خروج</span>
           </a>
         </div>
+        <?php endif; ?>
       </nav>
       <div class="sidebar-foot">
         <div class="user-pill">
           <div class="user-mono"><?= htmlspecialchars($initials) ?></div>
           <div class="user-info">
             <div class="uname"><?= htmlspecialchars($currentUser) ?></div>
-            <div class="urole">مدیر پنل</div>
+            <div class="urole"><?= htmlspecialchars($panelRoleLabel) ?></div>
           </div>
         </div>
       </div>
@@ -181,7 +216,9 @@ $devModeOn = function_exists('mirza_is_development_mode')
           </div>
         </div>
         <div class="topbar-tools">
+          <?php if (!$panelIsN2): ?>
           <a href="settings.php" class="icon-btn" title="تنظیمات"><?= icon('settings', 16) ?></a>
+          <?php endif; ?>
           <a href="logout.php" class="icon-btn" title="خروج"><?= icon('logout', 16) ?></a>
         </div>
       </header>

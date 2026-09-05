@@ -53,6 +53,8 @@ try {
             agent_volume_remaining VARCHAR(100) NULL DEFAULT '0',
             agent_price_per_gb VARCHAR(100) NULL DEFAULT '0',
             agent_price_tiers TEXT NULL,
+            agent_n2_consumed VARCHAR(100) NULL DEFAULT '0',
+            agent_consumed_total VARCHAR(100) NULL DEFAULT '0',
             time_usertest VARCHAR(100) NULL DEFAULT '0'
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
         $stmt->execute();
@@ -88,6 +90,8 @@ try {
         addFieldToTable($tableName, 'agent_volume_remaining', '0', "VARCHAR(100)");
         addFieldToTable($tableName, 'agent_price_per_gb', '0', "VARCHAR(100)");
         addFieldToTable($tableName, 'agent_price_tiers', '[]', "TEXT");
+        addFieldToTable($tableName, 'agent_n2_consumed', '0', "VARCHAR(100)");
+        addFieldToTable($tableName, 'agent_consumed_total', '0', "VARCHAR(100)");
         addFieldToTable($tableName, 'time_usertest', '0', "VARCHAR(100)");
     }
 } catch (PDOException $e) {

@@ -116,7 +116,7 @@ $reportcron = select("topicid", "idreport", "report", "reportcron", "select")['i
 $otherservice = select("topicid", "idreport", "report", "otherservice", "select")['idreport'];
 
 $paymentreports = select("topicid", "idreport", "report", "paymentreport", "select")['idreport'];
-$admin_idsmain = select("admin", "id_admin", null, null, "FETCH_COLUMN");
+$admin_idsmain = function_exists('admin_telegram_ids') ? admin_telegram_ids() : (select("admin", "id_admin", null, null, "FETCH_COLUMN") ?: []);
 $userbot = select("user", "*", "id", $dataBase['id_user'], "select");
 if ($user['bottype'] != $ApiToken) {
     update("user", "bottype", $ApiToken, "id", $from_id);

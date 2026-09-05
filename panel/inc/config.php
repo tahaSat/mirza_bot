@@ -381,6 +381,82 @@ function db_count(PDO $pdo, string $sql, array $params = []): int
 {
     return (int) db_query($pdo, $sql, $params)->fetchColumn();
 }
+function panel_current_admin(): ?array
+{
+    static $cached = false;
+    static $admin = null;
+    if ($cached) {
+        return $admin;
+    }
+    $cached = true;
+    $username = (string) ($_SESSION['admin_user'] ?? '');
+    if ($username === '') {
+        return null;
+    }
+    try {
+        global $pdo;
+        $pdo = panel_ensure_pdo();
+        $admin = db_fetch($pdo, 'SELECT * FROM admin WHERE username = ?', [$username]);
+    } catch (Throwable $e) {
+        $admin = null;
+    }
+    return $admin;
+}
+
+function panel_is_n2_user(?array $admin = null): bool
+{
+    $admin = $admin ?? panel_current_admin();
+    return is_array($admin) && ($admin['rule'] ?? '') === 'n2_panel';
+}
+
+function panel_n2_agent_id(?array $admin = null): string
+{
+    $admin = $admin ?? panel_current_admin();
+    return (string) ($admin['id_admin'] ?? '');
+}
+
+function panel_n2_bot(?array $admin = null): ?array
+{
+    $aid = panel_n2_agent_id($admin);
+    if ($aid === '') {
+        return null;
+    }
+    try {
+        global $pdo;
+        $pdo = panel_ensure_pdo();
+        return db_fetch($pdo, 'SELECT * FROM botsaz WHERE id_user = ?', [$aid]);
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+function panel_n2_allowed_scripts(): array
+{
+    return [
+        'index.php',
+        'logout.php',
+        'n2_products.php',
+        'n2_product_action.php',
+        'n2_categories.php',
+        'n2_category_action.php',
+        'n2_messages.php',
+        'support_media.php',
+        'n2_payments.php',
+        'n2_purchases.php',
+    ];
+}
+
+function panel_admin_rule_label(string $rule): string
+{
+    return match ($rule) {
+        'administrator' => 'مدیر اصلی',
+        'support' => 'پشتیبان',
+        'Seller' => 'فروشنده',
+        'n2_panel' => 'کاربر پنل',
+        default => $rule !== '' ? $rule : 'مدیر پنل',
+    };
+}
+
 function require_auth(): void
 {
     panel_session_start();
@@ -391,11 +467,19 @@ function require_auth(): void
     try {
         global $pdo;
         $pdo = panel_ensure_pdo();
-        $admin = db_fetch($pdo, "SELECT id_admin FROM admin WHERE username = ?", [$_SESSION['admin_user']]);
+        $admin = panel_current_admin();
         if (!$admin) {
             panel_logout();
             header('Location: login.php');
             exit;
+        }
+        if (panel_is_n2_user($admin)) {
+            $script = basename((string) ($_SERVER['SCRIPT_NAME'] ?? ''));
+            if (!in_array($script, panel_n2_allowed_scripts(), true)) {
+                flash('error', 'دسترسی این بخش برای کاربر پنل مجاز نیست.');
+                header('Location: index.php');
+                exit;
+            }
         }
     } catch (Throwable $e) {
         error_log('panel require_auth: ' . $e->getMessage());

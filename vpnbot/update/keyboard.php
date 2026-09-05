@@ -19,7 +19,7 @@ $keyboarddate = array(
     'text_Admin' => "👨‍💼 پنل مدیریت",
 );
 $list_admin = select("botsaz", "*", "bot_token", $ApiToken, "select");
-$admin_idsmain = select("admin", "id_admin", null, null, "FETCH_COLUMN");
+$admin_idsmain = function_exists('admin_telegram_ids') ? admin_telegram_ids() : (select("admin", "id_admin", null, null, "FETCH_COLUMN") ?: []);
 $admin_ids_decoded = json_decode($list_admin['admin_ids'] ?? '[]', true);
 if (!is_array($admin_ids_decoded)) {
     $admin_ids_decoded = [];

@@ -51,7 +51,7 @@ function saveProductOrder(tbody) {
     });
 
     tbody.dataset.saving = '1';
-    fetch('product.php', {
+    fetch(window.PRODUCT_REORDER_URL || 'product.php', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',

@@ -701,6 +701,18 @@ try {
              note = COALESCE(NULLIF(note, ''), 'کسر موجودی کاربر توسط ادمین')
          WHERE Payment_Method = 'low balance by admin'"
     );
+    $pdo->exec(
+        "UPDATE Payment_report
+         SET tx_type = 'investment',
+             payment_Status = 'investment',
+             Payment_Method = 'capital_injection',
+             id_invoice = 'capital'
+         WHERE Payment_Method = 'capital_injection'
+            OR id_invoice = 'capital'
+            OR tx_type = 'investment'
+            OR payment_Status = 'investment'"
+    );
+    $pdo->exec("DELETE FROM income_category WHERE slug = 'capital_injection'");
 } catch (Throwable $e) {
     error_log('Payment_report admin balance expense migration: ' . $e->getMessage());
 }

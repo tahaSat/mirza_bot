@@ -8,6 +8,19 @@
 
   var pendingStatus = null;
   var isCostTab = cfg.tab === 'costs';
+  var isInvestmentTab = cfg.tab === 'investment';
+
+  function rowIsCost(row) {
+    return isCostTab || !!(row && row.classList.contains('is-cost'));
+  }
+
+  function rowIsInvestment(row) {
+    return isInvestmentTab || !!(row && row.classList.contains('is-investment'));
+  }
+
+  function rowIsLocked(row) {
+    return rowIsCost(row) || rowIsInvestment(row);
+  }
 
   function escapeHtml(str) {
     return String(str == null ? '' : str)
@@ -182,16 +195,17 @@
   function collectRow(row) {
     var methodVal = row.querySelector('.pay-method-value');
     var statusVal = row.querySelector('.pay-status-value');
-    var isCost = row.classList.contains('is-cost') || isCostTab;
+    var isCost = rowIsCost(row);
+    var isInvestment = rowIsInvestment(row);
     return {
       order_id: row.dataset.orderId || '',
       id_user: (row.querySelector('.pay-user-input') || {}).value || '',
       amount: parsePrice((row.querySelector('.pay-price-input') || {}).value || ''),
-      payment_method: isCost ? 'cost' : (methodVal ? methodVal.value : (row.dataset.method || '')),
+      payment_method: isCost ? 'cost' : (isInvestment ? (cfg.investmentMethod || 'capital_injection') : (methodVal ? methodVal.value : (row.dataset.method || ''))),
       expense_category: isCost ? (methodVal ? methodVal.value : (row.dataset.category || '')) : '',
       note: (row.querySelector('.pay-note-input') || {}).value || '',
       time: (row.querySelector('.pay-time-input') || {}).value || '',
-      status: isCost ? 'cost' : (statusVal ? statusVal.value : (row.dataset.status || '')),
+      status: isCost ? 'cost' : (isInvestment ? 'investment' : (statusVal ? statusVal.value : (row.dataset.status || ''))),
       is_new: row.classList.contains('is-new')
     };
   }
@@ -233,6 +247,9 @@
     row.dataset.category = data.expense_category || '';
     row.dataset.hasProduct = data.has_product ? '1' : '0';
     if (data.is_cost) row.classList.add('is-cost');
+    else row.classList.remove('is-cost');
+    if (data.is_investment) row.classList.add('is-investment');
+    else row.classList.remove('is-investment');
 
     var oid = row.querySelector('.pay-oid');
     if (oid) oid.textContent = data.id_order || '';
@@ -255,6 +272,9 @@
     if (data.is_cost || isCostTab) {
       if (methodLabel) methodLabel.textContent = data.category_label || '—';
       if (methodVal) methodVal.value = data.expense_category || '';
+    } else if (data.is_investment || isInvestmentTab) {
+      if (methodLabel) methodLabel.textContent = data.method_label || cfg.investmentLabel || 'ورود سرمایه';
+      if (methodVal) methodVal.value = cfg.investmentMethod || 'capital_injection';
     } else {
       if (methodLabel) methodLabel.textContent = data.method_label || '—';
       if (methodVal) methodVal.value = data.method || '';
@@ -437,7 +457,7 @@
     };
     if (typeof window.showConfirm === 'function') {
       window.showConfirm(
-        isCostTab ? 'این هزینه حذف شود؟' : 'این تراکنش حذف شود؟',
+        isCostTab ? 'این هزینه حذف شود؟' : (isInvestmentTab ? 'این ورود سرمایه حذف شود؟' : 'این تراکنش حذف شود؟'),
         run,
         'تأیید حذف'
       );
@@ -457,26 +477,34 @@
     var categoryLabel = (cfg.categoryOptions && cfg.categoryOptions[defaultCategory]) || 'سایر';
     var meta = statusMeta(defaultStatus);
     var costMeta = cfg.costStatus || { cls: 'tag-plain', lbl: 'هزینه شده' };
+    var investmentMeta = cfg.investmentStatus || { cls: 'tag-mint', lbl: 'ورود سرمایه' };
+    var investmentMethod = cfg.investmentMethod || 'capital_injection';
+    var investmentLabel = cfg.investmentLabel || 'ورود سرمایه';
 
     var methodCell = isCostTab
       ? '<button type="button" class="pay-dd-trigger" data-pay-menu="category"><span class="pay-method-label">'
         + escapeHtml(categoryLabel) + '</span><span class="pay-dd-caret">▾</span></button>'
         + '<input type="hidden" class="pay-method-value" value="' + escapeHtml(defaultCategory) + '">'
-      : '<button type="button" class="pay-dd-trigger" data-pay-menu="method"><span class="pay-method-label">'
-        + escapeHtml(methodLabel) + '</span><span class="pay-dd-caret">▾</span></button>'
-        + '<input type="hidden" class="pay-method-value" value="' + escapeHtml(defaultMethod) + '">';
+      : (isInvestmentTab
+        ? '<span class="pay-method-label">' + escapeHtml(investmentLabel) + '</span>'
+          + '<input type="hidden" class="pay-method-value" value="' + escapeHtml(investmentMethod) + '">'
+        : '<button type="button" class="pay-dd-trigger" data-pay-menu="method"><span class="pay-method-label">'
+          + escapeHtml(methodLabel) + '</span><span class="pay-dd-caret">▾</span></button>'
+          + '<input type="hidden" class="pay-method-value" value="' + escapeHtml(defaultMethod) + '">');
 
     var statusCell = isCostTab
       ? '<span class="tag ' + costMeta.cls + ' pay-status-tag">' + escapeHtml(costMeta.lbl) + '</span>'
-      : '<button type="button" class="pay-dd-trigger" data-pay-menu="status"><span class="tag '
-        + meta.cls + ' pay-status-tag">' + escapeHtml(meta.lbl) + '</span><span class="pay-dd-caret">▾</span></button>'
-        + '<input type="hidden" class="pay-status-value" value="' + escapeHtml(defaultStatus) + '">';
+      : (isInvestmentTab
+        ? '<span class="tag ' + investmentMeta.cls + ' pay-status-tag">' + escapeHtml(investmentMeta.lbl) + '</span>'
+        : '<button type="button" class="pay-dd-trigger" data-pay-menu="status"><span class="tag '
+          + meta.cls + ' pay-status-tag">' + escapeHtml(meta.lbl) + '</span><span class="pay-dd-caret">▾</span></button>'
+          + '<input type="hidden" class="pay-status-value" value="' + escapeHtml(defaultStatus) + '">');
 
     var tr = document.createElement('tr');
-    tr.className = 'pay-sheet-row is-new is-editing' + (isCostTab ? ' is-cost' : '');
+    tr.className = 'pay-sheet-row is-new is-editing' + (isCostTab ? ' is-cost' : '') + (isInvestmentTab ? ' is-investment' : '');
     tr.dataset.orderId = oid;
-    tr.dataset.status = isCostTab ? 'cost' : defaultStatus;
-    tr.dataset.method = isCostTab ? 'cost' : defaultMethod;
+    tr.dataset.status = isCostTab ? 'cost' : (isInvestmentTab ? 'investment' : defaultStatus);
+    tr.dataset.method = isCostTab ? 'cost' : (isInvestmentTab ? investmentMethod : defaultMethod);
     tr.dataset.category = isCostTab ? defaultCategory : '';
     tr.dataset.hasProduct = '0';
     tr.innerHTML =
@@ -555,7 +583,7 @@
   }
 
   function openCellMenu(row, kind, anchor) {
-    if (row.classList.contains('is-cost') && kind === 'status') return;
+    if (rowIsLocked(row) && (kind === 'status' || kind === 'method')) return;
     var existing = document.getElementById('paySheetMenu');
     if (existing && !existing.hidden && existing._payRow === row && existing._payKind === kind) {
       closePickers();
@@ -735,7 +763,7 @@
     var trigger = e.target.closest('.pay-dd-trigger');
     if (trigger && row) {
       var kind = trigger.getAttribute('data-pay-menu');
-      if (row.classList.contains('is-cost') && kind === 'status') return;
+      if (rowIsLocked(row) && (kind === 'status' || kind === 'method')) return;
       e.preventDefault();
       e.stopPropagation();
       openCellMenu(row, kind, trigger);

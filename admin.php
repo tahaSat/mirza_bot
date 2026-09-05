@@ -254,6 +254,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $expenseSumAll = (float) ($ledgerAll['expenses_sum'] ?? 0);
     $expenseSumAllFmt = number_format($expenseSumAll, 0);
     $incomeSumAllFmt = number_format((float) ($ledgerAll['income_sum'] ?? 0), 0);
+    $investmentSumAllFmt = number_format((float) ($ledgerAll['investment_sum'] ?? 0), 0);
     $invoicesumall = number_format((float) ($ledgerAll['net_sum'] ?? 0), 0);
     $withdrawSumAllFmt = number_format($withdrawSumAll, 0);
     $sql3 = "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_extend FROM service_other WHERE type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'";
@@ -317,6 +318,9 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     $autoRenewServices = $autoRenewStats['services'];
     if (count($statispay) != 0) {
         foreach ($statispay as $tracepay) {
+            if (($tracepay['Payment_Method'] ?? '') === 'capital_injection') {
+                continue;
+            }
             $status_var = [
                 'cart to cart' => $datatextbot['carttocart'],
                 'aqayepardakht' => $datatextbot['aqayepardakht'],
@@ -331,7 +335,6 @@ if (in_array($text, $textadmin) || $datain == "admin") {
                 'tetraminator' => $datatextbot['tetraminator'] ?? 'Tetraminator',
                 'add order by admin' => 'سفارش توسط ادمین',
                 'extend by admin' => 'تمدید توسط ادمین',
-                'capital_injection' => 'ورود سرمایه',
 
             ][$tracepay['Payment_Method']] ?? ($tracepay['Payment_Method'] ?: 'سایر');
             $sumPay = number_format((float) ($tracepay['sumpay'] ?? 0), 0);
@@ -358,6 +361,7 @@ $firstPurchaseText
 🔄 <b>جمع کل تمدید:</b> <code>$extendsum</code> تومان
 $paycount
 <b>💰 درآمد کل: <code>$incomeSumAllFmt</code> تومان</b>
+🏦 <b>ورود سرمایه: <code>$investmentSumAllFmt</code> تومان</b>
 
 💸 <b>هزینه‌ها</b>
 💸 <b>تعداد برداشت از کیف پول:</b> <code>$withdrawCountAll</code> عدد

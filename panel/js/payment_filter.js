@@ -39,8 +39,8 @@
 
   function syncKindGroups() {
     var kind = kindSelect ? kindSelect.value : '';
-    setGroupDisabled(incomeGroup, kind === 'expense');
-    setGroupDisabled(expenseGroup, kind === 'income');
+    setGroupDisabled(incomeGroup, kind === 'expense' || kind === 'investment');
+    setGroupDisabled(expenseGroup, kind === 'income' || kind === 'investment');
   }
 
   function fmtAmount(n) {

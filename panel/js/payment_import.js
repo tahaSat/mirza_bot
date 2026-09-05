@@ -102,8 +102,12 @@
     input.dataset.pdp = '1';
   }
 
+  var investmentCategories = {};
+
   function categoryMap(kind) {
-    return kind === 'income' ? incomeCategories : expenseCategories;
+    if (kind === 'income') return incomeCategories;
+    if (kind === 'investment') return investmentCategories;
+    return expenseCategories;
   }
 
   function categoryOptionsHtml(kind, selected) {
@@ -143,6 +147,7 @@
     previewRows = [];
     expenseCategories = {};
     incomeCategories = {};
+    investmentCategories = {};
     if (fileInput) fileInput.value = '';
     if (fileNameEl) fileNameEl.textContent = '';
     if (rateInput) rateInput.value = '';
@@ -171,7 +176,8 @@
     var amount = parsePrice((tr.querySelector('.pay-import-amount') || {}).value || '');
     var time = ((tr.querySelector('.pay-import-time') || {}).value || '').trim();
     var cat = ((tr.querySelector('.pay-import-cat') || {}).value || '').trim();
-    return amount !== '' && parseInt(amount, 10) >= 1 && time !== '' && cat !== '';
+    var kind = ((tr.querySelector('.pay-import-kind') || {}).value || '').trim();
+    return amount !== '' && parseInt(amount, 10) >= 1 && time !== '' && (kind === 'investment' || cat !== '');
   }
 
   function updateRowWarn(tr) {
@@ -212,9 +218,10 @@
     previewRows = payload.rows || [];
     expenseCategories = payload.expense_categories || {};
     incomeCategories = payload.income_categories || {};
+    investmentCategories = { capital_injection: payload.investment_label || 'ورود سرمایه' };
     bodyEl.innerHTML = previewRows.map(function (row, idx) {
-      var kind = row.kind === 'income' ? 'income' : 'expense';
-      var cat = row.category || '';
+      var kind = row.kind === 'income' ? 'income' : (row.kind === 'investment' ? 'investment' : 'expense');
+      var cat = kind === 'investment' ? 'capital_injection' : (row.category || '');
       var warnings = row.warnings || [];
       var warnClass = warnings.length ? ' pay-import-row-warn' : '';
       return '<tr class="' + warnClass + '" data-source-row="' + escapeHtml(row.source_row || '') + '">'
@@ -222,6 +229,7 @@
         + '<td><select class="select pay-import-kind">'
         + '<option value="expense"' + (kind === 'expense' ? ' selected' : '') + '>هزینه</option>'
         + '<option value="income"' + (kind === 'income' ? ' selected' : '') + '>درآمد</option>'
+        + '<option value="investment"' + (kind === 'investment' ? ' selected' : '') + '>سرمایه‌گذاری</option>'
         + '</select></td>'
         + '<td><input class="input jalali-datetime-picker pay-import-time" type="text" value="'
         + escapeHtml(row.time || '') + '" placeholder="تاریخ و ساعت" autocomplete="off"></td>'
@@ -284,7 +292,8 @@
       return;
     }
     var invalid = rows.findIndex(function (row) {
-      return !row.kind || !row.time || !row.amount || parseInt(row.amount, 10) < 1 || !row.category;
+      return !row.kind || !row.time || !row.amount || parseInt(row.amount, 10) < 1
+        || (row.kind !== 'investment' && !row.category);
     });
     if (invalid !== -1) {
       showError('سطر ' + (invalid + 1) + ' را کامل کنید. دسته، تاریخ و مبلغ الزامی است.');
@@ -375,9 +384,14 @@
       var tr = t.closest('tr');
       var cat = tr ? tr.querySelector('.pay-import-cat') : null;
       if (cat) {
-        var prev = cat.value;
-        cat.innerHTML = categoryOptionsHtml(t.value, prev);
-        if (!categoryMap(t.value)[prev]) cat.value = '';
+        if (t.value === 'investment') {
+          cat.innerHTML = categoryOptionsHtml('investment', 'capital_injection');
+          cat.value = 'capital_injection';
+        } else {
+          var prev = cat.value;
+          cat.innerHTML = categoryOptionsHtml(t.value, prev);
+          if (!categoryMap(t.value)[prev]) cat.value = '';
+        }
       }
     }
     updateConfirmState();

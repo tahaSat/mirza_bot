@@ -362,6 +362,8 @@ function invoice_paid_status_sql(string $statusCol = 'Status'): string
 function paid_real_income_sql(): string
 {
     return "payment_Status = 'paid'
+        AND COALESCE(tx_type,'') NOT IN ('expense','investment')
+        AND COALESCE(id_invoice,'') <> 'capital'
         AND COALESCE(Payment_Method,'') NOT IN ('add balance by admin','low balance by admin','capital_injection')";
 }
 
@@ -906,9 +908,9 @@ function bot_wallet_withdraw_stats(PDO $pdo, ?int $startTs = null, ?int $endTs =
 
 /**
  * Same ledger as the payments page cards:
- * income = Payment_report.paid, expenses = Payment_report.cost, net = income - expenses.
+ * income = Payment_report.paid (not investment), expenses = cost, investment = capital inflow, net = income - expenses.
  *
- * @return array{income_count:int,income_sum:float,expenses_count:int,expenses_sum:float,net_sum:float}
+ * @return array{income_count:int,income_sum:float,expenses_count:int,expenses_sum:float,investment_count:int,investment_sum:float,net_sum:float}
  */
 function bot_payment_ledger_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = null): array
 {
@@ -917,6 +919,8 @@ function bot_payment_ledger_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = 
         'income_sum' => 0.0,
         'expenses_count' => 0,
         'expenses_sum' => 0.0,
+        'investment_count' => 0,
+        'investment_sum' => 0.0,
         'net_sum' => 0.0,
     ];
     try {
@@ -931,13 +935,22 @@ function bot_payment_ledger_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = 
                 tehran_datetime_string($endTs),
             ];
         }
+        $investmentSql = "(tx_type = 'investment' OR payment_Status = 'investment' OR Payment_Method = 'capital_injection' OR id_invoice = 'capital')";
+        $incomeSql = "payment_Status = 'paid' AND NOT $investmentSql";
         $sql = "SELECT
-                COALESCE(SUM(CASE WHEN payment_Status = 'paid' THEN 1 ELSE 0 END), 0) AS income_count,
-                COALESCE(SUM(CASE WHEN payment_Status = 'paid' THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS income_sum,
+                COALESCE(SUM(CASE WHEN $incomeSql THEN 1 ELSE 0 END), 0) AS income_count,
+                COALESCE(SUM(CASE WHEN $incomeSql THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS income_sum,
                 COALESCE(SUM(CASE WHEN payment_Status = 'cost' THEN 1 ELSE 0 END), 0) AS expenses_count,
-                COALESCE(SUM(CASE WHEN payment_Status = 'cost' THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS expenses_sum
+                COALESCE(SUM(CASE WHEN payment_Status = 'cost' THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS expenses_sum,
+                COALESCE(SUM(CASE WHEN $investmentSql THEN 1 ELSE 0 END), 0) AS investment_count,
+                COALESCE(SUM(CASE WHEN $investmentSql THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS investment_sum
             FROM Payment_report
-            WHERE payment_Status IN ('paid', 'cost')
+            WHERE (
+                payment_Status IN ('paid', 'cost', 'investment')
+                OR tx_type IN ('expense', 'investment')
+                OR Payment_Method = 'capital_injection'
+                OR id_invoice = 'capital'
+            )
               $timeSql";
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
@@ -949,6 +962,8 @@ function bot_payment_ledger_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = 
             'income_sum' => $income,
             'expenses_count' => (int) ($row['expenses_count'] ?? 0),
             'expenses_sum' => $expenses,
+            'investment_count' => (int) ($row['investment_count'] ?? 0),
+            'investment_sum' => (float) ($row['investment_sum'] ?? 0),
             'net_sum' => $income - $expenses,
         ];
     } catch (Throwable $e) {
@@ -1433,7 +1448,7 @@ function pay_affiliate_commission(array $buyer, $amount, string $reason = 'buy',
 }
 
 /**
- * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,expenses:int,expenses_sum:float,users:int,avg_join:string,total_count:int,period_income_sum:float,period_net_sum:float,income_sum:float,total_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
+ * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,expenses:int,expenses_sum:float,users:int,avg_join:string,total_count:int,period_income_sum:float,period_net_sum:float,period_investment_sum:float,income_sum:float,total_sum:float,investment_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
  */
 function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
 {
@@ -1510,8 +1525,10 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
             + $walletCount,
         'period_income_sum' => (float) ($ledger['income_sum'] ?? 0),
         'period_net_sum' => (float) ($ledger['net_sum'] ?? 0),
+        'period_investment_sum' => (float) ($ledger['investment_sum'] ?? 0),
         'income_sum' => (float) ($ledgerAll['income_sum'] ?? 0),
         'total_sum' => (float) ($ledgerAll['net_sum'] ?? 0),
+        'investment_sum' => (float) ($ledgerAll['investment_sum'] ?? 0),
         'sold_volume' => bot_sold_volume_stats($pdo, $startTs, $endTs),
         'first_purchase' => bot_first_purchase_stats($pdo, $startTs, $endTs),
         'forecast_sold_volume' => ($endTs - $startTs) >= (7 * 86400)
@@ -1536,8 +1553,10 @@ function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = 
     $sumExpenses = number_format((float) ($s['expenses_sum'] ?? 0), 0);
     $sumPeriodIncome = number_format((float) ($s['period_income_sum'] ?? 0), 0);
     $sumPeriodNet = number_format((float) ($s['period_net_sum'] ?? 0), 0);
+    $sumPeriodInvestment = number_format((float) ($s['period_investment_sum'] ?? 0), 0);
     $sumIncome = number_format((float) ($s['income_sum'] ?? 0), 0);
     $sumTotal = number_format($s['total_sum'], 0);
+    $sumInvestment = number_format((float) ($s['investment_sum'] ?? 0), 0);
     $soldVolumeBlock = bot_format_sold_volume_block($s['sold_volume'] ?? []);
     $forecastVolume = $s['forecast_sold_volume'] ?? null;
     if ($forecastVolume !== null) {
@@ -1581,8 +1600,10 @@ $soldVolumeBlock
 
 💰 درآمد کل (این بازه) : $sumPeriodIncome تومان
 💵 درآمد خالص (این بازه) : $sumPeriodNet تومان
+🏦 ورود سرمایه (این بازه) : $sumPeriodInvestment تومان
 💰 درآمد کل (از ابتدا) : $sumIncome تومان
 💵 درآمد خالص (از ابتدا) : $sumTotal تومان
+🏦 ورود سرمایه (از ابتدا) : $sumInvestment تومان
 ";
 }
 
@@ -10184,9 +10205,95 @@ function agent_own_add_product($agentUserId, array $data): array
         'no_reset',
         '0',
         '{}',
-        0,
+        agent_own_next_sort_order($agentUserId, $category),
     ]);
     return ['ok' => true, 'msg' => '✅ محصول اضافه شد.', 'code_product' => $code];
+}
+
+function agent_own_next_sort_order($agentUserId, string $category = ''): int
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $ids = agent_own_ids($agentUserId);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $sql = "SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM agent_own_product WHERE agent_id IN ({$placeholders})";
+    $params = $ids;
+    if ($category !== '') {
+        $sql .= ' AND category = ?';
+        $params[] = $category;
+    }
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return max(1, (int) ($stmt->fetchColumn() ?: 1));
+    } catch (Throwable $e) {
+        return 1;
+    }
+}
+
+function agent_own_renormalize_category_sort_orders($agentUserId, string $category): void
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $ids = agent_own_ids($agentUserId);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $sql = "SELECT id FROM agent_own_product WHERE agent_id IN ({$placeholders})";
+    $params = $ids;
+    if ($category === '') {
+        $sql .= " AND (category IS NULL OR category = '')";
+    } else {
+        $sql .= ' AND category = ?';
+        $params[] = $category;
+    }
+    $sql .= ' ORDER BY sort_order ASC, name_product ASC, id ASC';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $update = $pdo->prepare('UPDATE agent_own_product SET sort_order = ? WHERE id = ?');
+    foreach ($rows as $i => $row) {
+        $update->execute([$i + 1, (int) $row['id']]);
+    }
+}
+
+function agent_own_apply_category_sort_order($agentUserId, string $category, array $orderedIds): void
+{
+    global $pdo;
+    agent_ensure_n2_tables();
+    $ids = agent_own_ids($agentUserId);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $sql = "SELECT id FROM agent_own_product WHERE agent_id IN ({$placeholders})";
+    $params = $ids;
+    if ($category === '') {
+        $sql .= " AND (category IS NULL OR category = '')";
+    } else {
+        $sql .= ' AND category = ?';
+        $params[] = $category;
+    }
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $existingIds = array_map(static fn($row) => (int) $row['id'], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    sort($existingIds);
+
+    $ordered = array_values(array_unique(array_map('intval', $orderedIds)));
+    $sorted = $ordered;
+    sort($sorted);
+    if ($sorted !== $existingIds) {
+        throw new InvalidArgumentException('ترتیب محصولات نامعتبر است.');
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $update = $pdo->prepare('UPDATE agent_own_product SET sort_order = ? WHERE id = ?');
+        foreach ($ordered as $i => $id) {
+            $update->execute([$i + 1, $id]);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
 }
 
 function agent_own_update_product($agentUserId, $productId, array $data): array
@@ -10215,6 +10322,7 @@ function agent_own_delete_product($agentUserId, $productId): array
     }
     $del = $pdo->prepare('DELETE FROM agent_own_product WHERE id = ?');
     $del->execute([(int) $productId]);
+    agent_own_renormalize_category_sort_orders($agentUserId, trim((string) ($prod['category'] ?? '')));
     return ['ok' => true, 'msg' => '✅ محصول حذف شد.'];
 }
 

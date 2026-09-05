@@ -83,7 +83,7 @@ function panel_payment_import_parse_number($raw): ?float
 }
 
 /**
- * @return 'expense'|'income'|null
+ * @return 'expense'|'income'|'investment'|null
  */
 function panel_payment_import_parse_kind($raw): ?string
 {
@@ -94,7 +94,25 @@ function panel_payment_import_parse_kind($raw): ?string
     if (in_array($value, ['1', 'درآمد', 'income'], true)) {
         return 'income';
     }
+    if (in_array($value, ['سرمایه', 'سرمایه گذاری', 'سرمایه‌گذاری', 'ورود سرمایه', 'investment', 'capital'], true)) {
+        return 'investment';
+    }
     return null;
+}
+
+function panel_payment_import_is_investment_category(string $raw): bool
+{
+    $value = panel_payment_import_norm_text($raw);
+    return in_array($value, [
+        'سرمایه',
+        'سرمایه گذاری',
+        'سرمایه‌گذاری',
+        'ورود سرمایه',
+        'investment',
+        'capital',
+        'capital injection',
+        'capital_injection',
+    ], true);
 }
 
 /**
@@ -461,11 +479,17 @@ function panel_payment_import_transform(
 
         $note = $get('note');
         $categoryRaw = $get('category');
-        $map = $kind === 'income' ? $incomeMap : $expenseMap;
-        $slug = panel_payment_import_match_category($categoryRaw, $map);
-        if ($slug === null) {
-            $warnings[] = 'category';
-            $unmatched++;
+        if ($kind === 'investment' || panel_payment_import_is_investment_category($categoryRaw)) {
+            $kind = 'investment';
+            $map = [panel_payment_investment_method() => panel_payment_investment_label()];
+            $slug = panel_payment_investment_method();
+        } else {
+            $map = $kind === 'income' ? $incomeMap : $expenseMap;
+            $slug = panel_payment_import_match_category($categoryRaw, $map);
+            if ($slug === null) {
+                $warnings[] = 'category';
+                $unmatched++;
+            }
         }
 
         $out[] = [
@@ -535,6 +559,7 @@ function panel_payment_import_parse_file(PDO $pdo, ?array $file, $usdRateRaw): a
     }
     $parsed['expense_categories'] = $expenseMap;
     $parsed['income_categories'] = $incomeMap;
+    $parsed['investment_label'] = panel_payment_investment_label();
     $parsed['usd_rate'] = $usdRate;
     return $parsed;
 }
@@ -547,7 +572,7 @@ function panel_payment_import_validate_row(PDO $pdo, array $row, int $index): ar
 {
     $line = $index + 1;
     $kind = (string) ($row['kind'] ?? '');
-    if (!in_array($kind, ['income', 'expense'], true)) {
+    if (!in_array($kind, ['income', 'expense', 'investment'], true)) {
         return ['ok' => false, 'msg' => 'سطر ' . $line . ': نوع تراکنش نامعتبر است.'];
     }
     $amount = (int) round(panel_payment_import_parse_number((string) ($row['amount'] ?? '')) ?? 0);
@@ -560,10 +585,11 @@ function panel_payment_import_validate_row(PDO $pdo, array $row, int $index): ar
         return ['ok' => false, 'msg' => 'سطر ' . $line . ': تاریخ نامعتبر است.'];
     }
     $category = trim((string) ($row['category'] ?? ''));
-    if ($category === '') {
+    if ($kind === 'investment') {
+        $category = panel_payment_investment_method();
+    } elseif ($category === '') {
         return ['ok' => false, 'msg' => 'سطر ' . $line . ': دسته را انتخاب کنید.'];
-    }
-    if ($kind === 'expense') {
+    } elseif ($kind === 'expense') {
         $map = panel_expense_category_map($pdo);
         if (!isset($map[$category])) {
             return ['ok' => false, 'msg' => 'سطر ' . $line . ': دسته هزینه نامعتبر است.'];
@@ -618,6 +644,12 @@ function panel_payment_import_commit(PDO $pdo, array $rows): array
                     'time' => $item['time'],
                     'note' => $item['note'],
                     'expense_category' => $item['category'],
+                ]);
+            } elseif ($item['kind'] === 'investment') {
+                $r = panel_payment_add_investment($pdo, [
+                    'amount' => $item['amount'],
+                    'time' => $item['time'],
+                    'note' => $item['note'],
                 ]);
             } else {
                 $r = panel_payment_add_manual($pdo, [

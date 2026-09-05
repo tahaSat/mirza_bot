@@ -84,6 +84,9 @@ function panel_financial_export_jalali(int $timestamp, string $format = 'Y/m/d')
 
 function panel_financial_export_is_income(array $row): bool
 {
+    if (function_exists('panel_payment_is_investment') && panel_payment_is_investment($row)) {
+        return false;
+    }
     return (string) ($row['payment_Status'] ?? '') === 'paid';
 }
 

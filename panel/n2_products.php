@@ -5,12 +5,65 @@ require_auth();
 panel_require_n2();
 
 $agentId = panel_n2_agent_id();
+$allCategories = agent_own_list_categories($agentId, false);
 $categories = agent_own_list_categories($agentId, true);
+$products = agent_own_list_products($agentId);
+$renormSeen = [];
+foreach ($products as $productRow) {
+    $catKey = trim((string) ($productRow['category'] ?? ''));
+    if (isset($renormSeen[$catKey])) {
+        continue;
+    }
+    $renormSeen[$catKey] = true;
+    try {
+        agent_own_renormalize_category_sort_orders($agentId, $catKey);
+    } catch (Throwable $e) {
+    }
+}
 $products = agent_own_list_products($agentId);
 $panels = agent_n2_visible_panels($agentId);
 
+$categoryActive = [];
+foreach ($allCategories as $cat) {
+    $remark = trim((string) ($cat['remark'] ?? ''));
+    $status = strtolower(trim((string) ($cat['status'] ?? 'active')));
+    $categoryActive[$remark] = ($status === '' || $status === 'active');
+}
+
+$productsByCategory = [];
+foreach ($products as $productRow) {
+    $catKey = trim((string) ($productRow['category'] ?? ''));
+    $productsByCategory[$catKey][] = $productRow;
+}
+
+$categorySections = [];
+$seenCategories = [];
+foreach ($allCategories as $cat) {
+    $remark = trim((string) ($cat['remark'] ?? ''));
+    if (!empty($productsByCategory[$remark])) {
+        $categorySections[] = [
+            'key' => $remark,
+            'label' => $remark,
+            'active' => !empty($categoryActive[$remark]),
+            'products' => $productsByCategory[$remark],
+        ];
+        $seenCategories[$remark] = true;
+    }
+}
+foreach ($productsByCategory as $catKey => $categoryProducts) {
+    if (isset($seenCategories[$catKey])) {
+        continue;
+    }
+    $categorySections[] = [
+        'key' => $catKey,
+        'label' => $catKey === '' ? 'بدون دسته‌بندی' : $catKey,
+        'active' => !empty($categoryActive[$catKey]),
+        'products' => $categoryProducts,
+    ];
+}
+
 $pageTitle = 'محصولات';
-$pageLede = 'محصولات اختصاصی ربات فروش شما. حجم دلخواه برای نماینده پیشرفته غیرفعال است.';
+$pageLede = 'محصولات اختصاصی ربات فروش شما. ترتیب نمایش در هر دسته با کشیدن و رها کردن تنظیم می‌شود.';
 $activeNav = 'n2_products';
 include __DIR__ . '/inc/layout_head.php';
 ?>
@@ -35,45 +88,70 @@ include __DIR__ . '/inc/layout_head.php';
       <p>هنوز محصولی ثبت نشده</p>
     </div>
   <?php else: ?>
-    <div class="tbl-wrap">
-      <table class="tbl-lg">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>نام</th>
-            <th>دسته</th>
-            <th>پنل</th>
-            <th>حجم</th>
-            <th>مدت</th>
-            <th>قیمت</th>
-            <th>عملیات</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php $i = 1;
-          foreach ($products as $p): ?>
-            <tr>
-              <td class="cf"><?= $i++ ?></td>
-              <td class="cs"><?= htmlspecialchars($p['name_product'] ?? '') ?></td>
-              <td><?= htmlspecialchars($p['category'] ?? '—') ?></td>
-              <td><?= (($p['Location'] ?? '/all') === '/all') ? 'همه پنل‌های فعال' : htmlspecialchars((string) $p['Location']) ?></td>
-              <td class="cn"><?= htmlspecialchars((string) ($p['Volume_constraint'] ?? '0')) ?> GB</td>
-              <td class="cn"><?= ((int) ($p['Service_time'] ?? 0)) === 0 ? 'نامحدود' : ((int) $p['Service_time'] . ' روز') ?></td>
-              <td class="cn"><?= number_format((int) ($p['price_product'] ?? 0)) ?> ت</td>
-              <td>
-                <div style="display:flex;gap:5px;flex-wrap:wrap">
-                  <button type="button" class="btn btn-ghost btn-sm" onclick="openPanelModal(<?= (int) ($p['id'] ?? 0) ?>, <?= htmlspecialchars(json_encode((string) ($p['Location'] ?? '/all')), ENT_QUOTES) ?>)">پنل</button>
-                  <a href="n2_product_action.php?delete=<?= (int) ($p['id'] ?? 0) ?>&_csrf=<?= csrf_token() ?>"
-                    class="btn btn-no btn-sm btn-icon" title="حذف"
-                    data-confirm="حذف محصول «<?= htmlspecialchars((string) ($p['name_product'] ?? '')) ?>»؟">
-                    <?= icon('trash', 13) ?>
-                  </a>
-                </div>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
+    <div class="toolbar">
+      <div class="toolbar-title">فهرست محصولات <small>(<?= count($products) ?>)</small></div>
+      <div class="search-box" style="min-width:220px">
+        <?= icon('search', 14) ?>
+        <input type="text" placeholder="جستجو..." data-filter="prodOrder">
+        <button type="button" class="search-clear">✕</button>
+      </div>
+    </div>
+    <div id="prodOrder" class="product-order-list">
+      <?php foreach ($categorySections as $section):
+        $isActive = !empty($section['active']);
+        ?>
+        <details class="product-order-group fade-up<?= $isActive ? '' : ' is-inactive' ?>" data-category="<?= htmlspecialchars($section['key'], ENT_QUOTES) ?>">
+          <summary class="product-order-group-head">
+            <div class="product-order-group-head-start">
+              <span class="product-order-group-chevron" aria-hidden="true"><?= icon('chevron-down', 16) ?></span>
+              <div class="product-order-group-title"><?= htmlspecialchars($section['label']) ?></div>
+            </div>
+            <div class="product-order-group-head-end">
+              <span class="tag <?= $isActive ? 'tag-ok' : 'tag-warn' ?>"><?= $isActive ? 'فعال' : 'غیرفعال' ?></span>
+              <span class="tag tag-info"><?= count($section['products']) ?></span>
+            </div>
+          </summary>
+          <div class="tbl-wrap">
+            <table class="tbl-xl product-order-table">
+              <thead>
+                <tr>
+                  <th style="width:42px"></th>
+                  <th>ترتیب</th>
+                  <th>نام</th>
+                  <th>پنل</th>
+                  <th>حجم</th>
+                  <th>مدت</th>
+                  <th>قیمت</th>
+                  <th>عملیات</th>
+                </tr>
+              </thead>
+              <tbody class="product-sortable" data-category="<?= htmlspecialchars($section['key'], ENT_QUOTES) ?>">
+                <?php foreach ($section['products'] as $index => $p): ?>
+                  <tr class="product-sort-row" data-id="<?= (int) ($p['id'] ?? 0) ?>">
+                    <td class="product-sort-handle" title="کشیدن برای تغییر ترتیب"><?= icon('menu', 14) ?></td>
+                    <td class="cn product-sort-index"><?= $index + 1 ?></td>
+                    <td class="cs"><?= htmlspecialchars($p['name_product'] ?? '') ?></td>
+                    <td><?= (($p['Location'] ?? '/all') === '/all') ? 'همه پنل‌های فعال' : htmlspecialchars((string) $p['Location']) ?></td>
+                    <td class="cn"><?= htmlspecialchars((string) ($p['Volume_constraint'] ?? '0')) ?> GB</td>
+                    <td class="cn"><?= ((int) ($p['Service_time'] ?? 0)) === 0 ? 'نامحدود' : ((int) $p['Service_time'] . ' روز') ?></td>
+                    <td class="cn"><?= number_format((int) ($p['price_product'] ?? 0)) ?> ت</td>
+                    <td>
+                      <div style="display:flex;gap:5px;flex-wrap:wrap">
+                        <button type="button" class="btn btn-ghost btn-sm" onclick="openPanelModal(<?= (int) ($p['id'] ?? 0) ?>, <?= htmlspecialchars(json_encode((string) ($p['Location'] ?? '/all')), ENT_QUOTES) ?>)">پنل</button>
+                        <a href="n2_product_action.php?delete=<?= (int) ($p['id'] ?? 0) ?>&_csrf=<?= csrf_token() ?>"
+                          class="btn btn-no btn-sm btn-icon" title="حذف"
+                          data-confirm="حذف محصول «<?= htmlspecialchars((string) ($p['name_product'] ?? '')) ?>»؟">
+                          <?= icon('trash', 13) ?>
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        </details>
+      <?php endforeach; ?>
     </div>
   <?php endif; ?>
 </div>
@@ -176,5 +254,11 @@ window.openPanelModal = function (id, location) {
   openModal('panelModal');
 };
 </script>
+<script>
+window.PRODUCT_CSRF = <?= json_encode(csrf_token(), JSON_UNESCAPED_UNICODE) ?>;
+window.PRODUCT_REORDER_URL = 'n2_product_action.php';
+</script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+<script src="<?= htmlspecialchars(panel_asset('js/product.js')) ?>"></script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

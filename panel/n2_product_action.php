@@ -9,6 +9,21 @@ $redirect = 'n2_products.php';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check_post();
     $action = (string) ($_POST['action'] ?? '');
+    if ($action === 'reorder') {
+        header('Content-Type: application/json; charset=UTF-8');
+        try {
+            $order = $_POST['order'] ?? [];
+            if (!is_array($order)) {
+                echo json_encode(['ok' => false, 'error' => 'داده نامعتبر است.'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            agent_own_apply_category_sort_order($agentId, (string) ($_POST['category'] ?? ''), $order);
+            echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
+        } catch (Throwable $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+        }
+        exit;
+    }
     if ($action === 'add') {
         $result = agent_own_add_product($agentId, [
             'name_product' => (string) ($_POST['name_product'] ?? ''),

@@ -476,7 +476,25 @@ function panel_expense_default_slug(): string
 /** Built-in income methods that must stay in DB and cannot be deleted. */
 function panel_income_protected_slugs(): array
 {
-    return ['manual invoice', 'capital_injection'];
+    return ['manual invoice'];
+}
+
+function panel_payment_investment_method(): string
+{
+    return 'capital_injection';
+}
+
+function panel_payment_investment_label(): string
+{
+    return 'ورود سرمایه';
+}
+
+function panel_payment_is_investment(array $payment): bool
+{
+    return ($payment['tx_type'] ?? '') === 'investment'
+        || ($payment['payment_Status'] ?? '') === 'investment'
+        || ($payment['Payment_Method'] ?? '') === panel_payment_investment_method()
+        || ($payment['id_invoice'] ?? '') === 'capital';
 }
 
 function panel_income_default_slug(): string
@@ -543,7 +561,6 @@ function panel_payment_ensure_schema(PDO $pdo): void
         );
         $seeds = [
             ['manual invoice', 'فاکتور دستی', 0],
-            ['capital_injection', 'ورود سرمایه', 10],
             ['agent_payment', 'پرداخت نماینده', 20],
         ];
         foreach ($seeds as [$slug, $label, $sort]) {
@@ -615,6 +632,27 @@ function panel_payment_ensure_schema(PDO $pdo): void
         );
     } catch (Throwable $e) {
         error_log('panel_payment_ensure_schema admin balance migration: ' . $e->getMessage());
+    }
+
+    try {
+        if (pay_get($pdo, 'investment_schema_v1', '') !== '1') {
+            db_query(
+                $pdo,
+                "UPDATE Payment_report
+                 SET tx_type = 'investment',
+                     payment_Status = 'investment',
+                     Payment_Method = 'capital_injection',
+                     id_invoice = 'capital'
+                 WHERE Payment_Method = 'capital_injection'
+                    OR id_invoice = 'capital'
+                    OR tx_type = 'investment'
+                    OR payment_Status = 'investment'"
+            );
+            db_query($pdo, "DELETE FROM income_category WHERE slug = 'capital_injection'");
+            pay_set($pdo, 'investment_schema_v1', '1');
+        }
+    } catch (Throwable $e) {
+        error_log('panel_payment_ensure_schema investment migrate: ' . $e->getMessage());
     }
 }
 
@@ -829,7 +867,6 @@ function panel_income_category_map(PDO $pdo, bool $refresh = false): array
         if (!isset($map[$slug])) {
             $fallback = [
                 'manual invoice' => 'فاکتور دستی',
-                'capital_injection' => 'ورود سرمایه',
             ];
             $map[$slug] = $fallback[$slug] ?? $slug;
         }
@@ -895,6 +932,9 @@ function panel_income_reserved_slugs(): array
 {
     $reserved = array_keys(panel_payment_system_method_map());
     $reserved[] = 'cost';
+    $reserved[] = panel_payment_investment_method();
+    $reserved[] = 'investment';
+    $reserved[] = 'capital';
     return $reserved;
 }
 
@@ -1094,6 +1134,7 @@ function panel_payment_status_meta(): array
         'reject' => ['tag-no', 'رد شده'],
         'waiting' => ['tag-warn', 'در انتظار'],
         'cost' => ['tag-plain', 'هزینه شده'],
+        'investment' => ['tag-mint', 'ورود سرمایه'],
     ];
 }
 
@@ -1133,8 +1174,8 @@ function panel_payment_method_map(?PDO $pdo = null): array
         }
     } else {
         $map['manual invoice'] = 'فاکتور دستی';
-        $map['capital_injection'] = 'ورود سرمایه';
     }
+    $map[panel_payment_investment_method()] = panel_payment_investment_label();
     return $map;
 }
 
@@ -1165,6 +1206,7 @@ function panel_payment_serialize_sheet_row(array $p, array $knownUsers = []): ar
     $oid = (string) ($p['id_order'] ?? '');
     $price = (int) ($p['price'] ?? 0);
     $isCost = panel_payment_is_cost($p);
+    $isInvestment = panel_payment_is_investment($p);
     $category = trim((string) ($p['expense_category'] ?? ''));
     $categoryLabel = '';
     if ($isCost) {
@@ -1193,6 +1235,7 @@ function panel_payment_serialize_sheet_row(array $p, array $knownUsers = []): ar
         'status_class' => $cls,
         'has_product' => panel_payment_row_has_product($p),
         'is_cost' => $isCost,
+        'is_investment' => $isInvestment,
     ];
 }
 
@@ -1301,6 +1344,9 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
     }
 
     $method = trim((string) ($input['method'] ?? panel_income_default_slug()));
+    if ($method === panel_payment_investment_method()) {
+        return panel_payment_add_investment($pdo, $input);
+    }
     if ($method === '' || $method === 'cost') {
         $method = panel_income_default_slug();
     }
@@ -1310,9 +1356,8 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
         // Allow unknown methods only if they already exist in history; otherwise fall back.
         $method = panel_income_default_slug();
     }
-    $isCapital = $method === 'capital_injection';
 
-    $creditWallet = !$isCapital && !empty($input['credit_wallet']);
+    $creditWallet = !empty($input['credit_wallet']);
     $realUser = $userId !== ''
         ? db_fetch($pdo, 'SELECT id FROM user WHERE id = ?', [$userId])
         : null;
@@ -1325,7 +1370,7 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
     }
 
     $time = panel_payment_format_time(panel_payment_parse_sheet_time($input['time'] ?? ''));
-    $idInvoice = $isCapital ? 'capital' : ($creditWallet ? 'manual|wallet' : 'manual');
+    $idInvoice = $creditWallet ? 'manual|wallet' : 'manual';
 
     db_query(
         $pdo,
@@ -1344,9 +1389,48 @@ function panel_payment_add_manual(PDO $pdo, array $input): array
 
     return [
         'ok' => true,
-        'msg' => $isCapital ? 'ورود سرمایه ثبت شد.' : 'فاکتور دستی ثبت شد.',
+        'msg' => 'فاکتور دستی ثبت شد.',
         'id_order' => $orderId,
     ];
+}
+
+/**
+ * @return array{ok:bool,msg:string,id_order?:string}
+ */
+function panel_payment_add_investment(PDO $pdo, array $input): array
+{
+    panel_payment_ensure_schema($pdo);
+    $amount = (int) ($input['amount'] ?? 0);
+    if ($amount < 1) {
+        return ['ok' => false, 'msg' => 'مبلغ باید عدد مثبت باشد.'];
+    }
+
+    $note = trim((string) ($input['note'] ?? ''));
+    $userId = trim((string) ($input['id_user'] ?? ''));
+    $orderId = trim((string) ($input['id_order'] ?? ''));
+    if ($orderId === '' || db_fetch($pdo, 'SELECT id FROM Payment_report WHERE id_order = ?', [$orderId])) {
+        $orderId = panel_payment_new_order_id($pdo);
+    }
+
+    $time = panel_payment_format_time(panel_payment_parse_sheet_time($input['time'] ?? ''));
+    db_query(
+        $pdo,
+        'INSERT INTO Payment_report (id_user, id_order, time, price, payment_Status, Payment_Method, id_invoice, note, tx_type, expense_category) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        [
+            $userId,
+            $orderId,
+            $time,
+            (string) $amount,
+            'investment',
+            panel_payment_investment_method(),
+            'capital',
+            $note !== '' ? $note : null,
+            'investment',
+            null,
+        ]
+    );
+
+    return ['ok' => true, 'msg' => 'ورود سرمایه ثبت شد.', 'id_order' => $orderId];
 }
 
 /**
@@ -1446,6 +1530,9 @@ function panel_payment_set_status(
     }
     if (panel_payment_is_cost($payment)) {
         return ['ok' => false, 'msg' => 'تغییر وضعیت برای هزینه مجاز نیست.'];
+    }
+    if (panel_payment_is_investment($payment)) {
+        return ['ok' => false, 'msg' => 'تغییر وضعیت برای سرمایه‌گذاری مجاز نیست.'];
     }
 
     $oldStatus = (string) ($payment['payment_Status'] ?? '');
@@ -1569,6 +1656,9 @@ function panel_payment_update_row(PDO $pdo, string $orderId, array $input): arra
     $note = trim((string) ($input['note'] ?? ''));
     $method = trim((string) ($input['method'] ?? ''));
     $isCost = panel_payment_is_cost($payment);
+    $isInvestment = panel_payment_is_investment($payment)
+        || $method === panel_payment_investment_method()
+        || ($input['status'] ?? '') === 'investment';
     $category = null;
     if ($isCost) {
         $method = 'cost';
@@ -1576,6 +1666,8 @@ function panel_payment_update_row(PDO $pdo, string $orderId, array $input): arra
             $pdo,
             (string) ($input['expense_category'] ?? $input['category'] ?? $payment['expense_category'] ?? '')
         );
+    } elseif ($isInvestment) {
+        $method = panel_payment_investment_method();
     } elseif ($method === '' || $method === 'cost') {
         $method = (string) ($payment['Payment_Method'] ?? '');
     } else {
@@ -1598,6 +1690,23 @@ function panel_payment_update_row(PDO $pdo, string $orderId, array $input): arra
             'UPDATE Payment_report SET id_user = ?, price = ?, Payment_Method = ?, note = ?, time = ?, tx_type = ?, expense_category = ? WHERE id_order = ?',
             [$userId, (string) $amount, $method, $note !== '' ? $note : null, $time, 'expense', $category, $orderId]
         );
+    } elseif ($isInvestment) {
+        db_query(
+            $pdo,
+            'UPDATE Payment_report SET id_user = ?, price = ?, Payment_Method = ?, note = ?, time = ?, payment_Status = ?, id_invoice = ?, tx_type = ?, expense_category = ? WHERE id_order = ?',
+            [
+                $userId,
+                (string) $amount,
+                $method,
+                $note !== '' ? $note : null,
+                $time,
+                'investment',
+                'capital',
+                'investment',
+                null,
+                $orderId,
+            ]
+        );
     } else {
         db_query(
             $pdo,
@@ -1608,7 +1717,7 @@ function panel_payment_update_row(PDO $pdo, string $orderId, array $input): arra
 
     $statusResult = ['ok' => true, 'msg' => ''];
     $newStatus = trim((string) ($input['status'] ?? ''));
-    if (!$isCost && $newStatus !== '' && $newStatus !== (string) ($payment['payment_Status'] ?? '')) {
+    if (!$isCost && !$isInvestment && $newStatus !== '' && $newStatus !== (string) ($payment['payment_Status'] ?? '')) {
         $statusResult = panel_payment_set_status(
             $pdo,
             $orderId,

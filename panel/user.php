@@ -38,13 +38,22 @@ try {
 }
 
 try {
-    $referrals = db_fetchAll($pdo, "SELECT id, username, namecustom, Balance, register, agent FROM user WHERE affiliates = ? ORDER BY register DESC LIMIT 20", [$id]);
+    $referrals = db_fetchAll($pdo, "SELECT u.id, u.username, u.namecustom, u.Balance, u.register, u.agent
+        FROM user u
+        WHERE u.affiliates = ?
+          AND NOT EXISTS (
+              SELECT 1 FROM reagent_report aff_mig
+              WHERE CAST(aff_mig.user_id AS CHAR) = CAST(u.id AS CHAR)
+                AND CAST(aff_mig.reagent AS CHAR) = CAST(u.affiliates AS CHAR)
+                AND COALESCE(aff_mig.migrated_to_ads, 0) = 1
+          )
+        ORDER BY u.register DESC LIMIT 20", [$id]);
 } catch (Exception $e) {
 }
 
 $affiliatesBoughtCount = 0;
 try {
-    $affiliatesBoughtCount = (int) db_count($pdo, "SELECT COUNT(DISTINCT u.id) FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = ? AND i.name_product != 'سرویس تست' AND i.Status != 'Unpaid'", [$id]);
+    $affiliatesBoughtCount = (int) db_count($pdo, "SELECT COUNT(DISTINCT u.id) FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = ? AND i.name_product != 'سرویس تست' AND i.Status != 'Unpaid' AND NOT EXISTS (SELECT 1 FROM reagent_report aff_mig WHERE CAST(aff_mig.user_id AS CHAR) = CAST(u.id AS CHAR) AND CAST(aff_mig.reagent AS CHAR) = CAST(u.affiliates AS CHAR) AND COALESCE(aff_mig.migrated_to_ads, 0) = 1)", [$id]);
 } catch (Exception $e) {
 }
 

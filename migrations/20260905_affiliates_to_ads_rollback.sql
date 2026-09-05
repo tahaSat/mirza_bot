@@ -4,6 +4,20 @@
 SET NAMES utf8mb4;
 SET @migration_batch_id = 'REPLACE-WITH-BATCH-ID';
 
+SET @ddl = IF(
+    EXISTS(
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'affiliate_ads_migration_backup'
+          AND COLUMN_NAME = 'reagent_preexisting'
+    ),
+    'SELECT 1',
+    'ALTER TABLE affiliate_ads_migration_backup ADD reagent_preexisting TINYINT(1) NOT NULL DEFAULT 1'
+);
+PREPARE rollback_stmt FROM @ddl;
+EXECUTE rollback_stmt;
+DEALLOCATE PREPARE rollback_stmt;
+
 DROP PROCEDURE IF EXISTS rollback_affiliate_ads_migration;
 DELIMITER //
 CREATE PROCEDURE rollback_affiliate_ads_migration()
@@ -62,11 +76,17 @@ SET r.migrated_to_ads = b.old_migrated_to_ads,
     r.ad_advertiser_id = b.old_ad_advertiser_id,
     r.get_gift = b.get_gift,
     r.time = b.report_time,
-    r.reagent = b.referrer_id;
+    r.reagent = b.referrer_id
+WHERE COALESCE(b.reagent_preexisting, 1) = 1;
 
 UPDATE user invited
 INNER JOIN tmp_affiliate_ads_rollback b ON b.invited_user_id = invited.id
 SET invited.affiliates = COALESCE(b.old_user_affiliates, '0');
+
+DELETE r
+FROM reagent_report r
+INNER JOIN tmp_affiliate_ads_rollback b ON b.reagent_id = r.id
+WHERE COALESCE(b.reagent_preexisting, 1) = 0;
 
 DELETE j
 FROM ad_join j
@@ -101,17 +121,21 @@ SELECT
     @migration_batch_id AS batch_id,
     (SELECT COUNT(*)
        FROM tmp_affiliate_ads_rollback b
-       INNER JOIN reagent_report r ON r.id = b.reagent_id
-      WHERE r.migrated_to_ads = b.old_migrated_to_ads
-        AND (r.ad_advertiser_id <=> b.old_ad_advertiser_id)) AS restored_invitations,
+       LEFT JOIN reagent_report r ON r.id = b.reagent_id
+      WHERE (COALESCE(b.reagent_preexisting, 1) = 1
+             AND r.migrated_to_ads = b.old_migrated_to_ads
+             AND (r.ad_advertiser_id <=> b.old_ad_advertiser_id))
+         OR (COALESCE(b.reagent_preexisting, 1) = 0 AND r.id IS NULL)) AS restored_invitations,
     (SELECT COUNT(*) FROM tmp_affiliate_ads_rollback) AS expected_invitations;
 
 IF (
     SELECT COUNT(*)
     FROM tmp_affiliate_ads_rollback b
-    INNER JOIN reagent_report r ON r.id = b.reagent_id
-    WHERE r.migrated_to_ads = b.old_migrated_to_ads
-      AND (r.ad_advertiser_id <=> b.old_ad_advertiser_id)
+    LEFT JOIN reagent_report r ON r.id = b.reagent_id
+    WHERE (COALESCE(b.reagent_preexisting, 1) = 1
+           AND r.migrated_to_ads = b.old_migrated_to_ads
+           AND (r.ad_advertiser_id <=> b.old_ad_advertiser_id))
+       OR (COALESCE(b.reagent_preexisting, 1) = 0 AND r.id IS NULL)
 ) != (SELECT COUNT(*) FROM tmp_affiliate_ads_rollback) THEN
     SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Rollback validation failed; transaction rolled back';

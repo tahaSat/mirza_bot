@@ -568,7 +568,14 @@ switch ($data['actions'] ?? '') {
         }
 
         try {
-            $stmt = $pdo->prepare("SELECT id as user_id FROM user WHERE affiliates = :affiliates_id");
+            $stmt = $pdo->prepare("SELECT id as user_id FROM user
+                WHERE affiliates = :affiliates_id
+                  AND NOT EXISTS (
+                      SELECT 1 FROM reagent_report aff_mig
+                      WHERE CAST(aff_mig.user_id AS CHAR) = CAST(user.id AS CHAR)
+                        AND CAST(aff_mig.reagent AS CHAR) = CAST(user.affiliates AS CHAR)
+                        AND COALESCE(aff_mig.migrated_to_ads, 0) = 1
+                  )");
             $stmt->bindValue(':affiliates_id', $data['chat_id']);
             $stmt->execute();
             $users = $stmt->fetchAll(PDO::FETCH_ASSOC);

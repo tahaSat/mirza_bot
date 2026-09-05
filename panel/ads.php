@@ -305,57 +305,112 @@ include __DIR__ . '/inc/referral_nav.php';
   </div>
 <?php endif; ?>
 
+<style>
+  .ad-modal { width: min(480px, 100%); }
+  .ad-modal-hint {
+    margin: 0 0 16px;
+    padding: 10px 12px;
+    font-size: .8rem;
+    line-height: 1.7;
+    color: var(--text2);
+    background: var(--acs);
+    border-right: 3px solid var(--ac);
+    border-radius: 8px;
+  }
+  .ad-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .ad-form-grid .field.full { grid-column: 1 / -1; }
+  .ad-form-grid .field label { text-align: start; }
+  .ad-modal .input[type="date"] { direction: ltr; }
+  .ad-modal form { display: flex; flex-direction: column; min-height: 0; }
+  #addModal .modal-foot,
+  #editModal .modal-foot {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  #addModal .modal-foot .btn,
+  #editModal .modal-foot .btn {
+    width: auto;
+    flex: 1 1 auto;
+  }
+  @media (max-width: 380px) {
+    .ad-form-grid { grid-template-columns: 1fr; }
+  }
+</style>
 <div class="modal-veil" id="addModal">
-  <div class="modal">
+  <div class="modal ad-modal">
     <div class="modal-head">
       <h3>افزودن تبلیغ</h3>
-      <button type="button" class="modal-x" onclick="closeModal('addModal')">✕</button>
+      <button type="button" class="modal-x" onclick="closeModal('addModal')"><?= icon('close', 14) ?></button>
     </div>
     <form method="post">
       <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
       <input type="hidden" name="action" value="save">
       <div class="modal-body">
-        <p class="cf" style="margin-bottom:12px">پس از ذخیره، یک لینک تلگرامی یکتا بدون آیدی شخص ساخته می‌شود.</p>
-        <label class="lbl">نام تبلیغ‌کننده</label>
-        <input class="inp" name="name" required>
-        <label class="lbl">تعداد جوین</label>
-        <input class="inp" type="number" name="join_count" min="0" value="0" required>
-        <label class="lbl">مبلغ تبلیغات (تومان)</label>
-        <input class="inp" type="number" name="amount" min="0" value="0" required>
-        <label class="lbl">تاریخ شروع تبلیغ</label>
-        <input class="inp" type="date" name="started_at" value="<?= date('Y-m-d') ?>" required>
+        <div class="ad-modal-hint">پس از ذخیره، یک لینک تلگرامی یکتا بدون آیدی شخص ساخته می‌شود.</div>
+        <div class="ad-form-grid">
+          <div class="field full">
+            <label>نام تبلیغ‌کننده *</label>
+            <input type="text" class="input" name="name" placeholder="مثلاً کانال تبلیغاتی" required>
+          </div>
+          <div class="field">
+            <label>تعداد جوین</label>
+            <input type="number" class="input" name="join_count" min="0" value="0" required>
+          </div>
+          <div class="field">
+            <label>مبلغ تبلیغات (تومان)</label>
+            <input type="number" class="input" name="amount" min="0" value="0" required>
+          </div>
+          <div class="field full">
+            <label>تاریخ شروع تبلیغ</label>
+            <input type="date" class="input" name="started_at" value="<?= date('Y-m-d') ?>" required>
+          </div>
+        </div>
       </div>
       <div class="modal-foot">
+        <button type="submit" class="btn btn-primary"><?= icon('plus', 13) ?> ذخیره و ساخت لینک</button>
         <button type="button" class="btn btn-ghost" onclick="closeModal('addModal')">انصراف</button>
-        <button type="submit" class="btn btn-primary">ذخیره و ساخت لینک</button>
       </div>
     </form>
   </div>
 </div>
 
 <div class="modal-veil" id="editModal">
-  <div class="modal">
+  <div class="modal ad-modal">
     <div class="modal-head">
       <h3>ویرایش تبلیغ</h3>
-      <button type="button" class="modal-x" onclick="closeModal('editModal')">✕</button>
+      <button type="button" class="modal-x" onclick="closeModal('editModal')"><?= icon('close', 14) ?></button>
     </div>
     <form method="post">
       <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
       <input type="hidden" name="action" value="save">
       <input type="hidden" name="edit_id" id="edit_id">
       <div class="modal-body">
-        <label class="lbl">نام تبلیغ‌کننده</label>
-        <input class="inp" name="name" id="edit_name" required>
-        <label class="lbl">تعداد جوین</label>
-        <input class="inp" type="number" name="join_count" id="edit_join_count" min="0" required>
-        <label class="lbl">مبلغ تبلیغات (تومان)</label>
-        <input class="inp" type="number" name="amount" id="edit_amount" min="0" required>
-        <label class="lbl">تاریخ شروع تبلیغ</label>
-        <input class="inp" type="date" name="started_at" id="edit_started_at" required>
+        <div class="ad-form-grid">
+          <div class="field full">
+            <label>نام تبلیغ‌کننده *</label>
+            <input type="text" class="input" name="name" id="edit_name" required>
+          </div>
+          <div class="field">
+            <label>تعداد جوین</label>
+            <input type="number" class="input" name="join_count" id="edit_join_count" min="0" required>
+          </div>
+          <div class="field">
+            <label>مبلغ تبلیغات (تومان)</label>
+            <input type="number" class="input" name="amount" id="edit_amount" min="0" required>
+          </div>
+          <div class="field full">
+            <label>تاریخ شروع تبلیغ</label>
+            <input type="date" class="input" name="started_at" id="edit_started_at" required>
+          </div>
+        </div>
       </div>
       <div class="modal-foot">
+        <button type="submit" class="btn btn-primary"><?= icon('check', 13) ?> ذخیره</button>
         <button type="button" class="btn btn-ghost" onclick="closeModal('editModal')">انصراف</button>
-        <button type="submit" class="btn btn-primary">ذخیره</button>
       </div>
     </form>
   </div>

@@ -24,6 +24,33 @@ function affiliates_lib_ensure_migration_schema(PDO $pdo): void
     $ready = true;
 }
 
+function affiliates_lib_invitee_not_migrated_sql(string $userAlias = 'u'): string
+{
+    if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $userAlias)) {
+        throw new InvalidArgumentException('Invalid SQL alias.');
+    }
+    return "NOT EXISTS (
+        SELECT 1 FROM reagent_report aff_mig
+        WHERE CAST(aff_mig.user_id AS CHAR) = CAST({$userAlias}.id AS CHAR)
+          AND CAST(aff_mig.reagent AS CHAR) = CAST({$userAlias}.affiliates AS CHAR)
+          AND COALESCE(aff_mig.migrated_to_ads, 0) = 1
+    )";
+}
+
+function affiliates_lib_active_invites_sql(): string
+{
+    $pointerNotMigrated = affiliates_lib_invitee_not_migrated_sql('pointer');
+    return "SELECT CAST(reagent AS CHAR) AS referrer_id, CAST(user_id AS CHAR) AS invited_id
+                    FROM reagent_report
+                    WHERE COALESCE(migrated_to_ads, 0) = 0
+                      AND IFNULL(reagent, '') != '' AND reagent != '0'
+                    UNION
+                    SELECT CAST(pointer.affiliates AS CHAR) AS referrer_id, CAST(pointer.id AS CHAR) AS invited_id
+                    FROM user pointer
+                    WHERE IFNULL(pointer.affiliates, '') != '' AND pointer.affiliates != '0'
+                      AND {$pointerNotMigrated}";
+}
+
 function affiliates_lib_settings(PDO $pdo): array
 {
     affiliates_lib_ensure_migration_schema($pdo);
@@ -94,39 +121,21 @@ function affiliates_lib_repair_counts(PDO $pdo): void
     }
     $done = true;
 
-    try {
-        $col = $pdo->query("SHOW COLUMNS FROM setting LIKE 'affiliates_counts_repaired'")->fetch(PDO::FETCH_ASSOC);
-        if (!$col) {
-            $pdo->exec("ALTER TABLE setting ADD affiliates_counts_repaired VARCHAR(10) NOT NULL DEFAULT '0'");
-        }
-        $flagRow = db_fetch($pdo, 'SELECT affiliates_counts_repaired FROM setting LIMIT 1');
-        if ((string) ($flagRow['affiliates_counts_repaired'] ?? '0') === '1') {
-            return;
-        }
-    } catch (Throwable $e) {
-        error_log('affiliates_lib_repair_counts flag: ' . $e->getMessage());
-    }
-
+    $activeInvites = affiliates_lib_active_invites_sql();
     try {
         $pdo->exec(
             "UPDATE user u
-             INNER JOIN (
+             LEFT JOIN (
                 SELECT referrer_id, COUNT(DISTINCT invited_id) AS cnt
                 FROM (
-                    SELECT CAST(reagent AS CHAR) AS referrer_id, CAST(user_id AS CHAR) AS invited_id
-                    FROM reagent_report
-                    WHERE COALESCE(migrated_to_ads, 0) = 0
-                      AND IFNULL(reagent, '') != '' AND reagent != '0'
-                    UNION
-                    SELECT CAST(affiliates AS CHAR) AS referrer_id, CAST(id AS CHAR) AS invited_id
-                    FROM user
-                    WHERE IFNULL(affiliates, '') != '' AND affiliates != '0'
+                    $activeInvites
                 ) inv
                 GROUP BY referrer_id
              ) s ON CAST(u.id AS CHAR) = s.referrer_id
-             SET u.affiliatescount = CAST(s.cnt AS CHAR)"
+             SET u.affiliatescount = CAST(COALESCE(s.cnt, 0) AS CHAR)
+             WHERE (IFNULL(u.affiliatescount, '') != '' AND u.affiliatescount != '0')
+                OR s.cnt IS NOT NULL"
         );
-        $pdo->exec("UPDATE setting SET affiliates_counts_repaired = '1'");
     } catch (Throwable $e) {
         error_log('affiliates_lib_repair_counts update: ' . $e->getMessage());
     }
@@ -149,17 +158,12 @@ function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit
     }
 
     $whereSQL = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
-    $fromSQL = 'FROM (
+    $activeInvites = affiliates_lib_active_invites_sql();
+    $buyerNotMigrated = affiliates_lib_invitee_not_migrated_sql('u2');
+    $fromSQL = "FROM (
             SELECT referrer_id, COUNT(DISTINCT invited_id) AS invite_count
             FROM (
-                SELECT CAST(reagent AS CHAR) AS referrer_id, CAST(user_id AS CHAR) AS invited_id
-                FROM reagent_report
-                WHERE COALESCE(migrated_to_ads, 0) = 0
-                  AND IFNULL(reagent, \'\') != \'\' AND reagent != \'0\'
-                UNION
-                SELECT CAST(affiliates AS CHAR) AS referrer_id, CAST(id AS CHAR) AS invited_id
-                FROM user
-                WHERE IFNULL(affiliates, \'\') != \'\' AND affiliates != \'0\'
+                $activeInvites
             ) inv
             GROUP BY referrer_id
          ) r
@@ -168,12 +172,13 @@ function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit
             SELECT u2.affiliates AS referrer_id, COUNT(DISTINCT u2.id) AS buyer_count
             FROM user u2
             INNER JOIN invoice i ON CAST(i.id_user AS CHAR) = CAST(u2.id AS CHAR)
-            WHERE i.name_product != \'سرویس تست\'
-              AND i.Status != \'Unpaid\'
-              AND IFNULL(u2.affiliates, \'\') != \'\'
-              AND u2.affiliates != \'0\'
+            WHERE i.name_product != 'سرویس تست'
+              AND i.Status != 'Unpaid'
+              AND IFNULL(u2.affiliates, '') != ''
+              AND u2.affiliates != '0'
+              AND $buyerNotMigrated
             GROUP BY u2.affiliates
-         ) b ON CAST(b.referrer_id AS CHAR) = r.referrer_id';
+         ) b ON CAST(b.referrer_id AS CHAR) = r.referrer_id";
 
     $dirSql = strtolower($dir) === 'asc' ? 'ASC' : 'DESC';
     $orderMap = [

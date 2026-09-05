@@ -4831,7 +4831,7 @@ $caption";
     } else {
         $sumvolume = mysqli_fetch_assoc(mysqli_query($connect, "SELECT SUM(Volume) FROM invoice WHERE (status = 'active' OR status = 'end_of_time'  OR status = 'end_of_volume' OR status = 'sendedwarn' OR Status = 'send_on_hold') AND id_user = '$id_user' AND name_product != 'سرویس تست'"));
     }
-    $affiliatesBoughtCount = (int) (mysqli_fetch_assoc(mysqli_query($connect, "SELECT COUNT(DISTINCT u.id) AS cnt FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$id_user' AND i.name_product != 'سرویس تست' AND i.Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin')"))['cnt'] ?? 0);
+    $affiliatesBoughtCount = (int) (mysqli_fetch_assoc(mysqli_query($connect, "SELECT COUNT(DISTINCT u.id) AS cnt FROM user u INNER JOIN invoice i ON i.id_user = u.id WHERE u.affiliates = '$id_user' AND i.name_product != 'سرویس تست' AND i.Status NOT IN ('Unpaid','unpaid','reject','removebyadmin','removedbyadmin') AND NOT EXISTS (SELECT 1 FROM reagent_report aff_mig WHERE CAST(aff_mig.user_id AS CHAR) = CAST(u.id AS CHAR) AND CAST(aff_mig.reagent AS CHAR) = CAST(u.affiliates AS CHAR) AND COALESCE(aff_mig.migrated_to_ads, 0) = 1)"))['cnt'] ?? 0);
     $user = select("user", "*", "id", $id_user, "select");
     $roll_Status = [
         '1' => $textbotlang['Admin']['ManageUser']['Acceptedphone'],

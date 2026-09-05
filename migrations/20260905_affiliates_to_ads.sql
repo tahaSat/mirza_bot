@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS affiliate_ads_migration_backup (
     advertiser_id INT UNSIGNED NOT NULL,
     advertiser_preexisting TINYINT(1) NOT NULL,
     ad_join_preexisting TINYINT(1) NOT NULL,
+    reagent_preexisting TINYINT(1) NOT NULL DEFAULT 1,
     backed_up_at VARCHAR(50) NOT NULL,
     PRIMARY KEY (batch_id, reagent_id),
     KEY idx_aff_ads_backup_advertiser (batch_id, advertiser_id)
@@ -62,6 +63,20 @@ PREPARE migration_stmt FROM @ddl;
 EXECUTE migration_stmt;
 DEALLOCATE PREPARE migration_stmt;
 
+SET @ddl = IF(
+    EXISTS(
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'affiliate_ads_migration_backup'
+          AND COLUMN_NAME = 'reagent_preexisting'
+    ),
+    'SELECT 1',
+    'ALTER TABLE affiliate_ads_migration_backup ADD reagent_preexisting TINYINT(1) NOT NULL DEFAULT 1'
+);
+PREPARE migration_stmt FROM @ddl;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
 DROP PROCEDURE IF EXISTS run_affiliate_ads_migration;
 DELIMITER //
 CREATE PROCEDURE run_affiliate_ads_migration()
@@ -69,11 +84,53 @@ BEGIN
 DECLARE EXIT HANDLER FOR SQLEXCEPTION
 BEGIN
     DROP TEMPORARY TABLE IF EXISTS tmp_affiliate_ads_target;
+    DROP TEMPORARY TABLE IF EXISTS tmp_affiliate_ads_synthetic;
     ROLLBACK;
     RESIGNAL;
 END;
 
 START TRANSACTION;
+
+DROP TEMPORARY TABLE IF EXISTS tmp_affiliate_ads_synthetic;
+CREATE TEMPORARY TABLE tmp_affiliate_ads_synthetic (
+    invited_user_id BIGINT NOT NULL PRIMARY KEY,
+    referrer_id VARCHAR(30) NOT NULL,
+    effective_time DATETIME NOT NULL
+) ENGINE=InnoDB;
+
+INSERT INTO tmp_affiliate_ads_synthetic (invited_user_id, referrer_id, effective_time)
+SELECT
+    invited.id,
+    CAST(invited.affiliates AS CHAR),
+    CASE
+        WHEN TRIM(invited.register) REGEXP '^[0-9]{10}$'
+            THEN FROM_UNIXTIME(CAST(invited.register AS UNSIGNED))
+        ELSE FROM_UNIXTIME(FLOOR(CAST(invited.register AS UNSIGNED) / 1000))
+    END
+FROM user invited
+WHERE IFNULL(invited.affiliates, '') != ''
+  AND invited.affiliates != '0'
+  AND TRIM(invited.register) REGEXP '^[0-9]{10}([0-9]{3})?$'
+  AND CASE
+        WHEN LENGTH(TRIM(invited.register)) = 10
+            THEN FROM_UNIXTIME(CAST(invited.register AS UNSIGNED))
+        ELSE FROM_UNIXTIME(FLOOR(CAST(invited.register AS UNSIGNED) / 1000))
+      END < @migration_cutoff
+  AND NOT EXISTS (
+      SELECT 1 FROM reagent_report r WHERE r.user_id = invited.id
+  );
+
+INSERT INTO reagent_report (
+    user_id, get_gift, time, reagent, migrated_to_ads, ad_advertiser_id
+)
+SELECT
+    invited_user_id,
+    1,
+    DATE_FORMAT(effective_time, '%Y/%m/%d %H:%i:%s'),
+    referrer_id,
+    0,
+    NULL
+FROM tmp_affiliate_ads_synthetic;
 
 DROP TEMPORARY TABLE IF EXISTS tmp_affiliate_ads_target;
 CREATE TEMPORARY TABLE tmp_affiliate_ads_target (
@@ -89,12 +146,14 @@ CREATE TEMPORARY TABLE tmp_affiliate_ads_target (
     advertiser_id INT UNSIGNED NULL,
     advertiser_preexisting TINYINT(1) NOT NULL DEFAULT 0,
     ad_join_preexisting TINYINT(1) NOT NULL DEFAULT 0,
+    reagent_preexisting TINYINT(1) NOT NULL DEFAULT 1,
     KEY idx_tmp_aff_ads_referrer (referrer_id)
 ) ENGINE=InnoDB;
 
 INSERT INTO tmp_affiliate_ads_target (
     reagent_id, invited_user_id, referrer_id, report_time, get_gift,
-    old_migrated_to_ads, old_ad_advertiser_id, old_user_affiliates, effective_time
+    old_migrated_to_ads, old_ad_advertiser_id, old_user_affiliates, effective_time,
+    reagent_preexisting
 )
 SELECT
     r.id,
@@ -108,9 +167,11 @@ SELECT
     COALESCE(
         STR_TO_DATE(REPLACE(LEFT(TRIM(r.time), 19), '-', '/'), '%Y/%m/%d %H:%i:%s'),
         STR_TO_DATE(REPLACE(LEFT(TRIM(r.time), 10), '-', '/'), '%Y/%m/%d')
-    )
+    ),
+    CASE WHEN synthetic.invited_user_id IS NULL THEN 1 ELSE 0 END
 FROM reagent_report r
 LEFT JOIN user invited ON invited.id = r.user_id
+LEFT JOIN tmp_affiliate_ads_synthetic synthetic ON synthetic.invited_user_id = r.user_id
 WHERE COALESCE(r.migrated_to_ads, 0) = 0
   AND IFNULL(r.reagent, '') != ''
   AND r.reagent != '0'
@@ -200,12 +261,14 @@ GROUP BY t.referrer_id, t.advertiser_id;
 INSERT INTO affiliate_ads_migration_backup (
     batch_id, reagent_id, invited_user_id, referrer_id, report_time, get_gift,
     old_migrated_to_ads, old_ad_advertiser_id, old_user_affiliates,
-    advertiser_id, advertiser_preexisting, ad_join_preexisting, backed_up_at
+    advertiser_id, advertiser_preexisting, ad_join_preexisting,
+    reagent_preexisting, backed_up_at
 )
 SELECT
     @migration_batch_id, reagent_id, invited_user_id, referrer_id, report_time, get_gift,
     old_migrated_to_ads, old_ad_advertiser_id, old_user_affiliates,
     advertiser_id, advertiser_preexisting, ad_join_preexisting,
+    reagent_preexisting,
     DATE_FORMAT(NOW(), '%Y/%m/%d %H:%i:%s')
 FROM tmp_affiliate_ads_target;
 
@@ -219,29 +282,40 @@ SET r.migrated_to_ads = 1,
     r.ad_advertiser_id = t.advertiser_id;
 
 UPDATE user invited
-INNER JOIN tmp_affiliate_ads_target t ON t.invited_user_id = invited.id
+INNER JOIN reagent_report r
+    ON CAST(r.user_id AS CHAR) = CAST(invited.id AS CHAR)
+   AND CAST(r.reagent AS CHAR) = CAST(invited.affiliates AS CHAR)
+   AND r.migrated_to_ads = 1
 SET invited.affiliates = '0'
-WHERE CAST(invited.affiliates AS CHAR) = t.referrer_id;
+WHERE IFNULL(invited.affiliates, '') != ''
+  AND invited.affiliates != '0';
 
-UPDATE user referrer
-INNER JOIN (
-    SELECT affected.referrer_id, COUNT(DISTINCT active_invites.invited_user_id) AS active_count
-    FROM (SELECT DISTINCT referrer_id FROM tmp_affiliate_ads_target) affected
-    LEFT JOIN (
-        SELECT CAST(reagent AS CHAR) AS referrer_id, CAST(user_id AS CHAR) AS invited_user_id
+UPDATE user u
+LEFT JOIN (
+    SELECT referrer_id, COUNT(DISTINCT invited_id) AS active_count
+    FROM (
+        SELECT CAST(reagent AS CHAR) AS referrer_id, CAST(user_id AS CHAR) AS invited_id
         FROM reagent_report
         WHERE COALESCE(migrated_to_ads, 0) = 0
           AND IFNULL(reagent, '') != ''
           AND reagent != '0'
         UNION
-        SELECT CAST(affiliates AS CHAR), CAST(id AS CHAR)
-        FROM user
-        WHERE IFNULL(affiliates, '') != ''
-          AND affiliates != '0'
-    ) active_invites ON active_invites.referrer_id = affected.referrer_id
-    GROUP BY affected.referrer_id
-) counts ON CAST(referrer.id AS CHAR) = counts.referrer_id
-SET referrer.affiliatescount = CAST(counts.active_count AS CHAR);
+        SELECT CAST(pointer.affiliates AS CHAR), CAST(pointer.id AS CHAR)
+        FROM user pointer
+        WHERE IFNULL(pointer.affiliates, '') != ''
+          AND pointer.affiliates != '0'
+          AND NOT EXISTS (
+              SELECT 1 FROM reagent_report aff_mig
+              WHERE CAST(aff_mig.user_id AS CHAR) = CAST(pointer.id AS CHAR)
+                AND CAST(aff_mig.reagent AS CHAR) = CAST(pointer.affiliates AS CHAR)
+                AND COALESCE(aff_mig.migrated_to_ads, 0) = 1
+          )
+    ) inv
+    GROUP BY referrer_id
+) counts ON CAST(u.id AS CHAR) = counts.referrer_id
+SET u.affiliatescount = CAST(COALESCE(counts.active_count, 0) AS CHAR)
+WHERE (IFNULL(u.affiliatescount, '') != '' AND u.affiliatescount != '0')
+   OR counts.active_count IS NOT NULL;
 
 UPDATE ad_advertiser a
 INNER JOIN (
@@ -284,6 +358,7 @@ SELECT
 
 COMMIT;
 DROP TEMPORARY TABLE IF EXISTS tmp_affiliate_ads_target;
+DROP TEMPORARY TABLE IF EXISTS tmp_affiliate_ads_synthetic;
 END//
 DELIMITER ;
 

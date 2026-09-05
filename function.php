@@ -7686,6 +7686,20 @@ function affiliates_main_view($from_id, array $user): array
     $sum_order = number_format((float) ($inforefral['total_price'] ?? 0), 0);
     $orders = (int) ($inforefral['orders'] ?? 0);
     $affiliatescount = $user['affiliatescount'] ?? 0;
+    try {
+        $notMigrated = affiliates_invitee_not_migrated_sql('u');
+        $countStmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM user u
+             WHERE CAST(u.affiliates AS CHAR) = CAST(:rid AS CHAR)
+               AND IFNULL(u.affiliates, '') != ''
+               AND u.affiliates != '0'
+               AND $notMigrated"
+        );
+        $countStmt->execute([':rid' => (string) $from_id]);
+        $affiliatescount = (int) $countStmt->fetchColumn();
+    } catch (Throwable $e) {
+        error_log('affiliates_main_view count: ' . $e->getMessage());
+    }
 
     $text = "<b>💼 زیرمجموعه‌گیری و هدیه خوش‌آمد</b>
 
@@ -7708,6 +7722,19 @@ $text_porsant
     ];
 }
 
+function affiliates_invitee_not_migrated_sql(string $userAlias = 'u'): string
+{
+    if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $userAlias)) {
+        return '1=0';
+    }
+    return "NOT EXISTS (
+        SELECT 1 FROM reagent_report aff_mig
+        WHERE CAST(aff_mig.user_id AS CHAR) = CAST({$userAlias}.id AS CHAR)
+          AND CAST(aff_mig.reagent AS CHAR) = CAST({$userAlias}.affiliates AS CHAR)
+          AND COALESCE(aff_mig.migrated_to_ads, 0) = 1
+    )";
+}
+
 function affiliates_user_is_invitee($childId, $referrerId): bool
 {
     $child = select('user', '*', 'id', $childId, 'select');
@@ -7715,7 +7742,10 @@ function affiliates_user_is_invitee($childId, $referrerId): bool
         return false;
     }
     $parent = (string) ($child['affiliates'] ?? '0');
-    return $parent !== '' && $parent !== '0' && (string) $parent === (string) $referrerId;
+    if ($parent === '' || $parent === '0' || (string) $parent !== (string) $referrerId) {
+        return false;
+    }
+    return !affiliates_relationship_is_migrated($childId, $referrerId);
 }
 
 function affiliates_list_view($referrerId, int $page): array
@@ -7727,11 +7757,13 @@ function affiliates_list_view($referrerId, int $page): array
     $offset = ($page - 1) * $limit;
     $paidSql = invoice_paid_status_sql('i.Status');
 
+    $notMigrated = affiliates_invitee_not_migrated_sql('user');
     $countStmt = $pdo->prepare(
         "SELECT COUNT(*) FROM user
          WHERE CAST(affiliates AS CHAR) = CAST(:rid AS CHAR)
            AND IFNULL(affiliates, '') != ''
-           AND affiliates != '0'"
+           AND affiliates != '0'
+           AND $notMigrated"
     );
     $countStmt->execute([':rid' => (string) $referrerId]);
     $total = (int) $countStmt->fetchColumn();
@@ -7756,6 +7788,7 @@ function affiliates_list_view($referrerId, int $page): array
              WHERE CAST(u.affiliates AS CHAR) = CAST(:rid AS CHAR)
                AND IFNULL(u.affiliates, '') != ''
                AND u.affiliates != '0'
+               AND " . affiliates_invitee_not_migrated_sql('u')
              ORDER BY CAST(u.register AS UNSIGNED) DESC, u.id DESC
              LIMIT " . (int) $limit . ' OFFSET ' . (int) $offset
         );

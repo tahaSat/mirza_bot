@@ -137,7 +137,19 @@ include __DIR__ . '/inc/layout_head.php';
                     <td class="cn"><?= number_format((int) ($p['price_product'] ?? 0)) ?> ت</td>
                     <td>
                       <div style="display:flex;gap:5px;flex-wrap:wrap">
-                        <button type="button" class="btn btn-ghost btn-sm" onclick="openPanelModal(<?= (int) ($p['id'] ?? 0) ?>, <?= htmlspecialchars(json_encode((string) ($p['Location'] ?? '/all')), ENT_QUOTES) ?>)">پنل</button>
+                        <button type="button" class="btn btn-ghost btn-sm btn-icon" title="ویرایش"
+                          onclick='openN2EditModal(<?= json_encode([
+                            'id' => (int) ($p['id'] ?? 0),
+                            'name_product' => (string) ($p['name_product'] ?? ''),
+                            'Location' => (string) ($p['Location'] ?? '/all'),
+                            'category' => (string) ($p['category'] ?? ''),
+                            'price_product' => (int) ($p['price_product'] ?? 0),
+                            'Volume_constraint' => (int) ($p['Volume_constraint'] ?? 0),
+                            'Service_time' => (int) ($p['Service_time'] ?? 0),
+                            'note' => (string) ($p['note'] ?? ''),
+                          ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>)'>
+                          <?= icon('edit', 13) ?>
+                        </button>
                         <a href="n2_product_action.php?delete=<?= (int) ($p['id'] ?? 0) ?>&_csrf=<?= csrf_token() ?>"
                           class="btn btn-no btn-sm btn-icon" title="حذف"
                           data-confirm="حذف محصول «<?= htmlspecialchars((string) ($p['name_product'] ?? '')) ?>»؟">
@@ -213,45 +225,87 @@ include __DIR__ . '/inc/layout_head.php';
   </div>
 </div>
 
-<div class="modal-veil" id="panelModal">
-  <div class="modal" style="max-width:480px">
+<div class="modal-veil" id="editModal">
+  <div class="modal" style="max-width:520px">
     <div class="modal-head">
-      <h3>اتصال پنل</h3>
-      <button class="modal-x" onclick="closeModal('panelModal')"><?= icon('close', 14) ?></button>
+      <h3>ویرایش محصول</h3>
+      <button class="modal-x" onclick="closeModal('editModal')"><?= icon('close', 14) ?></button>
     </div>
     <form method="POST" action="n2_product_action.php">
       <div class="modal-body">
         <input type="hidden" name="_csrf" value="<?= csrf_token() ?>">
-        <input type="hidden" name="action" value="set_panel">
-        <input type="hidden" name="product_id" id="panel_product_id">
+        <input type="hidden" name="action" value="edit">
+        <input type="hidden" name="product_id" id="n2_edit_id">
+        <div class="field">
+          <label>نام محصول *</label>
+          <input type="text" name="name_product" id="n2_edit_name" class="input" required maxlength="150">
+        </div>
         <div class="field">
           <label>پنل *</label>
-          <select name="namepanel" id="panel_name" class="input" required>
+          <select name="namepanel" id="n2_edit_panel" class="input" required>
             <option value="/all">همه پنل‌های فعال</option>
             <?php foreach ($panels as $pl): ?>
               <option value="<?= htmlspecialchars((string) ($pl['name_panel'] ?? '')) ?>"><?= htmlspecialchars((string) ($pl['name_panel'] ?? '')) ?></option>
             <?php endforeach; ?>
           </select>
         </div>
+        <div class="field">
+          <label>دسته‌بندی *</label>
+          <select name="category" id="n2_edit_cat" class="input" required>
+            <option value="">انتخاب کنید</option>
+            <?php foreach ($allCategories as $c): ?>
+              <option value="<?= htmlspecialchars((string) ($c['remark'] ?? '')) ?>"><?= htmlspecialchars((string) ($c['remark'] ?? '')) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="field">
+          <label>قیمت (تومان) *</label>
+          <input type="number" name="price_product" id="n2_edit_price" class="input" min="0" step="1" required>
+        </div>
+        <div class="field">
+          <label>حجم (گیگابایت) *</label>
+          <input type="number" name="volume_product" id="n2_edit_volume" class="input" min="1" step="1" required>
+        </div>
+        <div class="field">
+          <label>مدت (روز — ۰ = نامحدود)</label>
+          <input type="number" name="time_product" id="n2_edit_time" class="input" min="0" step="1">
+        </div>
+        <div class="field">
+          <label>یادداشت (اختیاری)</label>
+          <textarea name="note" id="n2_edit_note" class="input" rows="2"></textarea>
+        </div>
       </div>
       <div class="modal-foot">
-        <button type="submit" class="btn btn-primary">ذخیره</button>
-        <button type="button" class="btn btn-ghost" onclick="closeModal('panelModal')">انصراف</button>
+        <button type="submit" class="btn btn-primary"><?= icon('check', 13) ?> ذخیره تغییرات</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('editModal')">انصراف</button>
       </div>
     </form>
   </div>
 </div>
 <script>
-window.openPanelModal = function (id, location) {
-  document.getElementById('panel_product_id').value = id || '';
-  var sel = document.getElementById('panel_name');
-  if (sel) {
-    sel.value = location || '/all';
-    if (sel.value !== (location || '/all')) {
-      sel.value = '/all';
+window.openN2EditModal = function (p) {
+  p = p || {};
+  document.getElementById('n2_edit_id').value = p.id || '';
+  document.getElementById('n2_edit_name').value = p.name_product || '';
+  document.getElementById('n2_edit_price').value = p.price_product != null ? p.price_product : '';
+  document.getElementById('n2_edit_volume').value = p.Volume_constraint != null ? p.Volume_constraint : '';
+  document.getElementById('n2_edit_time').value = p.Service_time != null ? p.Service_time : '';
+  document.getElementById('n2_edit_note').value = p.note || '';
+
+  var catSel = document.getElementById('n2_edit_cat');
+  if (catSel) {
+    catSel.value = p.category || '';
+  }
+
+  var panelSel = document.getElementById('n2_edit_panel');
+  if (panelSel) {
+    var loc = p.Location || '/all';
+    panelSel.value = loc;
+    if (panelSel.value !== loc) {
+      panelSel.value = '/all';
     }
   }
-  openModal('panelModal');
+  openModal('editModal');
 };
 </script>
 <script>

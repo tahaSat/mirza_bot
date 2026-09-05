@@ -10304,11 +10304,73 @@ function agent_own_update_product($agentUserId, $productId, array $data): array
     if (!$prod) {
         return ['ok' => false, 'msg' => '❌ محصول یافت نشد.'];
     }
+
+    $name = array_key_exists('name_product', $data)
+        ? trim((string) $data['name_product'])
+        : trim((string) ($prod['name_product'] ?? ''));
+    $price = array_key_exists('price_product', $data)
+        ? (int) $data['price_product']
+        : (int) ($prod['price_product'] ?? 0);
+    $volume = array_key_exists('Volume_constraint', $data)
+        ? (int) $data['Volume_constraint']
+        : (int) ($prod['Volume_constraint'] ?? 0);
+    $time = array_key_exists('Service_time', $data)
+        ? (int) $data['Service_time']
+        : (int) ($prod['Service_time'] ?? 0);
+    $category = array_key_exists('category', $data)
+        ? trim((string) $data['category'])
+        : trim((string) ($prod['category'] ?? ''));
+    $note = array_key_exists('note', $data)
+        ? (string) $data['note']
+        : (string) ($prod['note'] ?? '');
     $location = array_key_exists('Location', $data)
         ? agent_own_normalize_location($agentUserId, $data['Location'])
         : (string) ($prod['Location'] ?? '/all');
-    $stmt = $pdo->prepare('UPDATE agent_own_product SET Location = ? WHERE id = ?');
-    $stmt->execute([$location, (int) $productId]);
+
+    if ($name === '' || mb_strlen($name) > 150) {
+        return ['ok' => false, 'msg' => '❌ نام محصول نامعتبر است.'];
+    }
+    if ($price < 0 || $volume < 0 || $time < 0) {
+        return ['ok' => false, 'msg' => '❌ قیمت / حجم / زمان نامعتبر است.'];
+    }
+    if ($volume <= 0) {
+        return ['ok' => false, 'msg' => '❌ حجم محصول باید بیشتر از صفر گیگ باشد.'];
+    }
+    if ($category === '' || !agent_own_get_category_by_remark($agentUserId, $category)) {
+        return ['ok' => false, 'msg' => '❌ ابتدا یک دسته‌بندی معتبر انتخاب کنید.'];
+    }
+
+    $ids = agent_own_ids($agentUserId);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $dup = $pdo->prepare("SELECT COUNT(*) FROM agent_own_product WHERE agent_id IN ({$placeholders}) AND name_product = ? AND id != ?");
+    $dup->execute(array_merge($ids, [$name, (int) $productId]));
+    if ((int) $dup->fetchColumn() > 0) {
+        return ['ok' => false, 'msg' => '❌ محصولی با این نام از قبل وجود دارد.'];
+    }
+
+    $oldCategory = trim((string) ($prod['category'] ?? ''));
+    $sortOrder = max(1, (int) ($prod['sort_order'] ?? 0));
+    if ($oldCategory !== $category) {
+        $sortOrder = agent_own_next_sort_order($agentUserId, $category);
+    }
+
+    $stmt = $pdo->prepare('UPDATE agent_own_product
+        SET name_product = ?, price_product = ?, Volume_constraint = ?, Service_time = ?, category = ?, Location = ?, note = ?, sort_order = ?
+        WHERE id = ?');
+    $stmt->execute([
+        $name,
+        (string) $price,
+        (string) $volume,
+        (string) $time,
+        $category,
+        $location,
+        $note,
+        $sortOrder,
+        (int) $productId,
+    ]);
+    if ($oldCategory !== $category) {
+        agent_own_renormalize_category_sort_orders($agentUserId, $oldCategory);
+    }
     return ['ok' => true, 'msg' => '✅ محصول به‌روزرسانی شد.'];
 }
 

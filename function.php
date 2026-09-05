@@ -1478,6 +1478,7 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
     $withdrawCount = (int) ($withdraw['count'] ?? 0);
     $withdrawSum = (float) ($withdraw['sum'] ?? 0);
     $ledger = bot_payment_ledger_stats($pdo, $startTs, $endTs);
+    $ledgerAll = bot_payment_ledger_stats($pdo);
     $expenseCount = (int) ($ledger['expenses_count'] ?? 0);
     $expenseSum = (float) ($ledger['expenses_sum'] ?? 0);
 
@@ -1507,8 +1508,8 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
             + $extraVolumeCount
             + $extraTimeCount
             + $walletCount,
-        'income_sum' => (float) ($ledger['income_sum'] ?? 0),
-        'total_sum' => (float) ($ledger['net_sum'] ?? 0),
+        'income_sum' => (float) ($ledgerAll['income_sum'] ?? 0),
+        'total_sum' => (float) ($ledgerAll['net_sum'] ?? 0),
         'sold_volume' => bot_sold_volume_stats($pdo, $startTs, $endTs),
         'first_purchase' => bot_first_purchase_stats($pdo, $startTs, $endTs),
         'forecast_sold_volume' => ($endTs - $startTs) >= (7 * 86400)
@@ -1574,8 +1575,8 @@ $soldVolumeBlock
 👤 تعداد کاربران  : {$s['users']} نفر
 ⏱ میانگین زمان عضویت تا اولین خرید : {$s['avg_join']}
 
-💰 درآمد کل : $sumIncome تومان
-💵 درآمد خالص : $sumTotal تومان
+💰 درآمد کل (از ابتدا) : $sumIncome تومان
+💵 درآمد خالص (از ابتدا) : $sumTotal تومان
 ";
 }
 

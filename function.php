@@ -1433,7 +1433,7 @@ function pay_affiliate_commission(array $buyer, $amount, string $reason = 'buy',
 }
 
 /**
- * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,expenses:int,expenses_sum:float,users:int,avg_join:string,total_count:int,income_sum:float,total_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
+ * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,expenses:int,expenses_sum:float,users:int,avg_join:string,total_count:int,period_income_sum:float,period_net_sum:float,income_sum:float,total_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
  */
 function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
 {
@@ -1508,6 +1508,8 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
             + $extraVolumeCount
             + $extraTimeCount
             + $walletCount,
+        'period_income_sum' => (float) ($ledger['income_sum'] ?? 0),
+        'period_net_sum' => (float) ($ledger['net_sum'] ?? 0),
         'income_sum' => (float) ($ledgerAll['income_sum'] ?? 0),
         'total_sum' => (float) ($ledgerAll['net_sum'] ?? 0),
         'sold_volume' => bot_sold_volume_stats($pdo, $startTs, $endTs),
@@ -1532,6 +1534,8 @@ function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = 
     $sumWithdraw = number_format((float) ($s['wallet_withdraw_sum'] ?? 0), 0);
     $expenseCount = (int) ($s['expenses'] ?? 0);
     $sumExpenses = number_format((float) ($s['expenses_sum'] ?? 0), 0);
+    $sumPeriodIncome = number_format((float) ($s['period_income_sum'] ?? 0), 0);
+    $sumPeriodNet = number_format((float) ($s['period_net_sum'] ?? 0), 0);
     $sumIncome = number_format((float) ($s['income_sum'] ?? 0), 0);
     $sumTotal = number_format($s['total_sum'], 0);
     $soldVolumeBlock = bot_format_sold_volume_block($s['sold_volume'] ?? []);
@@ -1575,6 +1579,8 @@ $soldVolumeBlock
 👤 تعداد کاربران  : {$s['users']} نفر
 ⏱ میانگین زمان عضویت تا اولین خرید : {$s['avg_join']}
 
+💰 درآمد کل (این بازه) : $sumPeriodIncome تومان
+💵 درآمد خالص (این بازه) : $sumPeriodNet تومان
 💰 درآمد کل (از ابتدا) : $sumIncome تومان
 💵 درآمد خالص (از ابتدا) : $sumTotal تومان
 ";

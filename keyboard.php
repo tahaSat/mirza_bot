@@ -1614,6 +1614,9 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
     if (agent_is_n2($agent)) {
         $includeCustomVolume = false;
         $catRows = agent_own_list_categories($uid, true);
+        if (($options['callback_prefix'] ?? 'categorynames_') === 'categorynames_') {
+            $callback_prefix = 'n2cat_';
+        }
     } else {
         $catStmt = $pdo->prepare("SELECT * FROM category");
         $catStmt->execute();

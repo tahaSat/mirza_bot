@@ -4363,18 +4363,13 @@ $textinvite
         $monthkeyboard = keyboardTimeCategory($marzban_list_get['name_panel'], $user['agent'], "productmonth_", "buybacktow", $statuscustom, false);
         Editmessagetext($from_id, $message_id, textbot_get('text_month_select', $textbotlang['Admin']['month']['title']), $monthkeyboard);
     }
-} elseif (preg_match('/^categorynames_(.*)/', $datain, $dataget)) {
-    $category = select("category", "*", "id", $dataget[1], "select");
-    if ((!$category || empty($category['remark'])) && agent_is_n2($user['agent'] ?? 'f')) {
-        $category = agent_own_get_category_by_id($dataget[1]);
-        if ($category && in_array((string) $category['agent_id'], agent_own_ids($from_id), true)) {
-            savedata("save", "own_category_id", $category['id']);
-        } else {
-            $category = null;
-        }
-    }
-    if (!$category || empty($category['remark']) || !category_is_active($category)) {
+} elseif (preg_match('/^(?:n2cat_|categorynames_)(.*)/', $datain, $dataget)) {
+    $category = agent_resolve_shop_category($user['agent'] ?? 'f', $from_id, $dataget[1]);
+    if (!$category) {
         return;
+    }
+    if (agent_is_n2($user['agent'] ?? 'f')) {
+        savedata("save", "own_category_id", $category['id']);
     }
     $categorynames = $category['remark'];
     savedata("save", "category_id", $category['id']);

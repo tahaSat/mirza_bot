@@ -306,8 +306,9 @@ function KeyboardCategory($location, $agent, $backuser = "backuser", $agentUserI
         if ($visibleCount === 0) {
             continue;
         }
+        $cbPrefix = agent_is_n2($agent) ? 'n2cat_' : 'categorynames_';
         $list_category['inline_keyboard'][] = [telegram_button_with_icon(
-            ['text' => $row['remark'], 'callback_data' => "categorynames_" . $row['id']],
+            ['text' => $row['remark'], 'callback_data' => $cbPrefix . $row['id']],
             $row['emoji_id'] ?? ''
         )];
     }

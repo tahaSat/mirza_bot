@@ -9880,6 +9880,29 @@ function agent_own_list_categories($agentUserId, bool $activeOnly = false): arra
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
+function agent_resolve_shop_category($agent, $agentUserId, $categoryId): ?array
+{
+    $categoryId = (int) $categoryId;
+    if ($categoryId <= 0) {
+        return null;
+    }
+    if (agent_is_n2($agent)) {
+        $own = agent_own_get_category_by_id($categoryId);
+        if (!$own || empty($own['remark'])) {
+            return null;
+        }
+        if (!in_array((string) ($own['agent_id'] ?? ''), agent_own_ids($agentUserId), true)) {
+            return null;
+        }
+        return category_is_active($own) ? $own : null;
+    }
+    $category = select('category', '*', 'id', $categoryId, 'select');
+    if (!$category || empty($category['remark']) || !category_is_active($category)) {
+        return null;
+    }
+    return $category;
+}
+
 function agent_own_get_category_by_id($categoryId): ?array
 {
     global $pdo;

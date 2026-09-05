@@ -803,18 +803,13 @@ if ($text == $text_bot_var['btn_keyboard']['buy'] && $setting['active_step_note'
         step('gettimecustomvol', $from_id);
         return;
     }
-} elseif (preg_match('/^categorynames_(.*)/', $datain, $dataget)) {
-    $category = select("category", "*", "id", $dataget[1], "select");
-    if ((!$category || empty($category['remark'])) && agent_is_n2($userbot['agent'] ?? 'f')) {
-        $category = agent_own_get_category_by_id($dataget[1]);
-        if ($category && in_array((string) $category['agent_id'], agent_own_ids($dataBase['id_user']), true)) {
-            savedata("save", "own_category_id", $category['id']);
-        } else {
-            $category = null;
-        }
-    }
-    if (!$category || empty($category['remark']) || !category_is_active($category)) {
+} elseif (preg_match('/^(?:n2cat_|categorynames_)(.*)/', $datain, $dataget)) {
+    $category = agent_resolve_shop_category($userbot['agent'] ?? 'f', $dataBase['id_user'] ?? 0, $dataget[1]);
+    if (!$category) {
         return;
+    }
+    if (agent_is_n2($userbot['agent'] ?? 'f')) {
+        savedata("save", "own_category_id", $category['id']);
     }
     $categorynames = $category['remark'];
     savedata("save", "category_id", $category['id']);

@@ -1817,11 +1817,21 @@ try {
         user_id BIGINT UNIQUE  NOT NULL,
         get_gift BOOL   NOT NULL,
         time varchar(50)  NOT NULL,
-        reagent varchar(30)  NOT NULL
+        reagent varchar(30)  NOT NULL,
+        migrated_to_ads TINYINT(1) NOT NULL DEFAULT 0,
+        ad_advertiser_id INT UNSIGNED NULL
         )ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_bin");
         if (!$result) {
             echo "table affiliates" . mysqli_error($connect);
         }
+    }
+    $migratedColumn = $connect->query("SHOW COLUMNS FROM reagent_report LIKE 'migrated_to_ads'");
+    if ($migratedColumn && $migratedColumn->num_rows === 0) {
+        $connect->query("ALTER TABLE reagent_report ADD migrated_to_ads TINYINT(1) NOT NULL DEFAULT 0");
+    }
+    $advertiserColumn = $connect->query("SHOW COLUMNS FROM reagent_report LIKE 'ad_advertiser_id'");
+    if ($advertiserColumn && $advertiserColumn->num_rows === 0) {
+        $connect->query("ALTER TABLE reagent_report ADD ad_advertiser_id INT UNSIGNED NULL");
     }
 } catch (Exception $e) {
     file_put_contents('error_log', $e->getMessage());

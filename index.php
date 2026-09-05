@@ -7343,16 +7343,19 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
         return;
     }
     $reagent = select("reagent_report", "*", "user_id", $from_id, "select");
-    if (!$reagent) {
+    if (!$reagent
+        || (string) ($reagent['reagent'] ?? '0') !== (string) ($user['affiliates'] ?? '0')
+        || (int) ($reagent['migrated_to_ads'] ?? 0) === 1
+    ) {
         sendmessage($from_id, "📛 شما زیرمجموعه هیچ کاربری نیستید.", $keyboard, 'HTML');
         return;
     }
-    update("reagent_report", "get_gift", true, "user_id", $from_id);
     if ($reagent['get_gift']) {
         sendmessage($from_id, "<b>⛔ شما قبلاً هدیه عضویت را دریافت کرده‌اید.</b>
 این هدیه فقط <b>یک‌بار</b> قابل فعال‌سازی است.", $keyboard, 'HTML');
         return;
     }
+    update("reagent_report", "get_gift", true, "user_id", $from_id);
     $reagent['get_gift'] = true;
     $price_gift_Start = select("affiliates", "*", null, null, "select");
     $price_gift_Start = intval($price_gift_Start['price_Discount']) / 2;

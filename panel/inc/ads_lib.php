@@ -33,9 +33,9 @@ function ads_lib_list(PDO $pdo, string $search = '', int $limit = 25, int $offse
     $where = [];
     $params = [];
     if ($search !== '') {
-        $where[] = '(name LIKE ? OR code LIKE ? OR CAST(id AS CHAR) LIKE ?)';
+        $where[] = '(name LIKE ? OR code LIKE ? OR CAST(id AS CHAR) LIKE ? OR COALESCE(source_user_id, \'\') LIKE ?)';
         $like = '%' . $search . '%';
-        array_push($params, $like, $like, $like);
+        array_push($params, $like, $like, $like, $like);
     }
     $whereSQL = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
     $dirSql = strtolower($dir) === 'asc' ? 'ASC' : 'DESC';
@@ -59,6 +59,43 @@ function ads_lib_get(PDO $pdo, int $id): ?array
 {
     ads_ensure_schema();
     return db_fetch($pdo, 'SELECT * FROM ad_advertiser WHERE id = ?', [$id]);
+}
+
+function ads_lib_list_joins(PDO $pdo, int $advertiserId, string $search = '', int $limit = 25, int $offset = 0): array
+{
+    ads_ensure_schema();
+    $where = ['j.advertiser_id = ?'];
+    $params = [$advertiserId];
+    if ($search !== '') {
+        $where[] = '(CAST(j.user_id AS CHAR) LIKE ?
+                     OR COALESCE(u.username, \'\') LIKE ?
+                     OR COALESCE(u.namecustom, \'\') LIKE ?)';
+        $like = '%' . $search . '%';
+        array_push($params, $like, $like, $like);
+    }
+
+    $whereSQL = 'WHERE ' . implode(' AND ', $where);
+    $fromSQL = 'FROM ad_join j
+        LEFT JOIN user u ON CAST(u.id AS CHAR) = CAST(j.user_id AS CHAR)
+        LEFT JOIN reagent_report r
+          ON r.ad_advertiser_id = j.advertiser_id
+         AND CAST(r.user_id AS CHAR) = CAST(j.user_id AS CHAR)
+         AND r.migrated_to_ads = 1';
+
+    $total = db_count($pdo, "SELECT COUNT(*) $fromSQL $whereSQL", $params);
+    $rows = db_fetchAll(
+        $pdo,
+        "SELECT j.id, j.user_id, j.created_at,
+                u.username, u.namecustom,
+                CASE WHEN r.id IS NULL THEN 'ad_link' ELSE 'affiliate_migration' END AS source
+         $fromSQL
+         $whereSQL
+         ORDER BY j.id DESC
+         LIMIT " . (int) $limit . ' OFFSET ' . (int) $offset,
+        $params
+    );
+
+    return ['rows' => $rows, 'total' => $total];
 }
 
 function ads_lib_sync_payment(PDO $pdo, array $advertiser): ?string
@@ -166,6 +203,14 @@ function ads_lib_delete(PDO $pdo, int $id): void
     $row = ads_lib_get($pdo, $id);
     if (!$row) {
         return;
+    }
+    $migratedCount = db_count(
+        $pdo,
+        'SELECT COUNT(*) FROM reagent_report WHERE ad_advertiser_id = ? AND migrated_to_ads = 1',
+        [$id]
+    );
+    if ($migratedCount > 0) {
+        throw new InvalidArgumentException('این تبلیغ‌کننده دارای دعوت مهاجرت‌شده است و قابل حذف نیست.');
     }
     $orderId = trim((string) ($row['payment_order_id'] ?? ''));
     if ($orderId !== '') {

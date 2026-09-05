@@ -35,6 +35,8 @@ if (isset($_GET['delete'])) {
     try {
         ads_lib_delete($pdo, (int) $_GET['delete']);
         flash('success', 'تبلیغ حذف شد.');
+    } catch (InvalidArgumentException $e) {
+        flash('error', $e->getMessage());
     } catch (Throwable $e) {
         error_log('ads delete: ' . $e->getMessage());
         flash('error', 'حذف تبلیغ ناموفق بود.');
@@ -62,6 +64,47 @@ $total = (int) $list['total'];
 $totalPages = max(1, (int) ceil($total / $perPage));
 if ($page > $totalPages) {
     $page = $totalPages;
+}
+
+$viewId = max(0, (int) ($_GET['view'] ?? 0));
+$joinSearch = trim((string) ($_GET['jq'] ?? ''));
+$joinPage = max(1, (int) ($_GET['jpage'] ?? 1));
+$joinPerPage = 25;
+$viewAdvertiser = null;
+$joinList = ['rows' => [], 'total' => 0];
+if ($viewId > 0) {
+    try {
+        $viewAdvertiser = ads_lib_get($pdo, $viewId);
+        if ($viewAdvertiser) {
+            $joinList = ads_lib_list_joins(
+                $pdo,
+                $viewId,
+                $joinSearch,
+                $joinPerPage,
+                ($joinPage - 1) * $joinPerPage
+            );
+        }
+    } catch (Throwable $e) {
+        error_log('ads joins: ' . $e->getMessage());
+    }
+}
+$joinTotal = (int) $joinList['total'];
+$joinTotalPages = max(1, (int) ceil($joinTotal / $joinPerPage));
+if ($joinPage > $joinTotalPages) {
+    $joinPage = $joinTotalPages;
+    if ($viewAdvertiser) {
+        try {
+            $joinList = ads_lib_list_joins(
+                $pdo,
+                $viewId,
+                $joinSearch,
+                $joinPerPage,
+                ($joinPage - 1) * $joinPerPage
+            );
+        } catch (Throwable $e) {
+            error_log('ads joins refetch: ' . $e->getMessage());
+        }
+    }
 }
 
 $pageTitle = 'پنل تبلیغات';
@@ -108,6 +151,7 @@ include __DIR__ . '/inc/referral_nav.php';
         <thead>
           <tr>
             <th>نام</th>
+            <th>آیدی تلگرام</th>
             <?php
             $sortLink = function (string $key, string $label) use ($sort, $dir, $search): string {
                 $nextDir = ($sort === $key && $dir === 'desc') ? 'asc' : 'desc';
@@ -136,6 +180,7 @@ include __DIR__ . '/inc/referral_nav.php';
             ?>
             <tr>
               <td><?= htmlspecialchars((string) $row['name']) ?></td>
+              <td class="cm"><?= !empty($row['source_user_id']) ? htmlspecialchars((string) $row['source_user_id']) : '—' ?></td>
               <td><?= number_format((int) $row['join_count']) ?></td>
               <td class="cn"><?= number_format((int) $row['amount']) ?> <span class="cf">ت</span></td>
               <td class="cf"><?= htmlspecialchars((string) $row['started_at']) ?></td>
@@ -146,6 +191,7 @@ include __DIR__ . '/inc/referral_nav.php';
                 </div>
               </td>
               <td>
+                <a href="ads.php?view=<?= (int) $row['id'] ?>#joins" class="btn btn-ghost btn-sm">دعوت‌ها</a>
                 <button type="button" class="btn btn-ghost btn-sm" onclick='openEditAd(<?= htmlspecialchars(json_encode([
                   'id' => (int) $row['id'],
                   'name' => (string) $row['name'],
@@ -177,6 +223,87 @@ include __DIR__ . '/inc/referral_nav.php';
     <?php endif; ?>
   <?php endif; ?>
 </div>
+
+<?php if ($viewAdvertiser): ?>
+  <div class="card fade-up d1" id="joins" style="margin-top:18px">
+    <div class="toolbar" style="flex-wrap:wrap;gap:10px">
+      <div class="toolbar-title">
+        دعوت‌ها — <?= htmlspecialchars((string) $viewAdvertiser['name']) ?>
+        <small>(<?= number_format($joinTotal) ?>)</small>
+      </div>
+      <form method="GET" class="toolbar-end">
+        <input type="hidden" name="view" value="<?= (int) $viewId ?>">
+        <div class="search-box" style="min-width:240px">
+          <?= icon('search', 15) ?>
+          <input type="text" name="jq" value="<?= htmlspecialchars($joinSearch) ?>" placeholder="آیدی، نام یا یوزرنیم..." autocomplete="off">
+          <button type="submit" class="search-btn">جستجو</button>
+        </div>
+        <?php if ($joinSearch !== ''): ?>
+          <a href="ads.php?view=<?= (int) $viewId ?>#joins" class="btn-link" style="font-size:.78rem">پاک کردن</a>
+        <?php endif; ?>
+        <a href="ads.php" class="btn btn-ghost btn-sm">بستن</a>
+      </form>
+    </div>
+    <?php if (empty($joinList['rows'])): ?>
+      <div class="empty" style="padding:36px">
+        <p><?= $joinSearch !== '' ? 'نتیجه‌ای یافت نشد.' : 'هنوز دعوتی برای این تبلیغ‌کننده ثبت نشده است.' ?></p>
+      </div>
+    <?php else: ?>
+      <div class="tbl-wrap">
+        <table class="tbl-lg">
+          <thead>
+            <tr>
+              <th>دعوت‌شده</th>
+              <th>آیدی تلگرام</th>
+              <th>زمان ثبت</th>
+              <th>منبع</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($joinList['rows'] as $join): ?>
+              <?php
+              $joinName = trim((string) ($join['namecustom'] ?? ''));
+              $joinUsername = trim((string) ($join['username'] ?? ''));
+              if ($joinUsername !== '' && strcasecmp($joinUsername, 'none') !== 0) {
+                  $joinLabel = '@' . ltrim($joinUsername, '@');
+              } elseif ($joinName !== '' && strcasecmp($joinName, 'none') !== 0) {
+                  $joinLabel = $joinName;
+              } else {
+                  $joinLabel = '—';
+              }
+              ?>
+              <tr>
+                <td><?= htmlspecialchars($joinLabel) ?></td>
+                <td class="cm"><?= htmlspecialchars((string) $join['user_id']) ?></td>
+                <td class="cf"><?= htmlspecialchars((string) $join['created_at']) ?></td>
+                <td>
+                  <?php if (($join['source'] ?? '') === 'affiliate_migration'): ?>
+                    <span class="tag tag-warn">انتقال از همکاری</span>
+                  <?php else: ?>
+                    <span class="tag tag-ok">لینک تبلیغ</span>
+                  <?php endif; ?>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+      <?php if ($joinTotalPages > 1): ?>
+        <div class="tbl-foot">
+          <span><?= number_format($joinTotal) ?> دعوت · صفحه <?= $joinPage ?> از <?= $joinTotalPages ?></span>
+          <div class="pager">
+            <?php $joinQs = fn($p) => 'ads.php?view=' . (int) $viewId . '&jq=' . urlencode($joinSearch) . '&jpage=' . $p . '#joins'; ?>
+            <a class="<?= $joinPage <= 1 ? 'dis' : '' ?>" href="<?= $joinQs(max(1, $joinPage - 1)) ?>">‹</a>
+            <?php for ($p = max(1, $joinPage - 2); $p <= min($joinTotalPages, $joinPage + 2); $p++): ?>
+              <a class="<?= $p === $joinPage ? 'cur' : '' ?>" href="<?= $joinQs($p) ?>"><?= $p ?></a>
+            <?php endfor; ?>
+            <a class="<?= $joinPage >= $joinTotalPages ? 'dis' : '' ?>" href="<?= $joinQs(min($joinTotalPages, $joinPage + 1)) ?>">›</a>
+          </div>
+        </div>
+      <?php endif; ?>
+    <?php endif; ?>
+  </div>
+<?php endif; ?>
 
 <div class="modal-veil" id="addModal">
   <div class="modal">

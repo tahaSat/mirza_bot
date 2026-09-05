@@ -1,7 +1,32 @@
 <?php
 
+function affiliates_lib_ensure_migration_schema(PDO $pdo): void
+{
+    static $ready = false;
+    if ($ready) {
+        return;
+    }
+
+    $columns = [
+        'migrated_to_ads' => 'TINYINT(1) NOT NULL DEFAULT 0',
+        'ad_advertiser_id' => 'INT UNSIGNED NULL',
+    ];
+    foreach ($columns as $name => $definition) {
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+        );
+        $stmt->execute(['reagent_report', $name]);
+        if ((int) $stmt->fetchColumn() === 0) {
+            $pdo->exec("ALTER TABLE reagent_report ADD $name $definition");
+        }
+    }
+    $ready = true;
+}
+
 function affiliates_lib_settings(PDO $pdo): array
 {
+    affiliates_lib_ensure_migration_schema($pdo);
     $setting = db_fetch($pdo, 'SELECT affiliatesstatus, affiliatespercentage FROM setting LIMIT 1') ?? [];
     $affiliates = db_fetch($pdo, 'SELECT status_commission, Discount, price_Discount, porsant_one_buy FROM affiliates LIMIT 1') ?? [];
     $percentage = (string) ($setting['affiliatespercentage'] ?? '0');
@@ -62,6 +87,7 @@ function affiliates_lib_save_settings(PDO $pdo, array $data): void
 
 function affiliates_lib_repair_counts(PDO $pdo): void
 {
+    affiliates_lib_ensure_migration_schema($pdo);
     static $done = false;
     if ($done) {
         return;
@@ -89,7 +115,8 @@ function affiliates_lib_repair_counts(PDO $pdo): void
                 FROM (
                     SELECT CAST(reagent AS CHAR) AS referrer_id, CAST(user_id AS CHAR) AS invited_id
                     FROM reagent_report
-                    WHERE IFNULL(reagent, '') != '' AND reagent != '0'
+                    WHERE COALESCE(migrated_to_ads, 0) = 0
+                      AND IFNULL(reagent, '') != '' AND reagent != '0'
                     UNION
                     SELECT CAST(affiliates AS CHAR) AS referrer_id, CAST(id AS CHAR) AS invited_id
                     FROM user
@@ -107,6 +134,7 @@ function affiliates_lib_repair_counts(PDO $pdo): void
 
 function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit = 25, int $offset = 0, string $sort = 'affiliatescount', string $dir = 'desc'): array
 {
+    affiliates_lib_ensure_migration_schema($pdo);
     affiliates_lib_repair_counts($pdo);
 
     $where = [];
@@ -126,7 +154,8 @@ function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit
             FROM (
                 SELECT CAST(reagent AS CHAR) AS referrer_id, CAST(user_id AS CHAR) AS invited_id
                 FROM reagent_report
-                WHERE IFNULL(reagent, \'\') != \'\' AND reagent != \'0\'
+                WHERE COALESCE(migrated_to_ads, 0) = 0
+                  AND IFNULL(reagent, \'\') != \'\' AND reagent != \'0\'
                 UNION
                 SELECT CAST(affiliates AS CHAR) AS referrer_id, CAST(id AS CHAR) AS invited_id
                 FROM user
@@ -173,7 +202,8 @@ function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit
 
 function affiliates_lib_list_history(PDO $pdo, string $search = '', int $limit = 25, int $offset = 0): array
 {
-    $where = [];
+    affiliates_lib_ensure_migration_schema($pdo);
+    $where = ['COALESCE(r.migrated_to_ads, 0) = 0'];
     $params = [];
 
     if ($search !== '') {

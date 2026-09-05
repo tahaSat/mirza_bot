@@ -1221,6 +1221,31 @@ function bot_is_first_product_purchase(PDO $pdo, $userId, $includeInvoiceId = nu
     return bot_non_test_purchase_count($pdo, $userId, $includeInvoiceId) === 1;
 }
 
+function affiliates_relationship_is_migrated($buyerId, $affiliateId = null): bool
+{
+    global $pdo;
+    if (!($pdo instanceof PDO) || $buyerId === null || $buyerId === '') {
+        return false;
+    }
+
+    $sql = 'SELECT migrated_to_ads FROM reagent_report WHERE user_id = ?';
+    $params = [(string) $buyerId];
+    if ($affiliateId !== null && $affiliateId !== '') {
+        $sql .= ' AND CAST(reagent AS CHAR) = CAST(? AS CHAR)';
+        $params[] = (string) $affiliateId;
+    }
+    $sql .= ' LIMIT 1';
+
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return (int) $stmt->fetchColumn() === 1;
+    } catch (Throwable $e) {
+        error_log('affiliates_relationship_is_migrated: ' . $e->getMessage());
+        return false;
+    }
+}
+
 /**
  * Pay affiliate commission for a buy or extend.
  * When first-purchase-only is on, extend never pays and later buys are skipped.
@@ -1238,6 +1263,9 @@ function pay_affiliate_commission(array $buyer, $amount, string $reason = 'buy',
     }
     $affiliateId = (string) ($buyer['affiliates'] ?? '0');
     if ($affiliateId === '' || $affiliateId === '0' || intval($affiliateId) === 0) {
+        return false;
+    }
+    if (affiliates_relationship_is_migrated($buyer['id'] ?? null, $affiliateId)) {
         return false;
     }
     $affSettings = select('affiliates', '*', null, null, 'select');
@@ -7580,7 +7608,10 @@ function affiliates_user_can_claim_start_gift(array $user): bool
         return false;
     }
     $reagent = select('reagent_report', '*', 'user_id', $user['id'] ?? '', 'select');
-    if (!is_array($reagent)) {
+    if (!is_array($reagent)
+        || (string) ($reagent['reagent'] ?? '0') !== $parentId
+        || (int) ($reagent['migrated_to_ads'] ?? 0) === 1
+    ) {
         return false;
     }
     $gift = $reagent['get_gift'] ?? 0;
@@ -8047,6 +8078,21 @@ function ads_ensure_schema(): void
         KEY idx_ad_join_advertiser (advertiser_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci");
 
+    $reagentColumns = [
+        'migrated_to_ads' => 'TINYINT(1) NOT NULL DEFAULT 0',
+        'ad_advertiser_id' => 'INT UNSIGNED NULL',
+    ];
+    foreach ($reagentColumns as $column => $definition) {
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+        );
+        $stmt->execute(['reagent_report', $column]);
+        if ((int) $stmt->fetchColumn() === 0) {
+            $pdo->exec("ALTER TABLE reagent_report ADD $column $definition");
+        }
+    }
+
     try {
         $stmt = $pdo->query("SHOW COLUMNS FROM setting LIKE 'ads_affiliates_migrated'");
         if (!$stmt->fetch()) {
@@ -8057,8 +8103,6 @@ function ads_ensure_schema(): void
     }
 
     $ready = true;
-    ads_migrate_from_affiliates();
-    ads_detach_migrated_affiliates();
 }
 
 function ads_generate_code(): string
@@ -8089,82 +8133,8 @@ function ads_build_link(string $code): string
 
 function ads_migrate_from_affiliates(): void
 {
-    global $pdo;
-    if (!($pdo instanceof PDO)) {
-        return;
-    }
-
-    try {
-        $flag = $pdo->query("SELECT ads_affiliates_migrated FROM setting LIMIT 1")->fetchColumn();
-        if ((string) $flag === '1') {
-            return;
-        }
-    } catch (Throwable $e) {
-        error_log('ads_migrate_from_affiliates flag: ' . $e->getMessage());
-        return;
-    }
-
-    $rows = $pdo->query(
-        "SELECT id, username, namecustom, affiliatescount, register
-         FROM user
-         WHERE IFNULL(affiliatescount, '') != '' AND affiliatescount != '0'"
-    )->fetchAll(PDO::FETCH_ASSOC) ?: [];
-
-    $now = date('Y/m/d H:i:s');
-    $insert = $pdo->prepare(
-        'INSERT INTO ad_advertiser (name, code, join_count, amount, started_at, payment_order_id, source_user_id, created_at)
-         VALUES (?, ?, ?, 0, ?, NULL, ?, ?)'
-    );
-
-    foreach ($rows as $row) {
-        $sourceId = (string) ($row['id'] ?? '');
-        if ($sourceId === '') {
-            continue;
-        }
-        $exists = $pdo->prepare('SELECT id FROM ad_advertiser WHERE source_user_id = ? LIMIT 1');
-        $exists->execute([$sourceId]);
-        if ($exists->fetch(PDO::FETCH_ASSOC)) {
-            continue;
-        }
-
-        $custom = trim((string) ($row['namecustom'] ?? ''));
-        $username = trim((string) ($row['username'] ?? ''));
-        if ($custom !== '' && strcasecmp($custom, 'none') !== 0) {
-            $name = $custom;
-        } elseif ($username !== '' && strcasecmp($username, 'none') !== 0) {
-            $name = '@' . ltrim($username, '@');
-        } else {
-            $name = 'کاربر ' . $sourceId;
-        }
-
-        $startedAt = $now;
-        $register = $row['register'] ?? '';
-        if (is_numeric($register) && (int) $register > 1000000000) {
-            $startedAt = date('Y/m/d', (int) $register);
-        } elseif (is_string($register) && trim($register) !== '' && strcasecmp(trim($register), 'none') !== 0) {
-            $startedAt = trim($register);
-        }
-
-        try {
-            $insert->execute([
-                $name,
-                ads_generate_code(),
-                max(0, (int) ($row['affiliatescount'] ?? 0)),
-                $startedAt,
-                $sourceId,
-                $now,
-            ]);
-            $pdo->prepare("UPDATE user SET affiliatescount = '0' WHERE id = ?")->execute([$sourceId]);
-        } catch (Throwable $e) {
-            error_log('ads_migrate_from_affiliates insert: ' . $e->getMessage());
-        }
-    }
-
-    try {
-        $pdo->exec("UPDATE setting SET ads_affiliates_migrated = '1'");
-    } catch (Throwable $e) {
-        error_log('ads_migrate_from_affiliates set flag: ' . $e->getMessage());
-    }
+    // Intentionally disabled. Historical affiliate data is migrated only by the
+    // reviewed, date-bounded SQL migration in migrations/20260905_affiliates_to_ads.sql.
 }
 
 function ads_is_collaboration_link_disabled($user_id): bool

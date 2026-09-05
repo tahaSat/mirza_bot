@@ -1221,6 +1221,46 @@ function bot_is_first_product_purchase(PDO $pdo, $userId, $includeInvoiceId = nu
     return bot_non_test_purchase_count($pdo, $userId, $includeInvoiceId) === 1;
 }
 
+function affiliates_ads_cutoff(): string
+{
+    return '2026-08-21 00:00:00';
+}
+
+function affiliates_report_time_sql(string $alias = 'r'): string
+{
+    if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $alias)) {
+        return 'NULL';
+    }
+    return "COALESCE(
+        STR_TO_DATE(REPLACE(LEFT(TRIM({$alias}.time), 19), '-', '/'), '%Y/%m/%d %H:%i:%s'),
+        STR_TO_DATE(REPLACE(LEFT(TRIM({$alias}.time), 10), '-', '/'), '%Y/%m/%d')
+    )";
+}
+
+function affiliates_register_time_sql(string $alias = 'u'): string
+{
+    if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $alias)) {
+        return 'NULL';
+    }
+    return "CASE
+        WHEN TRIM({$alias}.register) REGEXP '^[0-9]{10}$'
+            THEN FROM_UNIXTIME(CAST({$alias}.register AS UNSIGNED))
+        WHEN TRIM({$alias}.register) REGEXP '^[0-9]{13}$'
+            THEN FROM_UNIXTIME(FLOOR(CAST({$alias}.register AS UNSIGNED) / 1000))
+        ELSE NULL
+    END";
+}
+
+function affiliates_report_is_active_sql(string $alias = 'r'): string
+{
+    $timeSql = affiliates_report_time_sql($alias);
+    $cutoff = affiliates_ads_cutoff();
+    return "COALESCE({$alias}.migrated_to_ads, 0) = 0
+      AND IFNULL({$alias}.reagent, '') != ''
+      AND {$alias}.reagent != '0'
+      AND ({$timeSql} IS NULL OR {$timeSql} >= '{$cutoff}')";
+}
+
 function affiliates_relationship_is_migrated($buyerId, $affiliateId = null): bool
 {
     global $pdo;
@@ -1228,7 +1268,7 @@ function affiliates_relationship_is_migrated($buyerId, $affiliateId = null): boo
         return false;
     }
 
-    $sql = 'SELECT migrated_to_ads FROM reagent_report WHERE user_id = ?';
+    $sql = 'SELECT migrated_to_ads, time FROM reagent_report WHERE user_id = ?';
     $params = [(string) $buyerId];
     if ($affiliateId !== null && $affiliateId !== '') {
         $sql .= ' AND CAST(reagent AS CHAR) = CAST(? AS CHAR)';
@@ -1239,7 +1279,15 @@ function affiliates_relationship_is_migrated($buyerId, $affiliateId = null): boo
     try {
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
-        return (int) $stmt->fetchColumn() === 1;
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            return false;
+        }
+        if ((int) ($row['migrated_to_ads'] ?? 0) === 1) {
+            return true;
+        }
+        $ts = affiliates_parse_timestamp($row['time'] ?? null);
+        return $ts !== null && $ts < strtotime(affiliates_ads_cutoff());
     } catch (Throwable $e) {
         error_log('affiliates_relationship_is_migrated: ' . $e->getMessage());
         return false;
@@ -7610,7 +7658,7 @@ function affiliates_user_can_claim_start_gift(array $user): bool
     $reagent = select('reagent_report', '*', 'user_id', $user['id'] ?? '', 'select');
     if (!is_array($reagent)
         || (string) ($reagent['reagent'] ?? '0') !== $parentId
-        || (int) ($reagent['migrated_to_ads'] ?? 0) === 1
+        || affiliates_relationship_is_migrated($user['id'] ?? '', $parentId)
     ) {
         return false;
     }
@@ -7727,11 +7775,25 @@ function affiliates_invitee_not_migrated_sql(string $userAlias = 'u'): string
     if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $userAlias)) {
         return '1=0';
     }
+    $timeSql = affiliates_report_time_sql('aff_mig');
+    $regSql = affiliates_register_time_sql($userAlias);
+    $cutoff = affiliates_ads_cutoff();
     return "NOT EXISTS (
         SELECT 1 FROM reagent_report aff_mig
         WHERE CAST(aff_mig.user_id AS CHAR) = CAST({$userAlias}.id AS CHAR)
           AND CAST(aff_mig.reagent AS CHAR) = CAST({$userAlias}.affiliates AS CHAR)
-          AND COALESCE(aff_mig.migrated_to_ads, 0) = 1
+          AND (
+            COALESCE(aff_mig.migrated_to_ads, 0) = 1
+            OR ({$timeSql} IS NOT NULL AND {$timeSql} < '{$cutoff}')
+          )
+    )
+    AND (
+        EXISTS (
+            SELECT 1 FROM reagent_report aff_has
+            WHERE CAST(aff_has.user_id AS CHAR) = CAST({$userAlias}.id AS CHAR)
+        )
+        OR {$regSql} IS NULL
+        OR {$regSql} >= '{$cutoff}'
     )";
 }
 
@@ -8136,6 +8198,7 @@ function ads_ensure_schema(): void
     }
 
     $ready = true;
+    affiliates_migrate_pre_cutoff_to_ads();
 }
 
 function ads_generate_code(): string
@@ -8166,8 +8229,181 @@ function ads_build_link(string $code): string
 
 function ads_migrate_from_affiliates(): void
 {
-    // Intentionally disabled. Historical affiliate data is migrated only by the
-    // reviewed, date-bounded SQL migration in migrations/20260905_affiliates_to_ads.sql.
+    affiliates_migrate_pre_cutoff_to_ads();
+}
+
+function affiliates_migrate_pre_cutoff_to_ads(): void
+{
+    global $pdo;
+    static $done = false;
+    if ($done || !($pdo instanceof PDO)) {
+        return;
+    }
+    $done = true;
+
+    try {
+        $col = $pdo->query("SHOW COLUMNS FROM setting LIKE 'affiliates_ads_cutoff_migrated'")->fetch(PDO::FETCH_ASSOC);
+        if (!$col) {
+            $pdo->exec("ALTER TABLE setting ADD affiliates_ads_cutoff_migrated VARCHAR(10) NOT NULL DEFAULT '0'");
+        }
+        $flag = $pdo->query('SELECT affiliates_ads_cutoff_migrated FROM setting LIMIT 1')->fetchColumn();
+        if ((string) $flag === '1') {
+            return;
+        }
+    } catch (Throwable $e) {
+        error_log('affiliates_migrate_pre_cutoff_to_ads flag: ' . $e->getMessage());
+        return;
+    }
+
+    $cutoff = affiliates_ads_cutoff();
+    $timeSql = affiliates_report_time_sql('r');
+    $regSql = affiliates_register_time_sql('u');
+
+    try {
+        $pdo->beginTransaction();
+
+        $reports = $pdo->query(
+            "SELECT r.id, r.user_id, r.reagent, r.time
+             FROM reagent_report r
+             WHERE COALESCE(r.migrated_to_ads, 0) = 0
+               AND IFNULL(r.reagent, '') != ''
+               AND r.reagent != '0'
+               AND {$timeSql} IS NOT NULL
+               AND {$timeSql} < '{$cutoff}'"
+        )->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $orphans = $pdo->query(
+            "SELECT u.id, u.affiliates, u.register
+             FROM user u
+             WHERE IFNULL(u.affiliates, '') != ''
+               AND u.affiliates != '0'
+               AND {$regSql} IS NOT NULL
+               AND {$regSql} < '{$cutoff}'
+               AND NOT EXISTS (SELECT 1 FROM reagent_report r WHERE r.user_id = u.id)"
+        )->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $insertReport = $pdo->prepare(
+            'INSERT INTO reagent_report (user_id, get_gift, time, reagent, migrated_to_ads, ad_advertiser_id)
+             VALUES (?, 1, ?, ?, 0, NULL)'
+        );
+        foreach ($orphans as $orphan) {
+            $ts = affiliates_parse_timestamp($orphan['register'] ?? null);
+            $time = $ts ? date('Y/m/d H:i:s', $ts) : date('Y/m/d H:i:s');
+            $insertReport->execute([(string) $orphan['id'], $time, (string) $orphan['affiliates']]);
+            $reports[] = [
+                'id' => (int) $pdo->lastInsertId(),
+                'user_id' => $orphan['id'],
+                'reagent' => $orphan['affiliates'],
+                'time' => $time,
+            ];
+        }
+
+        $findAdvertiser = $pdo->prepare('SELECT id FROM ad_advertiser WHERE source_user_id = ? LIMIT 1');
+        $insertAdvertiser = $pdo->prepare(
+            'INSERT INTO ad_advertiser (name, code, join_count, amount, started_at, payment_order_id, source_user_id, created_at)
+             VALUES (?, ?, 0, 0, ?, NULL, ?, ?)'
+        );
+        $insertJoin = $pdo->prepare(
+            'INSERT IGNORE INTO ad_join (advertiser_id, user_id, created_at) VALUES (?, ?, ?)'
+        );
+        $markReport = $pdo->prepare(
+            'UPDATE reagent_report SET migrated_to_ads = 1, ad_advertiser_id = ? WHERE id = ?'
+        );
+        $userLookup = $pdo->prepare('SELECT username, namecustom FROM user WHERE id = ? LIMIT 1');
+
+        $advertiserIds = [];
+        foreach ($reports as $row) {
+            $referrerId = (string) ($row['reagent'] ?? '');
+            $invitedId = (string) ($row['user_id'] ?? '');
+            if ($referrerId === '' || $invitedId === '') {
+                continue;
+            }
+            if (!isset($advertiserIds[$referrerId])) {
+                $findAdvertiser->execute([$referrerId]);
+                $existing = $findAdvertiser->fetch(PDO::FETCH_ASSOC);
+                if ($existing) {
+                    $advertiserIds[$referrerId] = (int) $existing['id'];
+                } else {
+                    $userLookup->execute([$referrerId]);
+                    $userRow = $userLookup->fetch(PDO::FETCH_ASSOC) ?: [];
+                    $custom = trim((string) ($userRow['namecustom'] ?? ''));
+                    $username = trim((string) ($userRow['username'] ?? ''));
+                    if ($custom !== '' && strcasecmp($custom, 'none') !== 0) {
+                        $name = $custom;
+                    } elseif ($username !== '' && strcasecmp($username, 'none') !== 0) {
+                        $name = '@' . ltrim($username, '@');
+                    } else {
+                        $name = 'کاربر ' . $referrerId;
+                    }
+                    $started = (string) ($row['time'] ?? date('Y/m/d'));
+                    if (preg_match('/^(\d{4}[\/-]\d{2}[\/-]\d{2})/', $started, $m)) {
+                        $started = str_replace('-', '/', $m[1]);
+                    }
+                    $insertAdvertiser->execute([
+                        $name,
+                        ads_generate_code(),
+                        $started,
+                        $referrerId,
+                        date('Y/m/d H:i:s'),
+                    ]);
+                    $advertiserIds[$referrerId] = (int) $pdo->lastInsertId();
+                }
+            }
+            $advertiserId = $advertiserIds[$referrerId];
+            $joinTime = (string) ($row['time'] ?? date('Y/m/d H:i:s'));
+            $insertJoin->execute([$advertiserId, $invitedId, $joinTime]);
+            $markReport->execute([$advertiserId, (int) $row['id']]);
+            $pdo->prepare(
+                "UPDATE user SET affiliates = '0'
+                 WHERE id = ? AND CAST(affiliates AS CHAR) = CAST(? AS CHAR)"
+            )->execute([$invitedId, $referrerId]);
+        }
+
+        if ($advertiserIds) {
+            $ids = implode(',', array_map('intval', $advertiserIds));
+            $pdo->exec(
+                "UPDATE ad_advertiser a
+                 LEFT JOIN (
+                    SELECT advertiser_id, COUNT(*) AS cnt FROM ad_join GROUP BY advertiser_id
+                 ) j ON j.advertiser_id = a.id
+                 SET a.join_count = COALESCE(j.cnt, 0)
+                 WHERE a.id IN ({$ids})"
+            );
+        }
+
+        $activeSql = affiliates_report_is_active_sql('r');
+        $pdo->exec(
+            "UPDATE user u
+             LEFT JOIN (
+                SELECT referrer_id, COUNT(DISTINCT invited_id) AS cnt
+                FROM (
+                    SELECT CAST(r.reagent AS CHAR) AS referrer_id, CAST(r.user_id AS CHAR) AS invited_id
+                    FROM reagent_report r
+                    WHERE {$activeSql}
+                    UNION
+                    SELECT CAST(pointer.affiliates AS CHAR), CAST(pointer.id AS CHAR)
+                    FROM user pointer
+                    WHERE IFNULL(pointer.affiliates, '') != '' AND pointer.affiliates != '0'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM reagent_report r2
+                          WHERE CAST(r2.user_id AS CHAR) = CAST(pointer.id AS CHAR)
+                      )
+                ) inv
+                GROUP BY referrer_id
+             ) s ON CAST(u.id AS CHAR) = s.referrer_id
+             SET u.affiliatescount = CAST(COALESCE(s.cnt, 0) AS CHAR)
+             WHERE (IFNULL(u.affiliatescount, '') != '' AND u.affiliatescount != '0')
+                OR s.cnt IS NOT NULL"
+        );
+
+        $pdo->exec("UPDATE setting SET affiliates_ads_cutoff_migrated = '1'");
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        error_log('affiliates_migrate_pre_cutoff_to_ads: ' . $e->getMessage());
+    }
 }
 
 function ads_is_collaboration_link_disabled($user_id): bool

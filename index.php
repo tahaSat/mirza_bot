@@ -7345,7 +7345,7 @@ if (preg_match('/^sendresidcart-(.*)/', $datain, $dataget)) {
     $reagent = select("reagent_report", "*", "user_id", $from_id, "select");
     if (!$reagent
         || (string) ($reagent['reagent'] ?? '0') !== (string) ($user['affiliates'] ?? '0')
-        || (int) ($reagent['migrated_to_ads'] ?? 0) === 1
+        || affiliates_relationship_is_migrated($from_id, $user['affiliates'] ?? '0')
     ) {
         sendmessage($from_id, "📛 شما زیرمجموعه هیچ کاربری نیستید.", $keyboard, 'HTML');
         return;

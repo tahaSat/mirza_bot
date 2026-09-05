@@ -22,33 +22,31 @@ function affiliates_lib_ensure_migration_schema(PDO $pdo): void
         }
     }
     $ready = true;
+    if (function_exists('affiliates_migrate_pre_cutoff_to_ads')) {
+        affiliates_migrate_pre_cutoff_to_ads();
+    }
 }
 
 function affiliates_lib_invitee_not_migrated_sql(string $userAlias = 'u'): string
 {
-    if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $userAlias)) {
-        throw new InvalidArgumentException('Invalid SQL alias.');
-    }
-    return "NOT EXISTS (
-        SELECT 1 FROM reagent_report aff_mig
-        WHERE CAST(aff_mig.user_id AS CHAR) = CAST({$userAlias}.id AS CHAR)
-          AND CAST(aff_mig.reagent AS CHAR) = CAST({$userAlias}.affiliates AS CHAR)
-          AND COALESCE(aff_mig.migrated_to_ads, 0) = 1
-    )";
+    return affiliates_invitee_not_migrated_sql($userAlias);
 }
 
 function affiliates_lib_active_invites_sql(): string
 {
-    $pointerNotMigrated = affiliates_lib_invitee_not_migrated_sql('pointer');
-    return "SELECT CAST(reagent AS CHAR) AS referrer_id, CAST(user_id AS CHAR) AS invited_id
-                    FROM reagent_report
-                    WHERE COALESCE(migrated_to_ads, 0) = 0
-                      AND IFNULL(reagent, '') != '' AND reagent != '0'
+    $reportActive = affiliates_report_is_active_sql('r');
+    return "SELECT CAST(r.reagent AS CHAR) AS referrer_id, CAST(r.user_id AS CHAR) AS invited_id
+                    FROM reagent_report r
+                    WHERE {$reportActive}
                     UNION
                     SELECT CAST(pointer.affiliates AS CHAR) AS referrer_id, CAST(pointer.id AS CHAR) AS invited_id
                     FROM user pointer
                     WHERE IFNULL(pointer.affiliates, '') != '' AND pointer.affiliates != '0'
-                      AND {$pointerNotMigrated}";
+                      AND NOT EXISTS (
+                          SELECT 1 FROM reagent_report r2
+                          WHERE CAST(r2.user_id AS CHAR) = CAST(pointer.id AS CHAR)
+                      )
+                      AND " . affiliates_invitee_not_migrated_sql('pointer');
 }
 
 function affiliates_lib_settings(PDO $pdo): array
@@ -208,7 +206,7 @@ function affiliates_lib_list_referrers(PDO $pdo, string $search = '', int $limit
 function affiliates_lib_list_history(PDO $pdo, string $search = '', int $limit = 25, int $offset = 0): array
 {
     affiliates_lib_ensure_migration_schema($pdo);
-    $where = ['COALESCE(r.migrated_to_ads, 0) = 0'];
+    $where = [affiliates_report_is_active_sql('r')];
     $params = [];
 
     if ($search !== '') {

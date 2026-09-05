@@ -25,6 +25,16 @@ if ($text == "بازگشت به منوی ادمین") {
     step("home", $from_id);
     return;
 }
+if (($text === 'فعالسازی پنل تحت وب' || $datain === 'n2webpanel') && function_exists('agent_is_n2') && agent_is_n2($userbot['agent'] ?? 'f')) {
+    $ownerId = (string) ($dataBase['id_user'] ?? ($userbot['id'] ?? ''));
+    if ((string) $from_id !== $ownerId) {
+        sendmessage($from_id, '❌ فقط خود نماینده پیشرفته می‌تواند پنل تحت وب را فعال کند.', $keyboardadmin, 'HTML');
+        return;
+    }
+    $result = agent_n2_activate_web_panel($from_id);
+    sendmessage($from_id, $result['msg'], $keyboardadmin, 'HTML');
+    return;
+}
 $n2ownTexts = ['📦 مدیریت محصولات', '➕ افزودن دسته', '➕ افزودن محصول', '🗂 لیست دسته‌ها', '🛍 لیست محصولات'];
 if (
     (isset($userbot) && function_exists('agent_is_n2') && agent_is_n2($userbot['agent'] ?? 'f'))

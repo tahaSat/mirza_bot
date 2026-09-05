@@ -222,6 +222,11 @@ if ($user['register'] == "none") {
 }
 if (!in_array($user['agent'], ["n", "n2", "f"]))
     update("user", "agent", "f", "id", $from_id);
+if (agent_is_n2($user['agent'] ?? 'f') && ($text === 'فعالسازی پنل تحت وب' || $datain === 'n2webpanel')) {
+    $result = agent_n2_activate_web_panel($from_id);
+    sendmessage($from_id, $result['msg'], keyboard_agent_for_user($user), 'HTML');
+    return;
+}
 $n2ownTexts = ['📦 مدیریت محصولات', '➕ افزودن دسته', '➕ افزودن محصول', '🗂 لیست دسته‌ها', '🛍 لیست محصولات'];
 if (
     strpos((string) ($user['step'] ?? ''), 'n2own') === 0

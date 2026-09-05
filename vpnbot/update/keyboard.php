@@ -106,7 +106,10 @@ $keyboardadmin = json_encode([
 if (is_array($userbot) && function_exists('agent_is_n2') && agent_is_n2($userbot['agent'] ?? 'f')) {
     $adminKb = json_decode($keyboardadmin, true);
     if (is_array($adminKb) && isset($adminKb['keyboard'])) {
-        array_splice($adminKb['keyboard'], 2, 0, [[['text' => '📦 مدیریت محصولات']]]);
+        array_splice($adminKb['keyboard'], 2, 0, [[
+            ['text' => '📦 مدیریت محصولات'],
+            ['text' => 'فعالسازی پنل تحت وب'],
+        ]]);
         $keyboardadmin = json_encode($adminKb, JSON_UNESCAPED_UNICODE);
     }
 }

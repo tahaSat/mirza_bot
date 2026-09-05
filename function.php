@@ -2178,7 +2178,8 @@ function request_user_is_admin(): bool
         $cached = false;
         return false;
     }
-    $cached = rowExists('admin', 'id_admin', $from_id);
+    $row = select('admin', '*', 'id_admin', $from_id, 'select');
+    $cached = is_array($row) && in_array((string) ($row['rule'] ?? ''), admin_telegram_staff_rules(), true);
     return $cached;
 }
 
@@ -6684,26 +6685,33 @@ function build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $
 
     $inline = ($setting['inlinebtnmain'] ?? '') === 'oninline';
     $extra_row = [];
-    if (intval($admin_idss) !== 0) {
-        $extra_button = ['text' => $textbotlang['Admin']['textpaneladmin']];
+    $adminLabel = trim((string) ($textbotlang['Admin']['textpaneladmin'] ?? ''));
+    if (intval($admin_idss) !== 0 && $adminLabel !== '') {
+        $extra_button = ['text' => $adminLabel];
         if ($inline) {
             $extra_button['callback_data'] = 'admin';
         }
         $extra_row[] = $extra_button;
     }
     if (($users['agent'] ?? '') !== 'f') {
-        $extra_button = ['text' => $datatextbot['textpanelagent'] ?? 'نمایندگی'];
-        if ($inline) {
-            $extra_button['callback_data'] = 'agentpanel';
+        $agentLabel = trim((string) ($datatextbot['textpanelagent'] ?? 'نمایندگی'));
+        if ($agentLabel !== '') {
+            $extra_button = ['text' => $agentLabel];
+            if ($inline) {
+                $extra_button['callback_data'] = 'agentpanel';
+            }
+            $extra_row[] = $extra_button;
         }
-        $extra_row[] = $extra_button;
     }
     if (($users['agent'] ?? '') === 'f' && ($setting['statusagentrequest'] ?? '') === 'onrequestagent') {
-        $extra_button = ['text' => $datatextbot['textrequestagent'] ?? 'درخواست نمایندگی'];
-        if ($inline) {
-            $extra_button['callback_data'] = 'requestagent';
+        $requestLabel = trim((string) ($datatextbot['textrequestagent'] ?? 'درخواست نمایندگی'));
+        if ($requestLabel !== '') {
+            $extra_button = ['text' => $requestLabel];
+            if ($inline) {
+                $extra_button['callback_data'] = 'requestagent';
+            }
+            $extra_row[] = $extra_button;
         }
-        $extra_row[] = $extra_button;
     }
 
     if ($inline) {
@@ -11037,7 +11045,112 @@ function botsaz_normalize_setting($setting): array
     if (!isset($setting['cart_info']) || $setting['cart_info'] === '') {
         $setting['cart_info'] = 'پس از واریز، تصویر رسید را در همین چت ارسال کنید.';
     }
+    foreach (['minpricetime' => 4000, 'pricetime' => 4000, 'minpricevolume' => 4000, 'pricevolume' => 4000] as $key => $default) {
+        if (!isset($setting[$key]) || $setting[$key] === '' || $setting[$key] === null) {
+            $setting[$key] = $default;
+        }
+    }
     return $setting;
+}
+
+function botsaz_id_list_contains($from_id, $ids): bool
+{
+    if (!is_array($ids)) {
+        return false;
+    }
+    $from = (string) $from_id;
+    foreach ($ids as $id) {
+        if (is_array($id)) {
+            continue;
+        }
+        if ((string) $id === $from) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function botsaz_admin_id_list($botRow): array
+{
+    $ids = [];
+    if (!is_array($botRow)) {
+        return $ids;
+    }
+    $raw = $botRow['admin_ids'] ?? '[]';
+    $decoded = is_string($raw) || is_numeric($raw) ? json_decode((string) $raw, true) : $raw;
+    if (is_array($decoded)) {
+        foreach ($decoded as $id) {
+            if (is_array($id) || $id === null || $id === '') {
+                continue;
+            }
+            $ids[] = (string) $id;
+        }
+    } elseif (is_numeric($decoded) || (is_string($decoded) && $decoded !== '')) {
+        $ids[] = (string) $decoded;
+    }
+    if (!empty($botRow['id_user'])) {
+        $ids[] = (string) $botRow['id_user'];
+    }
+    return array_values(array_unique(array_filter($ids, static function ($id) {
+        return $id !== '' && $id !== '0';
+    })));
+}
+
+function botsaz_viewer_is_admin($from_id, $botRow, $mainAdminIds = []): bool
+{
+    if (botsaz_id_list_contains($from_id, botsaz_admin_id_list($botRow))) {
+        return true;
+    }
+    return botsaz_id_list_contains($from_id, is_array($mainAdminIds) ? $mainAdminIds : []);
+}
+
+function botsaz_user_reply_keyboard($btnKeyboard, $from_id, $botRow, $userbot = null, $mainAdminIds = []): string
+{
+    if (!is_array($btnKeyboard)) {
+        $btnKeyboard = [];
+    }
+    $defaults = [
+        'buy' => '🛍 خرید اشتراک',
+        'test' => '🔑 سرویس تست',
+        'my_service' => '🛒 سرویس های من',
+        'wallet' => '👤 مشخصات کاربری',
+        'support' => '☎️  پشتیبانی',
+    ];
+    $rows = [];
+    $pair = [];
+    foreach ($defaults as $key => $fallback) {
+        $label = trim((string) ($btnKeyboard[$key] ?? $fallback));
+        if ($label === '') {
+            $label = $fallback;
+        }
+        $pair[] = ['text' => $label];
+        if (count($pair) === 2) {
+            $rows[] = $pair;
+            $pair = [];
+        }
+    }
+    if ($pair !== []) {
+        $rows[] = $pair;
+    }
+
+    $isAdmin = botsaz_viewer_is_admin($from_id, $botRow, $mainAdminIds);
+    $isOwner = is_array($botRow) && (string) ($botRow['id_user'] ?? '') === (string) $from_id;
+    $ownerIsN2 = is_array($userbot) && function_exists('agent_is_n2') && agent_is_n2($userbot['agent'] ?? 'f');
+    if ($isAdmin) {
+        $adminRow = [['text' => '👨‍💼 پنل مدیریت']];
+        if ($ownerIsN2 && $isOwner) {
+            $adminRow[] = ['text' => '📦 مدیریت محصولات'];
+        }
+        $rows[] = $adminRow;
+        if ($ownerIsN2 && $isOwner) {
+            $rows[] = [['text' => 'فعالسازی پنل تحت وب']];
+        }
+    }
+
+    return json_encode([
+        'keyboard' => $rows,
+        'resize_keyboard' => true,
+    ], JSON_UNESCAPED_UNICODE);
 }
 
 /**

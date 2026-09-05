@@ -101,7 +101,7 @@ if ($users == false) {
         'cardpayment' => ""
     );
 }
-$admin_idss = select("admin", "*", "id_admin", $from_id, "count");
+$admin_idss = $build_admin_keyboards ? 1 : 0;
 $keyboard = build_user_main_keyboard_markup($setting, $datatextbot, $textbotlang, $from_id, [
     'users' => $users,
     'admin_idss' => $admin_idss,

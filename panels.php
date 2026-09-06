@@ -1880,9 +1880,14 @@ class ManagePanel
             'time' => false,
         ));
         update("invoice", "notifctions", $notifctions, 'id_invoice', $invoice['id_invoice']);
-        $data_limit_old = $data_user['data_limit'];
-        $time_old = $data_user['expire'];
-        $time_old = time() - $time_old > 0 ? time() : $time_old;
+        $data_limit_old = $data_user['data_limit'] ?? null;
+        $time_old = $data_user['expire'] ?? null;
+        $previous_volume_unlimited = ($data_limit_old === null || $data_limit_old === '' || (float) $data_limit_old == 0);
+        $previous_time_unlimited = ($time_old === null || $time_old === '' || (int) $time_old == 0);
+        if ($previous_volume_unlimited || $previous_time_unlimited) {
+            $Method_extend = "ریست حجم و زمان";
+        }
+        $time_old = time() - (int) $time_old > 0 ? time() : (int) $time_old;
         $data_limit_new = $new_limit == 0 ? 0 : $new_limit * pow(1024, 3);
         $data_limit_new_add = $new_limit == 0 ? 0 : $data_limit_old + ($new_limit * pow(1024, 3));
         $time_new = $time_day == 0 ? 0 : time() + $time_day * 86400;

@@ -116,11 +116,13 @@ switch ($action) {
             break;
         }
         if ($newRole === 'f') {
+            $oldRole = (string) ($user['agent'] ?? 'f');
             db_query($pdo, "UPDATE user SET agent = 'f', pricediscount = 0, expire = NULL WHERE id = ?", [$id]);
             try {
                 db_query($pdo, 'DELETE FROM Requestagent WHERE id = ?', [$id]);
             } catch (Throwable $e) {
             }
+            agent_on_role_changed($id, $oldRole, 'f');
             flash('success', 'نمایندگی حذف شد.');
             $back = 'agents.php';
         } else {

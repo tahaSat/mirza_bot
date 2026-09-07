@@ -364,6 +364,13 @@ function invoice_paid_status_sql(string $statusCol = 'Status'): string
  */
 function payment_exclude_n2_sql(string $idUserCol = 'id_user', string $bottypeCol = 'bottype'): string
 {
+    $prefix = '';
+    if (strpos($idUserCol, '.') !== false) {
+        $prefix = explode('.', $idUserCol, 2)[0] . '.';
+    }
+    if (stats_n2_flag_ready()) {
+        return "COALESCE({$prefix}exclude_from_stats, 0) = 0";
+    }
     return "(
         NOT EXISTS (
             SELECT 1 FROM user _n2u
@@ -561,15 +568,38 @@ function record_admin_extend_payment(PDO $pdo, $userId, $price, string $username
     }
 }
 
-function unix_column_epoch_sql(string $column): string
+function stats_varchar_to_unix_sql(string $column): string
 {
     return "CASE
         WHEN $column REGEXP '^[0-9]{9,}$' THEN CAST($column AS UNSIGNED)
+        WHEN $column IS NULL OR $column IN ('', 'none') THEN NULL
         ELSE COALESCE(
             UNIX_TIMESTAMP(STR_TO_DATE($column, '%Y-%m-%d %H:%i:%s')),
             UNIX_TIMESTAMP(STR_TO_DATE($column, '%Y/%m/%d %H:%i:%s'))
         )
     END";
+}
+
+function stats_unix_physical_col(string $column): ?string
+{
+    if (!preg_match('/^((?:[A-Za-z_][A-Za-z0-9_]*\.)?)(time_sell|time|register)$/', $column, $m)) {
+        return null;
+    }
+    $map = [
+        'time_sell' => 'time_sell_unix',
+        'time' => 'time_unix',
+        'register' => 'register_unix',
+    ];
+    return $m[1] . $map[$m[2]];
+}
+
+function unix_column_epoch_sql(string $column): string
+{
+    $unixCol = stats_unix_physical_col($column);
+    if ($unixCol !== null && stats_unix_ready()) {
+        return $unixCol;
+    }
+    return stats_varchar_to_unix_sql($column);
 }
 
 function ensure_jdf_loaded(): void
@@ -779,6 +809,11 @@ function stats_tehran_named_range(string $name): array
 
 function sql_unix_or_datetime_between(string $column): string
 {
+    stats_schema_ensure_if_needed();
+    $unixCol = stats_unix_physical_col($column);
+    if ($unixCol !== null && stats_unix_ready()) {
+        return "$unixCol BETWEEN ? AND ?";
+    }
     return "(
         ($column REGEXP '^[0-9]{9,}$' AND CAST($column AS UNSIGNED) BETWEEN ? AND ?)
         OR (
@@ -789,6 +824,30 @@ function sql_unix_or_datetime_between(string $column): string
             ) BETWEEN ? AND ?
         )
     )";
+}
+
+function stats_time_between_params(int $startTs, int $endTs): array
+{
+    stats_schema_ensure_if_needed();
+    if (stats_unix_ready()) {
+        return [$startTs, $endTs];
+    }
+    return [
+        $startTs,
+        $endTs,
+        tehran_datetime_string($startTs, 'Y-m-d H:i:s'),
+        tehran_datetime_string($endTs, 'Y-m-d H:i:s'),
+    ];
+}
+
+function invoice_time_range_sql(string $alias = ''): string
+{
+    $prefix = $alias !== '' ? $alias . '.' : '';
+    stats_schema_ensure_if_needed();
+    if (stats_unix_ready()) {
+        return "{$prefix}time_sell_unix BETWEEN :start AND :end";
+    }
+    return "{$prefix}time_sell BETWEEN :start AND :end";
 }
 
 function sql_tehran_day_from_unix(string $unixExpr): string
@@ -891,12 +950,7 @@ function bot_period_payment_purpose_stats(PDO $pdo, int $startTs, int $endTs): a
           AND $incomeSql";
     try {
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([
-            $startTs,
-            $endTs,
-            tehran_datetime_string($startTs, 'Y-m-d H:i:s'),
-            tehran_datetime_string($endTs, 'Y-m-d H:i:s'),
-        ]);
+        $stmt->execute(stats_time_between_params($startTs, $endTs));
         $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
         return [
             'purchase_count' => (int) ($row['purchase_count'] ?? 0),
@@ -968,12 +1022,7 @@ function bot_payment_ledger_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = 
         $params = [];
         if ($startTs !== null && $endTs !== null) {
             $timeSql = ' AND ' . sql_unix_or_datetime_between('time');
-            $params = [
-                $startTs,
-                $endTs,
-                tehran_datetime_string($startTs),
-                tehran_datetime_string($endTs),
-            ];
+            $params = stats_time_between_params($startTs, $endTs);
         }
         $investmentSql = "(tx_type = 'investment' OR payment_Status = 'investment' OR Payment_Method = 'capital_injection' OR id_invoice = 'capital')";
         $n2Sql = payment_exclude_n2_sql();
@@ -1030,12 +1079,7 @@ function bot_payment_expense_stats(PDO $pdo, ?int $startTs = null, ?int $endTs =
         $params = [];
         if ($startTs !== null && $endTs !== null) {
             $sql .= ' AND ' . sql_unix_or_datetime_between('time');
-            $params = [
-                $startTs,
-                $endTs,
-                tehran_datetime_string($startTs, 'Y-m-d H:i:s'),
-                tehran_datetime_string($endTs, 'Y-m-d H:i:s'),
-            ];
+            $params = stats_time_between_params($startTs, $endTs);
         }
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
@@ -1078,7 +1122,7 @@ function bot_sold_volume_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = nul
     $panelSql = "COALESCE(NULLIF(TRIM(Service_location), ''), 'نامشخص')";
     $hasRange = $startTs !== null && $endTs !== null;
 
-    $invoiceTime = $hasRange ? 'AND time_sell BETWEEN :start AND :end' : '';
+    $invoiceTime = $hasRange ? 'AND ' . invoice_time_range_sql() : '';
     $invoiceParams = $hasRange ? [':start' => $startTs, ':end' => $endTs] : [];
     $stmt = $pdo->prepare("SELECT $panelSql AS panel,
             COALESCE(SUM(CAST(Volume AS DECIMAL(20,2))), 0) AS volume
@@ -1100,12 +1144,7 @@ function bot_sold_volume_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = nul
         $extraParams = [];
         if ($hasRange) {
             $extraTimeSql = 'AND ' . sql_unix_or_datetime_between('so.time');
-            $extraParams = [
-                $startTs,
-                $endTs,
-                tehran_datetime_string($startTs, 'Y-m-d H:i:s'),
-                tehran_datetime_string($endTs, 'Y-m-d H:i:s'),
-            ];
+            $extraParams = stats_time_between_params($startTs, $endTs);
         }
         $stmt = $pdo->prepare("SELECT COALESCE(NULLIF(TRIM(i.Service_location), ''), 'نامشخص') AS panel,
                 COALESCE(SUM($extraGbSql), 0) AS volume
@@ -1224,7 +1263,9 @@ function bot_first_purchase_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = 
     $paidSql = invoice_paid_status_sql('i.Status');
     $sellEpoch = unix_column_epoch_sql('i.time_sell');
     $hasRange = $startTs !== null && $endTs !== null;
-    $timeFilter = $hasRange ? 'AND t.time_sell BETWEEN :start AND :end' : '';
+    $timeFilter = $hasRange
+        ? 'AND ' . (stats_unix_ready() ? 't.time_sell_unix BETWEEN :start AND :end' : 't.time_sell BETWEEN :start AND :end')
+        : '';
     $params = $hasRange ? [':start' => $startTs, ':end' => $endTs] : [];
 
     $sqlWindow = "SELECT COUNT(*) AS count, COALESCE(SUM(t.price_product), 0) AS sum
@@ -1256,7 +1297,7 @@ function bot_first_purchase_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = 
     }
 
     $paidNoAlias = invoice_paid_status_sql('Status');
-    $timeFilterI = $hasRange ? 'AND i.time_sell BETWEEN :start AND :end' : '';
+    $timeFilterI = $hasRange ? 'AND ' . invoice_time_range_sql('i') : '';
     $sqlFallback = "SELECT COUNT(*) AS count, COALESCE(SUM(i.price_product), 0) AS sum
         FROM invoice i
         INNER JOIN (
@@ -1506,7 +1547,7 @@ function bot_agent_invoice_purchase_stats(PDO $pdo, ?int $startTs = null, ?int $
         $timeSql = '';
         $params = [];
         if ($startTs !== null && $endTs !== null) {
-            $timeSql = ' AND i.time_sell BETWEEN :start AND :end';
+            $timeSql = ' AND ' . invoice_time_range_sql('i');
             $params[':start'] = $startTs;
             $params[':end'] = $endTs;
         }
@@ -1514,7 +1555,7 @@ function bot_agent_invoice_purchase_stats(PDO $pdo, ?int $startTs = null, ?int $
                 COUNT(*) AS cnt,
                 COALESCE(SUM(CAST(i.price_product AS DECIMAL(20,0))), 0) AS sum
             FROM invoice i
-            INNER JOIN user u ON CAST(u.id AS CHAR) = CAST(i.id_user AS CHAR)
+            INNER JOIN user u ON u.id = i.id_user
             WHERE $paidSql
               AND i.name_product != 'سرویس تست'
               AND u.agent IN ('n', 'n2')
@@ -1542,86 +1583,119 @@ function bot_agent_invoice_purchase_stats(PDO $pdo, ?int $startTs = null, ?int $
 /**
  * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,expenses:int,expenses_sum:float,users:int,avg_join:string,total_count:int,period_income_sum:float,period_net_sum:float,period_investment_sum:float,income_sum:float,total_sum:float,investment_sum:float,agent_n_count:int,agent_n_sum:float,agent_n2_count:int,agent_n2_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
  */
-function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
+function bot_period_stats(PDO $pdo, int $startTs, int $endTs, array $opts = []): array
 {
-    $startDt = tehran_datetime_string($startTs, 'Y-m-d H:i:s');
-    $endDt = tehran_datetime_string($endTs, 'Y-m-d H:i:s');
+    stats_schema_ensure_if_needed();
+    $livePayments = !empty($opts['live_payments']);
+    $cacheKey = 'period:' . $startTs . ':' . $endTs;
+    $ledgerAll = bot_stats_cached_ledger_all($pdo);
+    $cached = bot_stats_cache_get($cacheKey);
+    if (is_array($cached)) {
+        $cached = bot_period_stats_attach_all_time($cached, $ledgerAll);
+        if ($livePayments) {
+            return bot_period_stats_overlay_live_payments($pdo, $cached, $startTs, $endTs);
+        }
+        return $cached;
+    }
+
+    $result = bot_period_stats_compute($pdo, $startTs, $endTs);
+    $result = bot_period_stats_attach_all_time($result, $ledgerAll);
+    bot_stats_cache_set($cacheKey, $result);
+    return $result;
+}
+
+function bot_period_stats_attach_all_time(array $s, array $ledgerAll): array
+{
+    $s['income_sum'] = (float) ($ledgerAll['income_sum'] ?? 0);
+    $s['total_sum'] = (float) ($ledgerAll['net_sum'] ?? 0);
+    $s['investment_sum'] = (float) ($ledgerAll['investment_sum'] ?? 0);
+    return $s;
+}
+
+function bot_period_stats_apply_payments(array $s, array $payments, array $ledger): array
+{
+    $extraVolumeCount = (int) ($payments['extra_volume_count'] ?? 0);
+    $extraTimeCount = (int) ($payments['extra_time_count'] ?? 0);
+    $walletCount = (int) ($payments['wallet_count'] ?? 0);
+    $s['orders_sum'] = (float) ($payments['purchase_sum'] ?? 0);
+    $s['extends_sum'] = (float) ($payments['extend_sum'] ?? 0);
+    $s['extra_volume'] = $extraVolumeCount;
+    $s['extra_volume_sum'] = (float) ($payments['extra_volume_sum'] ?? 0);
+    $s['extra_time'] = $extraTimeCount;
+    $s['extra_time_sum'] = (float) ($payments['extra_time_sum'] ?? 0);
+    $s['wallet'] = $walletCount;
+    $s['wallet_sum'] = (float) ($payments['wallet_sum'] ?? 0);
+    $s['expenses'] = (int) ($ledger['expenses_count'] ?? 0);
+    $s['expenses_sum'] = (float) ($ledger['expenses_sum'] ?? 0);
+    $s['period_income_sum'] = (float) ($ledger['income_sum'] ?? 0);
+    $s['period_net_sum'] = (float) ($ledger['net_sum'] ?? 0);
+    $s['period_investment_sum'] = (float) ($ledger['investment_sum'] ?? 0);
+    $s['total_count'] = (int) ($payments['purchase_count'] ?? 0)
+        + (int) ($payments['extend_count'] ?? 0)
+        + $extraVolumeCount
+        + $extraTimeCount
+        + $walletCount;
+    return $s;
+}
+
+function bot_period_stats_overlay_live_payments(PDO $pdo, array $s, int $startTs, int $endTs): array
+{
+    return bot_period_stats_apply_payments(
+        $s,
+        bot_period_payment_purpose_stats($pdo, $startTs, $endTs),
+        bot_payment_ledger_stats($pdo, $startTs, $endTs)
+    );
+}
+
+function bot_period_stats_compute(PDO $pdo, int $startTs, int $endTs): array
+{
     $mixedTime = sql_unix_or_datetime_between('time');
-    $mixedParams = [$startTs, $endTs, $startDt, $endDt];
+    $mixedParams = stats_time_between_params($startTs, $endTs);
     $paidSql = invoice_paid_status_sql('Status');
     $payments = bot_period_payment_purpose_stats($pdo, $startTs, $endTs);
+    $invoiceTimeSql = invoice_time_range_sql();
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price_product),0) AS sum FROM invoice WHERE (time_sell BETWEEN :start AND :end) AND $paidSql AND name_product != 'سرویس تست'");
+    $stmt = $pdo->prepare("SELECT
+            COALESCE(SUM(CASE WHEN $paidSql AND name_product != 'سرویس تست' THEN 1 ELSE 0 END), 0) AS order_count,
+            COALESCE(SUM(CASE WHEN $paidSql AND name_product != 'سرویس تست' THEN CAST(price_product AS DECIMAL(20,0)) ELSE 0 END), 0) AS order_sum,
+            COALESCE(SUM(CASE WHEN name_product = 'سرویس تست' THEN 1 ELSE 0 END), 0) AS test_count
+        FROM invoice
+        WHERE $invoiceTimeSql");
     $stmt->execute([':start' => $startTs, ':end' => $endTs]);
-    $orders = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
+    $invoiceRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS count FROM invoice WHERE (time_sell BETWEEN :start AND :end) AND name_product = 'سرویس تست'");
-    $stmt->execute([':start' => $startTs, ':end' => $endTs]);
-    $tests = (int) ($stmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0);
-
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS sum FROM service_other WHERE $mixedTime AND type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'");
+    $stmt = $pdo->prepare("SELECT
+            COALESCE(SUM(CASE WHEN type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid' THEN 1 ELSE 0 END), 0) AS extend_count,
+            COALESCE(SUM(CASE WHEN type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject') THEN 1 ELSE 0 END), 0) AS loc_count,
+            COALESCE(SUM(CASE WHEN type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject') THEN CAST(price AS DECIMAL(20,0)) ELSE 0 END), 0) AS loc_sum
+        FROM service_other
+        WHERE $mixedTime
+          AND type IN ('extend_user','extends_not_user','extend_user_by_admin','change_location')");
     $stmt->execute($mixedParams);
-    $extends = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
+    $otherRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(price),0) AS sum FROM service_other WHERE $mixedTime AND type = 'change_location' AND COALESCE(status,'') NOT IN ('unpaid','Unpaid','reject')");
-    $stmt->execute($mixedParams);
-    $changeLocation = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['count' => 0, 'sum' => 0];
-
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS count FROM user WHERE register != 'none' AND (register BETWEEN :start AND :end)");
+    $registerSql = stats_unix_ready()
+        ? 'register_unix BETWEEN :start AND :end'
+        : "register != 'none' AND (register BETWEEN :start AND :end)";
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS count FROM user WHERE $registerSql");
     $stmt->execute([':start' => $startTs, ':end' => $endTs]);
     $users = (int) ($stmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0);
 
-    $orderInvoiceSum = (float) ($orders['sum'] ?? 0);
-    $orderSum = (float) ($payments['purchase_sum'] ?? 0);
-    $extendSum = (float) ($payments['extend_sum'] ?? 0);
-    $extraVolumeCount = (int) ($payments['extra_volume_count'] ?? 0);
-    $extraVolumeSum = (float) ($payments['extra_volume_sum'] ?? 0);
-    $extraTimeCount = (int) ($payments['extra_time_count'] ?? 0);
-    $extraTimeSum = (float) ($payments['extra_time_sum'] ?? 0);
-    $changeLocationSum = (float) ($changeLocation['sum'] ?? 0);
-    $walletSum = (float) ($payments['wallet_sum'] ?? 0);
-    $walletCount = (int) ($payments['wallet_count'] ?? 0);
     $withdraw = bot_wallet_withdraw_stats($pdo, $startTs, $endTs);
-    $withdrawCount = (int) ($withdraw['count'] ?? 0);
-    $withdrawSum = (float) ($withdraw['sum'] ?? 0);
     $ledger = bot_payment_ledger_stats($pdo, $startTs, $endTs);
-    $ledgerAll = bot_payment_ledger_stats($pdo);
     $agentInvoices = bot_agent_invoice_purchase_stats($pdo, $startTs, $endTs);
-    $expenseCount = (int) ($ledger['expenses_count'] ?? 0);
-    $expenseSum = (float) ($ledger['expenses_sum'] ?? 0);
 
-    return [
-        'orders' => (int) ($orders['count'] ?? 0),
-        'orders_sum' => $orderSum,
-        'orders_invoice_sum' => $orderInvoiceSum,
-        'tests' => $tests,
-        'extends' => (int) ($extends['count'] ?? 0),
-        'extends_sum' => $extendSum,
-        'extra_volume' => $extraVolumeCount,
-        'extra_volume_sum' => $extraVolumeSum,
-        'extra_time' => $extraTimeCount,
-        'extra_time_sum' => $extraTimeSum,
-        'change_location' => (int) ($changeLocation['count'] ?? 0),
-        'change_location_sum' => $changeLocationSum,
-        'wallet' => $walletCount,
-        'wallet_sum' => $walletSum,
-        'wallet_withdraw' => $withdrawCount,
-        'wallet_withdraw_sum' => $withdrawSum,
-        'expenses' => $expenseCount,
-        'expenses_sum' => $expenseSum,
+    $result = [
+        'orders' => (int) ($invoiceRow['order_count'] ?? 0),
+        'orders_invoice_sum' => (float) ($invoiceRow['order_sum'] ?? 0),
+        'tests' => (int) ($invoiceRow['test_count'] ?? 0),
+        'extends' => (int) ($otherRow['extend_count'] ?? 0),
+        'change_location' => (int) ($otherRow['loc_count'] ?? 0),
+        'change_location_sum' => (float) ($otherRow['loc_sum'] ?? 0),
+        'wallet_withdraw' => (int) ($withdraw['count'] ?? 0),
+        'wallet_withdraw_sum' => (float) ($withdraw['sum'] ?? 0),
         'users' => $users,
         'avg_join' => avg_join_to_first_purchase_label($pdo, $startTs, $endTs),
-        'total_count' => (int) ($payments['purchase_count'] ?? 0)
-            + (int) ($payments['extend_count'] ?? 0)
-            + $extraVolumeCount
-            + $extraTimeCount
-            + $walletCount,
-        'period_income_sum' => (float) ($ledger['income_sum'] ?? 0),
-        'period_net_sum' => (float) ($ledger['net_sum'] ?? 0),
-        'period_investment_sum' => (float) ($ledger['investment_sum'] ?? 0),
-        'income_sum' => (float) ($ledgerAll['income_sum'] ?? 0),
-        'total_sum' => (float) ($ledgerAll['net_sum'] ?? 0),
-        'investment_sum' => (float) ($ledgerAll['investment_sum'] ?? 0),
         'agent_n_count' => (int) ($agentInvoices['n_count'] ?? 0),
         'agent_n_sum' => (float) ($agentInvoices['n_sum'] ?? 0),
         'agent_n2_count' => (int) ($agentInvoices['n2_count'] ?? 0),
@@ -1632,6 +1706,8 @@ function bot_period_stats(PDO $pdo, int $startTs, int $endTs): array
             ? forecast_monthly_sold_volume($pdo, $startTs, $endTs)
             : null,
     ];
+
+    return bot_period_stats_apply_payments($result, $payments, $ledger);
 }
 
 function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = null): string
@@ -1709,6 +1785,198 @@ $soldVolumeBlock
 💵 درآمد خالص (از ابتدا) : $sumTotal تومان
 🏦 ورود سرمایه (از ابتدا) : $sumInvestment تومان
 ";
+}
+
+function bot_overall_stats_html(PDO $pdo): string
+{
+    stats_schema_ensure_if_needed();
+    $cached = bot_stats_cache_get('overall_html');
+    if (is_string($cached) && $cached !== '') {
+        return $cached;
+    }
+
+    global $datatextbot;
+    $paidSql = invoice_paid_status_sql('Status');
+    $activeSql = "Status IN ('active','end_of_time','end_of_volume','sendedwarn','send_on_hold')";
+
+    $userRow = $pdo->query("SELECT
+            COUNT(*) AS users,
+            COALESCE(SUM(Balance), 0) AS balance,
+            COALESCE(SUM(agent != 'f'), 0) AS agents,
+            COALESCE(SUM(agent = 'n'), 0) AS agents_n,
+            COALESCE(SUM(agent = 'n2'), 0) AS agents_n2
+        FROM user")->fetch(PDO::FETCH_ASSOC) ?: [];
+    $statistics = (int) ($userRow['users'] ?? 0);
+    $Balanceall = $userRow['balance'] ?? 0;
+    $agentsum = (int) ($userRow['agents'] ?? 0);
+    $agentsumn = (int) ($userRow['agents_n'] ?? 0);
+    $agentsumn2 = (int) ($userRow['agents_n2'] ?? 0);
+
+    $sumpanel = (int) $pdo->query('SELECT COUNT(*) FROM marzban_panel')->fetchColumn();
+
+    $invoiceRow = $pdo->query("SELECT
+            COALESCE(SUM(CASE WHEN $paidSql AND name_product != 'سرویس تست' THEN 1 ELSE 0 END), 0) AS paid_count,
+            COALESCE(SUM(CASE WHEN $paidSql AND name_product != 'سرویس تست' THEN CAST(price_product AS DECIMAL(20,0)) ELSE 0 END), 0) AS paid_sum,
+            COALESCE(SUM(CASE WHEN $activeSql AND name_product != 'سرویس تست' THEN 1 ELSE 0 END), 0) AS active_count,
+            COALESCE(SUM(CASE WHEN $activeSql AND name_product != 'سرویس تست' THEN CAST(price_product AS DECIMAL(20,0)) ELSE 0 END), 0) AS active_sum,
+            COALESCE(SUM(CASE WHEN name_product = 'سرویس تست' THEN 1 ELSE 0 END), 0) AS test_count
+        FROM invoice")->fetch(PDO::FETCH_ASSOC) ?: [];
+    $invoice = (int) ($invoiceRow['paid_count'] ?? 0);
+    $invoicePaidSum = (float) ($invoiceRow['paid_sum'] ?? 0);
+    $invoiceactive = (int) ($invoiceRow['active_count'] ?? 0);
+    $invoicesum = (float) ($invoiceRow['active_sum'] ?? 0);
+    $count_usertest = (int) ($invoiceRow['test_count'] ?? 0);
+
+    $withdrawAll = bot_wallet_withdraw_stats($pdo);
+    $ledgerAll = bot_stats_cached_ledger_all($pdo);
+    $invoiceTotal = (float) ($ledgerAll['income_sum'] ?? 0);
+
+    $extendRow = $pdo->query("SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_extend
+        FROM service_other
+        WHERE type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'")->fetch(PDO::FETCH_ASSOC) ?: [];
+    $extendsum = (float) ($extendRow['total_extend'] ?? 0);
+
+    $stmt2 = $pdo->query("SELECT
+        COUNT(*) AS users_with_account,
+        COALESCE(SUM(has_purchase), 0) AS users_with_purchase,
+        COALESCE(SUM(has_test), 0) AS users_with_test,
+        COALESCE(SUM(has_test AND NOT has_purchase), 0) AS users_with_test_no_purchase,
+        COALESCE(SUM(has_test AND has_purchase), 0) AS users_with_test_and_purchase
+        FROM (
+            SELECT id_user,
+                   MAX(name_product = 'سرویس تست') AS has_test,
+                   MAX(name_product != 'سرویس تست') AS has_purchase
+            FROM invoice
+            WHERE $paidSql
+            GROUP BY id_user
+        ) user_invoice_flags");
+    $statsUsers = $stmt2->fetch(PDO::FETCH_ASSOC) ?: [];
+    $count_users_account = (int) ($statsUsers['users_with_account'] ?? 0);
+    $statisticsorder = (int) ($statsUsers['users_with_purchase'] ?? 0);
+    $count_users_test_no_purchase = (int) ($statsUsers['users_with_test_no_purchase'] ?? 0);
+    $count_users_test_and_purchase = (int) ($statsUsers['users_with_test_and_purchase'] ?? 0);
+
+    $stmt = $pdo->query("SELECT SUM(price) AS sumpay, Payment_Method, COUNT(price) AS countpay
+        FROM Payment_report
+        WHERE payment_Status = 'paid'
+        GROUP BY Payment_Method");
+    $statispay = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+
+    $ratecustomer = $statistics > 0 ? round(($statisticsorder / $statistics) * 100, 2) : 0;
+    $ratetest = $statistics > 0 ? round((((int) ($statsUsers['users_with_test'] ?? 0)) / $statistics) * 100, 2) : 0;
+    $avgbuy_customer = $statisticsorder > 0 ? number_format($invoiceTotal / $statisticsorder) : '0';
+    $monthe_buy = number_format(forecast_monthly_paid_income($pdo));
+    $monthe_volume = bot_format_gb(forecast_monthly_sold_volume($pdo) ?? 0);
+    $percent_of_extend = $invoiceTotal > 0 ? round(($extendsum / $invoiceTotal) * 100, 2) : 0;
+    $percent_of_extend = $percent_of_extend > 100 ? 100 : $percent_of_extend;
+    $firstPurchaseStats = bot_first_purchase_stats($pdo);
+    $firstPurchaseSum = (float) ($firstPurchaseStats['sum'] ?? 0);
+    $repeatPurchaseSum = max(0.0, $invoicePaidSum - $firstPurchaseSum);
+    $percent_of_loyalty = $invoiceTotal > 0
+        ? round((($repeatPurchaseSum + $extendsum) / $invoiceTotal) * 100, 2)
+        : 0;
+    $percent_of_loyalty = $percent_of_loyalty > 100 ? 100 : $percent_of_loyalty;
+    $avgJoinBuy = avg_join_to_first_purchase_label($pdo);
+    $soldVolumeText = bot_format_sold_volume_block(bot_sold_volume_stats($pdo), true);
+    $agentInvoiceStats = bot_agent_invoice_purchase_stats($pdo);
+    $autoRenewStats = invoice_auto_renew_stats($pdo);
+    $firstPurchaseText = bot_format_first_purchase_block($firstPurchaseStats, $invoice, $invoicePaidSum, true);
+
+    $paycount = '';
+    if (is_array($statispay) && count($statispay) !== 0) {
+        foreach ($statispay as $tracepay) {
+            if (($tracepay['Payment_Method'] ?? '') === 'capital_injection') {
+                continue;
+            }
+            $status_var = [
+                'cart to cart' => $datatextbot['carttocart'] ?? 'cart to cart',
+                'aqayepardakht' => $datatextbot['aqayepardakht'] ?? 'aqayepardakht',
+                'zarinpal' => $datatextbot['zarinpal'] ?? 'zarinpal',
+                'plisio' => $datatextbot['textnowpayment'] ?? 'plisio',
+                'arze digital offline' => $datatextbot['textnowpaymenttron'] ?? 'tron',
+                'Currency Rial 1' => $datatextbot['iranpay2'] ?? 'Currency Rial 1',
+                'Currency Rial 2' => $datatextbot['iranpay3'] ?? 'Currency Rial 2',
+                'Currency Rial 3' => $datatextbot['iranpay1'] ?? 'Currency Rial 3',
+                'paymentnotverify' => $datatextbot['textpaymentnotverify'] ?? 'paymentnotverify',
+                'Star Telegram' => $datatextbot['text_star_telegram'] ?? 'Star Telegram',
+                'tetraminator' => $datatextbot['tetraminator'] ?? 'Tetraminator',
+                'add order by admin' => 'سفارش توسط ادمین',
+                'extend by admin' => 'تمدید توسط ادمین',
+            ][$tracepay['Payment_Method']] ?? ($tracepay['Payment_Method'] ?: 'سایر');
+            $sumPay = number_format((float) ($tracepay['sumpay'] ?? 0), 0);
+            $countPay = (int) ($tracepay['countpay'] ?? 0);
+            $status_var = htmlspecialchars((string) $status_var, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $paycount .= "\n• {$status_var}: <code>$countPay</code> عدد — <code>$sumPay</code> تومان";
+        }
+    }
+
+    $invoicesumFmt = number_format($invoicesum, 0);
+    $extendsumFmt = number_format($extendsum, 0);
+    $incomeSumAllFmt = number_format((float) ($ledgerAll['income_sum'] ?? 0), 0);
+    $investmentSumAllFmt = number_format((float) ($ledgerAll['investment_sum'] ?? 0), 0);
+    $invoicesumall = number_format((float) ($ledgerAll['net_sum'] ?? 0), 0);
+    $withdrawCountAll = (int) ($withdrawAll['count'] ?? 0);
+    $withdrawSumAllFmt = number_format((float) ($withdrawAll['sum'] ?? 0), 0);
+    $expenseCountAll = (int) ($ledgerAll['expenses_count'] ?? 0);
+    $expenseSumAllFmt = number_format((float) ($ledgerAll['expenses_sum'] ?? 0), 0);
+    $agentNCountAll = (int) ($agentInvoiceStats['n_count'] ?? 0);
+    $agentNSumAll = number_format((float) ($agentInvoiceStats['n_sum'] ?? 0), 0);
+    $agentN2CountAll = (int) ($agentInvoiceStats['n2_count'] ?? 0);
+    $agentN2SumAll = number_format((float) ($agentInvoiceStats['n2_sum'] ?? 0), 0);
+    $autoRenewUsers = $autoRenewStats['users'];
+    $autoRenewServices = $autoRenewStats['services'];
+
+    $html = "📊 <b>آمار کلی ربات</b>
+━━━━━━━━━━━━━━━━━━
+👥 <b>تعداد کل کاربران:</b> <code>$statistics</code> نفر  
+👤 <b>تعداد کاربران دارای اکانت:</b> <code>$count_users_account</code> نفر  
+💳 <b>کاربران دارای خرید:</b> <code>$statisticsorder</code> نفر  
+🧪 <b>اکانت‌های تست:</b> <code>$count_usertest</code> نفر  
+🧪 <b>کاربران دارای تست بدون خرید:</b> <code>$count_users_test_no_purchase</code> نفر  
+🧪💳 <b>کاربران دارای تست با خرید:</b> <code>$count_users_test_and_purchase</code> نفر  
+💰 <b>موجودی کل کاربران:</b> <code>$Balanceall</code> تومان  
+
+💰 <b>درآمدها</b>
+🧾 <b>تعداد کل فروش:</b> <code>$invoice</code> عدد
+$firstPurchaseText
+🧾 <b>تعداد کل فروش سرویس های فعال:</b> <code>$invoiceactive</code> عدد
+💵 <b>جمع کل فروش سرویس های فعال:</b> <code>$invoicesumFmt</code> تومان
+🔄 <b>جمع کل تمدید:</b> <code>$extendsumFmt</code> تومان
+🛒 <b>خرید نمایندگان عادی:</b> <code>$agentNCountAll</code> عدد — <code>$agentNSumAll</code> تومان
+🛒 <b>خرید نمایندگان پیشرفته:</b> <code>$agentN2CountAll</code> عدد — <code>$agentN2SumAll</code> تومان
+$paycount
+<b>💰 درآمد کل: <code>$incomeSumAllFmt</code> تومان</b>
+🏦 <b>ورود سرمایه: <code>$investmentSumAllFmt</code> تومان</b>
+
+💸 <b>هزینه‌ها</b>
+💸 <b>تعداد برداشت از کیف پول:</b> <code>$withdrawCountAll</code> عدد
+💰 <b>مبلغ برداشت از کیف پول:</b> <code>$withdrawSumAllFmt</code> تومان
+🧾 <b>تعداد کل هزینه‌ها:</b> <code>$expenseCountAll</code> عدد
+💸 <b>مجموع کل هزینه‌ها:</b> <code>$expenseSumAllFmt</code> تومان
+
+<b>💵 درآمد خالص: <code>$invoicesumall</code> تومان</b>
+
+♻️ <b>کاربران با تمدید خودکار:</b> <code>$autoRenewUsers</code> نفر  
+♻️ <b>سرویس‌های تمدید خودکار:</b> <code>$autoRenewServices</code> عدد  
+$soldVolumeText
+
+📈 <b>نرخ تبدیل به مشتری:</b> <code>$ratecustomer</code>٪  
+🧪 <b>نرخ دریافت تست:</b> <code>$ratetest</code>٪  
+💳 <b>میانگین خرید هر مشتری:</b> <code>$avgbuy_customer</code> تومان  
+⏱ <b>میانگین زمان عضویت تا اولین خرید:</b> <code>$avgJoinBuy</code>  
+📅 <b>درآمد پیش‌بینی‌شده ماهانه:</b> <code>$monthe_buy</code> تومان  
+🔋 <b>حجم فروخته‌شده پیش‌بینی‌شده ماهانه:</b> <code>$monthe_volume</code> گیگابایت  
+📊 <b>درصد تمدید از فروش:</b> <code>$percent_of_extend</code>٪  
+💚 <b>درصد وفاداری:</b> <code>$percent_of_loyalty</code>٪  
+
+
+👨‍💼 <b>تعداد کل نمایندگان:</b> <code>$agentsum</code> نفر  
+🔹 <b>نمایندگان نوع N:</b> <code>$agentsumn</code> نفر  
+🔸 <b>نمایندگان نوع N2:</b> <code>$agentsumn2</code> نفر  
+🧩 <b>تعداد پنل‌ها:</b> <code>$sumpanel</code> عدد
+";
+    bot_stats_cache_set('overall_html', $html);
+    return $html;
 }
 
 function format_duration_fa(?float $seconds): string
@@ -2147,6 +2415,9 @@ function update($table, $field, $newValue, $whereField = null, $whereValue = nul
     }
 
     clearSelectCache($table);
+    if ($table === 'user' && $field === 'agent' && $whereField === 'id') {
+        payment_sync_exclude_from_stats_for_user($whereValue, $valueToStore);
+    }
 }
 function &getSelectCacheStore()
 {
@@ -2338,6 +2609,335 @@ function ensureIndex(string $table, string $indexName, string $columnsSql): void
     }
 }
 
+function stats_schema_marker_path(string $name): string
+{
+    return __DIR__ . '/logs/' . $name;
+}
+
+function stats_schema_ensure_if_needed(): void
+{
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+    $checked = true;
+    ensure_stats_query_schema();
+}
+
+function stats_unix_ready(): bool
+{
+    return is_file(stats_schema_marker_path('.stats_backfill_v1'));
+}
+
+function stats_n2_flag_ready(): bool
+{
+    return stats_unix_ready();
+}
+
+function stats_column_exists(PDO $pdo, string $table, string $column): bool
+{
+    try {
+        $db = $pdo->query('SELECT DATABASE()')->fetchColumn();
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?');
+        $stmt->execute([$db, $table, $column]);
+        return (int) $stmt->fetchColumn() > 0;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function stats_add_column(PDO $pdo, string $table, string $column, string $definition): void
+{
+    if (stats_column_exists($pdo, $table, $column)) {
+        return;
+    }
+    $table = preg_replace('/[^A-Za-z0-9_]/', '', $table);
+    $column = preg_replace('/[^A-Za-z0-9_]/', '', $column);
+    $pdo->exec("ALTER TABLE `$table` ADD `$column` $definition");
+}
+
+function stats_drop_trigger(PDO $pdo, string $name): void
+{
+    $name = preg_replace('/[^A-Za-z0-9_]/', '', $name);
+    try {
+        $pdo->exec("DROP TRIGGER IF EXISTS `$name`");
+    } catch (Throwable $e) {
+        error_log('stats_drop_trigger: ' . $e->getMessage());
+    }
+}
+
+function stats_create_trigger(PDO $pdo, string $name, string $sql): void
+{
+    stats_drop_trigger($pdo, $name);
+    $pdo->exec($sql);
+}
+
+function stats_unix_trigger_expr(string $newCol): string
+{
+    return "CASE
+        WHEN NEW.$newCol REGEXP '^[0-9]{9,}$' THEN CAST(NEW.$newCol AS UNSIGNED)
+        WHEN NEW.$newCol IS NULL OR NEW.$newCol IN ('', 'none') THEN NULL
+        ELSE COALESCE(
+            UNIX_TIMESTAMP(STR_TO_DATE(NEW.$newCol, '%Y-%m-%d %H:%i:%s')),
+            UNIX_TIMESTAMP(STR_TO_DATE(NEW.$newCol, '%Y/%m/%d %H:%i:%s'))
+        )
+    END";
+}
+
+function stats_exclude_trigger_expr(): string
+{
+    return "IF(
+        EXISTS (
+            SELECT 1 FROM user _n2u
+            WHERE _n2u.agent = 'n2' AND _n2u.id = NEW.id_user
+        )
+        OR (
+            COALESCE(NEW.bottype, '') NOT IN ('', '0')
+            AND EXISTS (
+                SELECT 1 FROM botsaz _n2b
+                INNER JOIN user _n2bu ON _n2bu.id = _n2b.id_user
+                WHERE _n2bu.agent = 'n2' AND _n2b.bot_token = NEW.bottype
+            )
+        ),
+        1, 0
+    )";
+}
+
+function ensure_stats_query_schema(): void
+{
+    global $pdo;
+    if (!($pdo instanceof PDO)) {
+        return;
+    }
+
+    $logsDir = __DIR__ . '/logs';
+    if (!is_dir($logsDir)) {
+        @mkdir($logsDir, 0755, true);
+    }
+    $schemaMarker = stats_schema_marker_path('.stats_schema_v1');
+    $backfillMarker = stats_schema_marker_path('.stats_backfill_v1');
+
+    if (!is_file($schemaMarker)) {
+        try {
+            stats_add_column($pdo, 'invoice', 'time_sell_unix', 'INT UNSIGNED NULL DEFAULT NULL');
+            stats_add_column($pdo, 'Payment_report', 'time_unix', 'INT UNSIGNED NULL DEFAULT NULL');
+            stats_add_column($pdo, 'Payment_report', 'exclude_from_stats', 'TINYINT(1) NOT NULL DEFAULT 0');
+            stats_add_column($pdo, 'service_other', 'time_unix', 'INT UNSIGNED NULL DEFAULT NULL');
+            stats_add_column($pdo, 'user', 'register_unix', 'INT UNSIGNED NULL DEFAULT NULL');
+
+            $invoiceUnix = stats_unix_trigger_expr('time_sell');
+            stats_create_trigger($pdo, 'trg_invoice_stats_bi', "CREATE TRIGGER trg_invoice_stats_bi BEFORE INSERT ON invoice FOR EACH ROW SET NEW.time_sell_unix = $invoiceUnix");
+            stats_create_trigger($pdo, 'trg_invoice_stats_bu', "CREATE TRIGGER trg_invoice_stats_bu BEFORE UPDATE ON invoice FOR EACH ROW SET NEW.time_sell_unix = $invoiceUnix");
+
+            $serviceUnix = stats_unix_trigger_expr('time');
+            stats_create_trigger($pdo, 'trg_service_other_stats_bi', "CREATE TRIGGER trg_service_other_stats_bi BEFORE INSERT ON service_other FOR EACH ROW SET NEW.time_unix = $serviceUnix");
+            stats_create_trigger($pdo, 'trg_service_other_stats_bu', "CREATE TRIGGER trg_service_other_stats_bu BEFORE UPDATE ON service_other FOR EACH ROW SET NEW.time_unix = $serviceUnix");
+
+            $userUnix = stats_unix_trigger_expr('register');
+            stats_create_trigger($pdo, 'trg_user_stats_bi', "CREATE TRIGGER trg_user_stats_bi BEFORE INSERT ON user FOR EACH ROW SET NEW.register_unix = $userUnix");
+            stats_create_trigger($pdo, 'trg_user_stats_bu', "CREATE TRIGGER trg_user_stats_bu BEFORE UPDATE ON user FOR EACH ROW SET NEW.register_unix = $userUnix");
+
+            $payUnix = stats_unix_trigger_expr('time');
+            $payExclude = stats_exclude_trigger_expr();
+            try {
+                stats_create_trigger($pdo, 'trg_payment_stats_bi', "CREATE TRIGGER trg_payment_stats_bi BEFORE INSERT ON Payment_report FOR EACH ROW SET NEW.time_unix = $payUnix, NEW.exclude_from_stats = $payExclude");
+                stats_create_trigger($pdo, 'trg_payment_stats_bu', "CREATE TRIGGER trg_payment_stats_bu BEFORE UPDATE ON Payment_report FOR EACH ROW SET NEW.time_unix = $payUnix, NEW.exclude_from_stats = $payExclude");
+            } catch (Throwable $e) {
+                error_log('payment stats trigger with n2: ' . $e->getMessage());
+                stats_create_trigger($pdo, 'trg_payment_stats_bi', "CREATE TRIGGER trg_payment_stats_bi BEFORE INSERT ON Payment_report FOR EACH ROW SET NEW.time_unix = $payUnix");
+                stats_create_trigger($pdo, 'trg_payment_stats_bu', "CREATE TRIGGER trg_payment_stats_bu BEFORE UPDATE ON Payment_report FOR EACH ROW SET NEW.time_unix = $payUnix");
+            }
+
+            ensureIndex('invoice', 'idx_invoice_id_user_status', '`id_user`(100), `Status`(50)');
+            ensureIndex('invoice', 'idx_invoice_username', '`username`(191)');
+            ensureIndex('invoice', 'idx_invoice_time_sell_unix', '`time_sell_unix`');
+            ensureIndex('invoice', 'idx_invoice_status_product_time', '`Status`(40), `name_product`(80), `time_sell_unix`');
+            ensureIndex('Payment_report', 'idx_payment_id_user_status', '`id_user`(100), `payment_Status`(50)');
+            ensureIndex('Payment_report', 'idx_payment_time_unix', '`time_unix`');
+            ensureIndex('Payment_report', 'idx_payment_exclude_status_time', '`exclude_from_stats`, `payment_Status`(50), `time_unix`');
+            ensureIndex('service_other', 'idx_service_other_type_status_time', '`type`(50), `status`(50), `time_unix`');
+            ensureIndex('user', 'idx_user_agent', '`agent`(20)');
+            ensureIndex('user', 'idx_user_register_unix', '`register_unix`');
+            ensureIndex('wallet_withdraw', 'idx_withdraw_status_updated', '`status`, `updated_at`');
+            ensureIndex('botsaz', 'idx_botsaz_bot_token', '`bot_token`(191)');
+
+            @file_put_contents($schemaMarker, (string) time());
+        } catch (Throwable $e) {
+            error_log('ensure_stats_query_schema: ' . $e->getMessage());
+            return;
+        }
+    }
+
+    if (!is_file($backfillMarker)) {
+        if (stats_backfill_batch($pdo)) {
+            @file_put_contents($backfillMarker, (string) time());
+        }
+    }
+}
+
+function stats_backfill_batch(PDO $pdo): bool
+{
+    $limit = 8000;
+    $remaining = false;
+    $jobs = [
+        ['invoice', 'time_sell_unix', 'time_sell'],
+        ['Payment_report', 'time_unix', 'time'],
+        ['service_other', 'time_unix', 'time'],
+        ['user', 'register_unix', 'register'],
+    ];
+    foreach ($jobs as [$table, $unixCol, $srcCol]) {
+        if (!stats_column_exists($pdo, $table, $unixCol)) {
+            return false;
+        }
+        $expr = stats_varchar_to_unix_sql($srcCol);
+        try {
+            $affected = $pdo->exec("UPDATE `$table`
+                SET `$unixCol` = $expr
+                WHERE `$unixCol` IS NULL
+                  AND `$srcCol` IS NOT NULL
+                  AND `$srcCol` != ''
+                  AND `$srcCol` != 'none'
+                LIMIT $limit");
+            if ($affected === false || (int) $affected >= $limit) {
+                $remaining = true;
+            } elseif ((int) $affected === 0) {
+                $check = $pdo->query("SELECT COUNT(*) FROM `$table`
+                    WHERE `$unixCol` IS NULL
+                      AND `$srcCol` IS NOT NULL
+                      AND `$srcCol` != ''
+                      AND `$srcCol` != 'none'");
+                if ($check && (int) $check->fetchColumn() > 0) {
+                    $remaining = true;
+                }
+            }
+        } catch (Throwable $e) {
+            error_log("stats_backfill $table: " . $e->getMessage());
+            $remaining = true;
+        }
+    }
+
+    if (stats_column_exists($pdo, 'Payment_report', 'exclude_from_stats')) {
+        try {
+            $pdo->exec("UPDATE Payment_report pr
+                INNER JOIN user u ON u.id = pr.id_user AND u.agent = 'n2'
+                SET pr.exclude_from_stats = 1
+                WHERE pr.exclude_from_stats = 0");
+            $pdo->exec("UPDATE Payment_report pr
+                INNER JOIN botsaz b ON b.bot_token = pr.bottype
+                INNER JOIN user u ON u.id = b.id_user AND u.agent = 'n2'
+                SET pr.exclude_from_stats = 1
+                WHERE pr.exclude_from_stats = 0
+                  AND COALESCE(pr.bottype, '') NOT IN ('', '0')");
+        } catch (Throwable $e) {
+            error_log('stats_backfill n2: ' . $e->getMessage());
+            $remaining = true;
+        }
+    }
+
+    return !$remaining;
+}
+
+function payment_sync_exclude_from_stats_for_user($userId, $agent): void
+{
+    global $pdo;
+    if (!($pdo instanceof PDO) || $userId === null || $userId === '') {
+        return;
+    }
+    if (!stats_column_exists($pdo, 'Payment_report', 'exclude_from_stats')) {
+        return;
+    }
+    $flag = agent_is_n2($agent) ? 1 : 0;
+    try {
+        $stmt = $pdo->prepare('UPDATE Payment_report SET exclude_from_stats = ? WHERE id_user = ?');
+        $stmt->execute([$flag, (string) $userId]);
+        if ($flag === 1) {
+            $stmt = $pdo->prepare('UPDATE Payment_report pr INNER JOIN botsaz b ON b.bot_token = pr.bottype SET pr.exclude_from_stats = 1 WHERE b.id_user = ?');
+            $stmt->execute([(string) $userId]);
+        } else {
+            $stmt = $pdo->prepare('UPDATE Payment_report pr INNER JOIN botsaz b ON b.bot_token = pr.bottype SET pr.exclude_from_stats = 0 WHERE b.id_user = ?');
+            $stmt->execute([(string) $userId]);
+        }
+    } catch (Throwable $e) {
+        error_log('payment_sync_exclude_from_stats_for_user: ' . $e->getMessage());
+    }
+    bot_stats_cache_clear();
+}
+
+function bot_stats_cache_ttl(): int
+{
+    return 90;
+}
+
+function bot_stats_cache_dir(): string
+{
+    $dir = __DIR__ . '/logs/stats_cache';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    return $dir;
+}
+
+function bot_stats_cache_file(string $key): string
+{
+    return bot_stats_cache_dir() . '/' . hash('sha256', $key) . '.json';
+}
+
+function bot_stats_cache_get(string $key)
+{
+    $path = bot_stats_cache_file($key);
+    if (!is_file($path)) {
+        return null;
+    }
+    $raw = @file_get_contents($path);
+    if (!is_string($raw) || $raw === '') {
+        return null;
+    }
+    $row = json_decode($raw, true);
+    if (!is_array($row) || !isset($row['expires'], $row['data'])) {
+        return null;
+    }
+    if ((int) $row['expires'] < time()) {
+        @unlink($path);
+        return null;
+    }
+    return $row['data'];
+}
+
+function bot_stats_cache_set(string $key, $data, ?int $ttl = null): void
+{
+    $ttl = $ttl ?? bot_stats_cache_ttl();
+    $payload = json_encode([
+        'expires' => time() + $ttl,
+        'data' => $data,
+    ], JSON_UNESCAPED_UNICODE);
+    if ($payload === false) {
+        return;
+    }
+    @file_put_contents(bot_stats_cache_file($key), $payload, LOCK_EX);
+}
+
+function bot_stats_cache_clear(): void
+{
+    $dir = bot_stats_cache_dir();
+    if (!is_dir($dir)) {
+        return;
+    }
+    foreach (glob($dir . '/*.json') ?: [] as $file) {
+        @unlink($file);
+    }
+}
+
+function bot_stats_cached_ledger_all(PDO $pdo): array
+{
+    $cached = bot_stats_cache_get('ledger_all');
+    if (is_array($cached)) {
+        return $cached;
+    }
+    $ledger = bot_payment_ledger_stats($pdo);
+    bot_stats_cache_set('ledger_all', $ledger);
+    return $ledger;
+}
+
 function ensure_hot_path_indexes(): void
 {
     static $done = false;
@@ -2345,18 +2945,7 @@ function ensure_hot_path_indexes(): void
         return;
     }
     $done = true;
-    $logsDir = __DIR__ . '/logs';
-    $marker = $logsDir . '/.hot_path_indexes_v1';
-    if (is_file($marker)) {
-        return;
-    }
-    ensureIndex('invoice', 'idx_invoice_id_user_status', '`id_user`(100), `Status`(50)');
-    ensureIndex('invoice', 'idx_invoice_username', '`username`(191)');
-    ensureIndex('Payment_report', 'idx_payment_id_user_status', '`id_user`(100), `payment_Status`(50)');
-    if (!is_dir($logsDir)) {
-        @mkdir($logsDir, 0755, true);
-    }
-    @file_put_contents($marker, (string) time());
+    ensure_stats_query_schema();
 }
 
 function getPaySettingValue($name, $default = null)
@@ -9883,6 +10472,9 @@ function agent_n2_reset_period_counter($agentUserId): void
  */
 function agent_on_role_changed($agentUserId, $oldRole, $newRole): void
 {
+    if ((string) $oldRole !== (string) $newRole) {
+        payment_sync_exclude_from_stats_for_user($agentUserId, $newRole);
+    }
     if ((string) $newRole !== 'n2' || (string) $oldRole === 'n2') {
         return;
     }

@@ -86,12 +86,13 @@ $toJalaliDay = static function (?string $gregorianDay) use ($dayKeySet): ?string
     return ($key !== null && isset($dayKeySet[$key])) ? $key : null;
 };
 
-$invoiceDaySql = sql_tehran_day_from_unix('CAST(time_sell AS UNSIGNED)');
-$registerDaySql = sql_tehran_day_from_unix('CAST(register AS UNSIGNED)');
-$unixTimeDaySql = sql_tehran_day_from_unix('CAST(time AS UNSIGNED)');
+stats_schema_ensure_if_needed();
+$invoiceDaySql = sql_tehran_day_from_unix(stats_unix_ready() ? 'time_sell_unix' : 'CAST(time_sell AS UNSIGNED)');
+$registerDaySql = sql_tehran_day_from_unix(stats_unix_ready() ? 'register_unix' : 'CAST(register AS UNSIGNED)');
+$unixTimeDaySql = sql_tehran_day_from_unix(stats_unix_ready() ? 'time_unix' : 'CAST(time AS UNSIGNED)');
 $datetimeDaySql = "DATE_FORMAT(COALESCE(STR_TO_DATE(time, '%Y-%m-%d %H:%i:%s'), STR_TO_DATE(time, '%Y/%m/%d %H:%i:%s')), '%Y-%m-%d')";
 $mixedTimeSql = sql_unix_or_datetime_between('time');
-$mixedTimeParams = [$monthStart, $monthEnd, tehran_datetime_string($monthStart, 'Y-m-d H:i:s'), tehran_datetime_string($monthEnd, 'Y-m-d H:i:s')];
+$mixedTimeParams = stats_time_between_params($monthStart, $monthEnd);
 
 $userFilters = panel_user_segment_from_request();
 $userFiltersActive = panel_user_segment_active($userFilters);

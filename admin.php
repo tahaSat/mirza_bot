@@ -223,180 +223,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     }
     sendmessage($from_id, $channel_summary, $channelkeyboard, 'HTML');
 } elseif ($text == $textbotlang['Admin']['Status']['btn'] || $datain == "stat_all_bot") {
-    $Balanceall = select("user", "SUM(Balance)", null, null, "select")['SUM(Balance)'];
-    $statistics = select("user", "*", null, null, "count");
-    $sumpanel = select("marzban_panel", "*", null, null, "count");
-    $sql1 = "SELECT COUNT(id) AS count FROM user WHERE agent != 'f'";
-    $stmt1 = $pdo->query($sql1);
-    $agentsum = $stmt1->fetch(PDO::FETCH_ASSOC)['count'];
-    $agentsumn = select("user", "COUNT(id)", "agent", "n", "select")['COUNT(id)'];
-    $agentsumn2 = select("user", "COUNT(id)", "agent", "n2", "select")['COUNT(id)'];
-    $sql1 = "SELECT COUNT(*) AS invoice_count FROM invoice WHERE (status = 'active' OR status = 'end_of_time' OR status = 'end_of_volume' OR status = 'sendedwarn' OR status = 'send_on_hold') AND name_product != 'سرویس تست'";
-    $stmt1 = $pdo->query($sql1);
-    $invoiceactive = $stmt1->fetch(PDO::FETCH_ASSOC)['invoice_count'];
-    $sqlall = "SELECT COUNT(*) AS invoice_count, COALESCE(SUM(price_product),0) AS invoice_sum FROM invoice WHERE " . invoice_paid_status_sql('Status') . " AND name_product != 'سرویس تست'";
-    $sqlall = $pdo->query($sqlall);
-    $invoiceRow = $sqlall->fetch(PDO::FETCH_ASSOC) ?: [];
-    $invoice = $invoiceRow['invoice_count'] ?? 0;
-    $invoicePaidSum = (float) ($invoiceRow['invoice_sum'] ?? 0);
-    $sql2 = "SELECT SUM(price_product) AS total_price FROM invoice WHERE (status = 'active' OR status = 'end_of_time' OR status = 'end_of_volume' OR status = 'sendedwarn' OR status = 'send_on_hold') AND name_product != 'سرویس تست'";
-    $stmt2 = $pdo->query($sql2);
-    $invoicesum = $stmt2->fetch(PDO::FETCH_ASSOC)['total_price'];
-    $sql33 = "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_price FROM Payment_report WHERE " . paid_real_income_sql();
-    $sql33 = $pdo->query($sql33);
-    $invoiceSumRow = $sql33->fetch(PDO::FETCH_ASSOC);
-    $invoiceTotal = isset($invoiceSumRow['total_price']) ? (float) $invoiceSumRow['total_price'] : 0;
-    $withdrawAll = bot_wallet_withdraw_stats($pdo);
-    $withdrawCountAll = (int) ($withdrawAll['count'] ?? 0);
-    $withdrawSumAll = (float) ($withdrawAll['sum'] ?? 0);
-    $ledgerAll = bot_payment_ledger_stats($pdo);
-    $expenseCountAll = (int) ($ledgerAll['expenses_count'] ?? 0);
-    $expenseSumAll = (float) ($ledgerAll['expenses_sum'] ?? 0);
-    $expenseSumAllFmt = number_format($expenseSumAll, 0);
-    $incomeSumAllFmt = number_format((float) ($ledgerAll['income_sum'] ?? 0), 0);
-    $investmentSumAllFmt = number_format((float) ($ledgerAll['investment_sum'] ?? 0), 0);
-    $invoicesumall = number_format((float) ($ledgerAll['net_sum'] ?? 0), 0);
-    $withdrawSumAllFmt = number_format($withdrawSumAll, 0);
-    $sql3 = "SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_extend FROM service_other WHERE type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'";
-    $stmt3 = $pdo->query($sql3);
-    $extendSumRow = $stmt3->fetch(PDO::FETCH_ASSOC);
-    $extendsum = isset($extendSumRow['total_extend']) ? (float) $extendSumRow['total_extend'] : 0;
-    $count_usertest = select("invoice", "*", "name_product", "سرویس تست", "count");
-    $timeacc = jdate('H:i:s', time());
-    $paidSql = invoice_paid_status_sql('Status');
-    $stmt2 = $pdo->query("SELECT
-        COUNT(*) AS users_with_account,
-        COALESCE(SUM(has_purchase), 0) AS users_with_purchase,
-        COALESCE(SUM(has_test), 0) AS users_with_test,
-        COALESCE(SUM(has_test AND NOT has_purchase), 0) AS users_with_test_no_purchase,
-        COALESCE(SUM(has_test AND has_purchase), 0) AS users_with_test_and_purchase
-        FROM (
-            SELECT id_user,
-                   MAX(name_product = 'سرویس تست') AS has_test,
-                   MAX(name_product != 'سرویس تست') AS has_purchase
-            FROM invoice
-            WHERE $paidSql
-            GROUP BY id_user
-        ) user_invoice_flags");
-    $statsUsers = $stmt2->fetch(PDO::FETCH_ASSOC);
-    $count_users_account = (int) ($statsUsers['users_with_account'] ?? 0);
-    $statisticsorder = (int) ($statsUsers['users_with_purchase'] ?? 0);
-    $count_users_test = (int) ($statsUsers['users_with_test'] ?? 0);
-    $count_users_test_no_purchase = (int) ($statsUsers['users_with_test_no_purchase'] ?? 0);
-    $count_users_test_and_purchase = (int) ($statsUsers['users_with_test_and_purchase'] ?? 0);
-    $sqlsum = "SELECT SUM(price) AS sumpay , Payment_Method,COUNT(price) AS countpay FROM Payment_report WHERE payment_Status = 'paid' GROUP BY  Payment_Method;";
-    $stmt = $pdo->prepare($sqlsum);
-    $stmt->execute();
-    $statispay = $stmt->fetchAll();
-    $date = date("Y-m-d");
-    $timeacc = jdate('H:i:s', time());
-    $invoicesum = (float) ($invoicesum ?? 0);
-    $invoicesumFmt = number_format($invoicesum, 0);
-    $extendsum = (float) ($extendsum ?? 0);
-    $statistics = (int) ($statistics ?? 0);
-    $paycount = "";
-    $ratecustomer = $statistics > 0 ? round(($statisticsorder / $statistics) * 100, 2) : 0;
-    $ratetest = $statistics > 0 ? round(($count_users_test / $statistics) * 100, 2) : 0;
-    $avgbuy_customer = $statisticsorder > 0 ? number_format($invoiceTotal / $statisticsorder) : '0';
-    $monthe_buy = number_format(forecast_monthly_paid_income($pdo));
-    $monthe_volume = bot_format_gb(forecast_monthly_sold_volume($pdo) ?? 0);
-    $percent_of_extend = $invoiceTotal > 0 ? round(($extendsum / $invoiceTotal) * 100, 2) : 0;
-    $percent_of_extend = $percent_of_extend > 100 ? 100 : $percent_of_extend;
-    $firstPurchaseStats = bot_first_purchase_stats($pdo);
-    $firstPurchaseSum = (float) ($firstPurchaseStats['sum'] ?? 0);
-    $repeatPurchaseSum = max(0.0, $invoicePaidSum - $firstPurchaseSum);
-    $percent_of_loyalty = $invoiceTotal > 0
-        ? round((($repeatPurchaseSum + $extendsum) / $invoiceTotal) * 100, 2)
-        : 0;
-    $percent_of_loyalty = $percent_of_loyalty > 100 ? 100 : $percent_of_loyalty;
-    $extendsum = number_format($extendsum, 0);
-    $avgJoinBuy = avg_join_to_first_purchase_label($pdo);
-    $soldVolumeText = bot_format_sold_volume_block(bot_sold_volume_stats($pdo), true);
-    $agentInvoiceStats = bot_agent_invoice_purchase_stats($pdo);
-    $agentNCountAll = (int) ($agentInvoiceStats['n_count'] ?? 0);
-    $agentNSumAll = number_format((float) ($agentInvoiceStats['n_sum'] ?? 0), 0);
-    $agentN2CountAll = (int) ($agentInvoiceStats['n2_count'] ?? 0);
-    $agentN2SumAll = number_format((float) ($agentInvoiceStats['n2_sum'] ?? 0), 0);
-    $firstPurchaseText = bot_format_first_purchase_block($firstPurchaseStats, (int) $invoice, $invoicePaidSum, true);
-    $autoRenewStats = invoice_auto_renew_stats($pdo);
-    $autoRenewUsers = $autoRenewStats['users'];
-    $autoRenewServices = $autoRenewStats['services'];
-    if (count($statispay) != 0) {
-        foreach ($statispay as $tracepay) {
-            if (($tracepay['Payment_Method'] ?? '') === 'capital_injection') {
-                continue;
-            }
-            $status_var = [
-                'cart to cart' => $datatextbot['carttocart'],
-                'aqayepardakht' => $datatextbot['aqayepardakht'],
-                'zarinpal' => $datatextbot['zarinpal'],
-                'plisio' => $datatextbot['textnowpayment'],
-                'arze digital offline' => $datatextbot['textnowpaymenttron'],
-                'Currency Rial 1' => $datatextbot['iranpay2'],
-                'Currency Rial 2' => $datatextbot['iranpay3'],
-                'Currency Rial 3' => $datatextbot['iranpay1'],
-                'paymentnotverify' => $datatextbot['textpaymentnotverify'],
-                'Star Telegram' => $datatextbot['text_star_telegram'],
-                'tetraminator' => $datatextbot['tetraminator'] ?? 'Tetraminator',
-                'add order by admin' => 'سفارش توسط ادمین',
-                'extend by admin' => 'تمدید توسط ادمین',
-
-            ][$tracepay['Payment_Method']] ?? ($tracepay['Payment_Method'] ?: 'سایر');
-            $sumPay = number_format((float) ($tracepay['sumpay'] ?? 0), 0);
-            $countPay = (int) ($tracepay['countpay'] ?? 0);
-            $status_var = htmlspecialchars((string) $status_var, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            $paycount .= "\n• {$status_var}: <code>$countPay</code> عدد — <code>$sumPay</code> تومان";
-        }
-    }
-    $statisticsall = "📊 <b>آمار کلی ربات</b>
-━━━━━━━━━━━━━━━━━━
-👥 <b>تعداد کل کاربران:</b> <code>$statistics</code> نفر  
-👤 <b>تعداد کاربران دارای اکانت:</b> <code>$count_users_account</code> نفر  
-💳 <b>کاربران دارای خرید:</b> <code>$statisticsorder</code> نفر  
-🧪 <b>اکانت‌های تست:</b> <code>$count_usertest</code> نفر  
-🧪 <b>کاربران دارای تست بدون خرید:</b> <code>$count_users_test_no_purchase</code> نفر  
-🧪💳 <b>کاربران دارای تست با خرید:</b> <code>$count_users_test_and_purchase</code> نفر  
-💰 <b>موجودی کل کاربران:</b> <code>$Balanceall</code> تومان  
-
-💰 <b>درآمدها</b>
-🧾 <b>تعداد کل فروش:</b> <code>$invoice</code> عدد
-$firstPurchaseText
-🧾 <b>تعداد کل فروش سرویس های فعال:</b> <code>$invoiceactive</code> عدد
-💵 <b>جمع کل فروش سرویس های فعال:</b> <code>$invoicesumFmt</code> تومان
-🔄 <b>جمع کل تمدید:</b> <code>$extendsum</code> تومان
-🛒 <b>خرید نمایندگان عادی:</b> <code>$agentNCountAll</code> عدد — <code>$agentNSumAll</code> تومان
-🛒 <b>خرید نمایندگان پیشرفته:</b> <code>$agentN2CountAll</code> عدد — <code>$agentN2SumAll</code> تومان
-$paycount
-<b>💰 درآمد کل: <code>$incomeSumAllFmt</code> تومان</b>
-🏦 <b>ورود سرمایه: <code>$investmentSumAllFmt</code> تومان</b>
-
-💸 <b>هزینه‌ها</b>
-💸 <b>تعداد برداشت از کیف پول:</b> <code>$withdrawCountAll</code> عدد
-💰 <b>مبلغ برداشت از کیف پول:</b> <code>$withdrawSumAllFmt</code> تومان
-🧾 <b>تعداد کل هزینه‌ها:</b> <code>$expenseCountAll</code> عدد
-💸 <b>مجموع کل هزینه‌ها:</b> <code>$expenseSumAllFmt</code> تومان
-
-<b>💵 درآمد خالص: <code>$invoicesumall</code> تومان</b>
-
-♻️ <b>کاربران با تمدید خودکار:</b> <code>$autoRenewUsers</code> نفر  
-♻️ <b>سرویس‌های تمدید خودکار:</b> <code>$autoRenewServices</code> عدد  
-$soldVolumeText
-
-📈 <b>نرخ تبدیل به مشتری:</b> <code>$ratecustomer</code>٪  
-🧪 <b>نرخ دریافت تست:</b> <code>$ratetest</code>٪  
-💳 <b>میانگین خرید هر مشتری:</b> <code>$avgbuy_customer</code> تومان  
-⏱ <b>میانگین زمان عضویت تا اولین خرید:</b> <code>$avgJoinBuy</code>  
-📅 <b>درآمد پیش‌بینی‌شده ماهانه:</b> <code>$monthe_buy</code> تومان  
-🔋 <b>حجم فروخته‌شده پیش‌بینی‌شده ماهانه:</b> <code>$monthe_volume</code> گیگابایت  
-📊 <b>درصد تمدید از فروش:</b> <code>$percent_of_extend</code>٪  
-💚 <b>درصد وفاداری:</b> <code>$percent_of_loyalty</code>٪  
-
-
-👨‍💼 <b>تعداد کل نمایندگان:</b> <code>$agentsum</code> نفر  
-🔹 <b>نمایندگان نوع N:</b> <code>$agentsumn</code> نفر  
-🔸 <b>نمایندگان نوع N2:</b> <code>$agentsumn2</code> نفر  
-🧩 <b>تعداد پنل‌ها:</b> <code>$sumpanel</code> عدد
-";
+    $statisticsall = bot_overall_stats_html($pdo);
     if ($datain == "stat_all_bot") {
         Editmessagetext($from_id, $message_id, $statisticsall, $keyboard_stat, 'HTML');
     } else {
@@ -404,13 +231,13 @@ $soldVolumeText
     }
 } elseif ($datain == "hoursago_stat") {
     $range = stats_tehran_named_range('last_hour');
-    Editmessagetext($from_id, $message_id, bot_format_period_stats(bot_period_stats($pdo, $range['start'], $range['end']), 'آمار ۱ ساعت گذشته', $range['label']), $keyboard_stat, 'HTML');
+    Editmessagetext($from_id, $message_id, bot_format_period_stats(bot_period_stats($pdo, $range['start'], $range['end'], ['live_payments' => true]), 'آمار ۱ ساعت گذشته', $range['label']), $keyboard_stat, 'HTML');
 } elseif ($datain == "yesterday_stat") {
     $range = stats_tehran_named_range('yesterday');
     Editmessagetext($from_id, $message_id, bot_format_period_stats(bot_period_stats($pdo, $range['start'], $range['end']), 'آمار روز گذشته', $range['label']), $keyboard_stat, 'HTML');
 } elseif ($datain == "today_stat") {
     $range = stats_tehran_named_range('today');
-    Editmessagetext($from_id, $message_id, bot_format_period_stats(bot_period_stats($pdo, $range['start'], $range['end']), 'آمار روز فعلی', $range['label']), $keyboard_stat, 'HTML');
+    Editmessagetext($from_id, $message_id, bot_format_period_stats(bot_period_stats($pdo, $range['start'], $range['end'], ['live_payments' => true]), 'آمار روز فعلی', $range['label']), $keyboard_stat, 'HTML');
 } elseif ($datain == "month_old_stat") {
     $range = stats_tehran_named_range('last_month');
     Editmessagetext($from_id, $message_id, bot_format_period_stats(bot_period_stats($pdo, $range['start'], $range['end']), 'آمار ماه گذشته', $range['label']), $keyboard_stat, 'HTML');

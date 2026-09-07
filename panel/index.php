@@ -20,12 +20,7 @@ $recentUsers = [];
 
 $today = stats_tehran_named_range('today');
 $mixedTimeSql = sql_unix_or_datetime_between('time');
-$mixedTimeParams = [
-    $today['start'],
-    $today['end'],
-    tehran_datetime_string($today['start'], 'Y-m-d H:i:s'),
-    tehran_datetime_string($today['end'], 'Y-m-d H:i:s'),
-];
+$mixedTimeParams = stats_time_between_params($today['start'], $today['end']);
 $paidIncomeSql = paid_real_income_sql();
 $userScopeSql = '(bottype = ? OR id IN (SELECT DISTINCT id_user FROM invoice WHERE bottype = ?))';
 

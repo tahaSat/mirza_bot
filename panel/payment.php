@@ -81,6 +81,30 @@ function payment_sheet_result(PDO $pdo, array $r): array
     return $r;
 }
 
+function payment_is_id_query(string $search): bool
+{
+    return $search !== '' && ctype_digit($search);
+}
+
+function payment_append_search(array &$where, array &$params, string $search): void
+{
+    if ($search === '') {
+        return;
+    }
+    if (payment_is_id_query($search)) {
+        $where[] = "(CAST(`id_user` AS CHAR) = ? OR CAST(`id_order` AS CHAR) LIKE ? OR COALESCE(`note`,'') LIKE ?)";
+        $params[] = $search;
+        $params[] = '%' . $search . '%';
+        $params[] = '%' . $search . '%';
+        return;
+    }
+    $like = '%' . $search . '%';
+    $where[] = "(CAST(`id_user` AS CHAR) LIKE ? OR CAST(`id_order` AS CHAR) LIKE ? OR COALESCE(`note`,'') LIKE ?)";
+    $params[] = $like;
+    $params[] = $like;
+    $params[] = $like;
+}
+
 function payment_shared_filter_clauses(
     string $search,
     $priceMin,
@@ -92,10 +116,7 @@ function payment_shared_filter_clauses(
 ): array {
     $where = [];
     $params = [];
-    if ($search !== '') {
-        $where[] = "(`id_user` LIKE ? OR `id_order` LIKE ? OR COALESCE(`note`,'') LIKE ?)";
-        $params = ["%$search%", "%$search%", "%$search%"];
-    }
+    payment_append_search($where, $params, $search);
     if ($method !== '') {
         $where[] = 'Payment_Method = ?';
         $params[] = $method;
@@ -116,13 +137,16 @@ function payment_shared_filter_clauses(
     return [$where, $params];
 }
 
-function payment_income_type_sql(): string
+function payment_income_type_sql(bool $excludeN2 = true): string
 {
-    return "payment_Status NOT IN ('cost', 'investment')
+    $sql = "payment_Status NOT IN ('cost', 'investment')
         AND COALESCE(tx_type,'') NOT IN ('expense', 'investment')
         AND COALESCE(Payment_Method,'') <> 'capital_injection'
-        AND COALESCE(id_invoice,'') <> 'capital'
-        AND " . payment_exclude_n2_sql();
+        AND COALESCE(id_invoice,'') <> 'capital'";
+    if ($excludeN2) {
+        $sql .= ' AND ' . payment_exclude_n2_sql();
+    }
+    return $sql;
 }
 
 function payment_expense_type_sql(): string
@@ -486,6 +510,9 @@ $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 30;
 $offset = ($page - 1) * $perPage;
 
+$excludeN2 = !payment_is_id_query($search);
+$incomeTypeSql = payment_income_type_sql($excludeN2);
+
 $where = [];
 $params = [];
 if ($tab === 'pending') {
@@ -493,10 +520,7 @@ if ($tab === 'pending') {
     $where[] = "payment_Status = 'waiting'";
 } elseif ($tab === 'costs') {
     $where[] = "payment_Status = 'cost'";
-    if ($search !== '') {
-        $where[] = "(`id_user` LIKE ? OR `id_order` LIKE ? OR COALESCE(`note`,'') LIKE ?)";
-        $params = ["%$search%", "%$search%", "%$search%"];
-    }
+    payment_append_search($where, $params, $search);
     if ($priceMin !== null) {
         $where[] = 'CAST(price AS DECIMAL(20,0)) >= ?';
         $params[] = $priceMin;
@@ -512,10 +536,7 @@ if ($tab === 'pending') {
     panel_payment_append_time_range($where, $params, $fromFilter, $toFilter);
 } elseif ($tab === 'investment') {
     $where[] = payment_investment_type_sql();
-    if ($search !== '') {
-        $where[] = "(`id_user` LIKE ? OR `id_order` LIKE ? OR COALESCE(`note`,'') LIKE ?)";
-        $params = ["%$search%", "%$search%", "%$search%"];
-    }
+    payment_append_search($where, $params, $search);
     if ($priceMin !== null) {
         $where[] = 'CAST(price AS DECIMAL(20,0)) >= ?';
         $params[] = $priceMin;
@@ -526,12 +547,9 @@ if ($tab === 'pending') {
     }
     panel_payment_append_time_range($where, $params, $fromFilter, $toFilter);
 } else {
-    if ($search !== '') {
-        $where[] = "(`id_user` LIKE ? OR `id_order` LIKE ? OR COALESCE(`note`,'') LIKE ?)";
-        $params = ["%$search%", "%$search%", "%$search%"];
-    }
+    payment_append_search($where, $params, $search);
     if ($tab === 'income' || ($tab === 'list' && $kind === 'income')) {
-        $where[] = payment_income_type_sql();
+        $where[] = $incomeTypeSql;
         payment_append_income_filters($where, $params, $status, $method);
     } elseif ($tab === 'list' && $kind === 'expense') {
         $where[] = payment_expense_type_sql();
@@ -541,7 +559,7 @@ if ($tab === 'pending') {
     } elseif ($tab === 'list') {
         $hasIncomeFilter = $status !== '' || $method !== '';
         $hasExpenseFilter = $category !== '' || $expenseStatus !== '';
-        $incomeParts = [payment_income_type_sql()];
+        $incomeParts = [$incomeTypeSql];
         $incomeParams = [];
         payment_append_income_filters($incomeParts, $incomeParams, $status, $method);
         $expenseParts = [payment_expense_type_sql()];
@@ -558,7 +576,7 @@ if ($tab === 'pending') {
             $params = array_merge($params, $expenseParams);
         }
     } else {
-        $where[] = payment_income_type_sql();
+        $where[] = $incomeTypeSql;
         payment_append_income_filters($where, $params, $status, $method);
     }
     if ($priceMin !== null) {
@@ -570,7 +588,7 @@ if ($tab === 'pending') {
         $params[] = $priceMax;
     }
     panel_payment_append_time_range($where, $params, $fromFilter, $toFilter);
-    if ($tab !== 'list' || $kind !== 'expense') {
+    if ($excludeN2 && ($tab !== 'list' || $kind !== 'expense')) {
         $where[] = payment_exclude_n2_sql();
     }
 }
@@ -632,7 +650,7 @@ try {
         || ($tab === 'list' && $kind === '' && ($status !== '' || $method !== '') && $category === '' && $expenseStatus === '')
         || ($tab === 'list' && $kind === '' && ($category !== '' || $expenseStatus !== '') && $status === '' && $method === '');
 
-    $successWhere = array_merge([payment_income_type_sql(), "payment_Status = 'paid'"], $cardWhere);
+    $successWhere = array_merge([$incomeTypeSql, "payment_Status = 'paid'"], $cardWhere);
     $successParams = $cardParams;
     payment_append_income_filters($successWhere, $successParams, $status, in_array($tab, ['costs', 'investment'], true) ? '' : $method);
     if ($hideIncomeCards) {
@@ -669,7 +687,7 @@ try {
     } elseif ($tab === 'investment' || ($tab === 'list' && $kind === 'investment')) {
         $todayWhere = payment_investment_type_sql();
     } elseif ($tab === 'income' || ($tab === 'list' && $kind === 'income')) {
-        $todayWhere = payment_income_type_sql();
+        $todayWhere = $incomeTypeSql;
     } else {
         $todayWhere = '1=1';
     }

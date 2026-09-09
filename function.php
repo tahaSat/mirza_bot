@@ -2344,11 +2344,11 @@ function ensureColumnExistsForUpdate($tableName, $fieldName, $valueSample = null
 
         $datatype = determineColumnTypeFromValue($valueSample);
 
+        // Never backfill every existing row with the value of this one UPDATE.
         $defaultValue = null;
-        if (is_bool($valueSample)) {
-            $defaultValue = $valueSample ? '1' : '0';
-        } elseif (is_scalar($valueSample) && $valueSample !== null) {
-            $defaultValue = (string) $valueSample;
+        if ($tableName === 'invoice' && $fieldName === 'auto_renew') {
+            $defaultValue = '0';
+            $datatype = 'VARCHAR(10)';
         }
 
         addFieldToTable($tableName, $fieldName, $defaultValue, $datatype);
@@ -4928,9 +4928,13 @@ function addFieldToTable($tableName, $fieldName, $defaultValue = null, $datatype
     if ($filedExists['count'] != 0)
         return;
     $query = "ALTER TABLE $tableName ADD $fieldName $datatype";
+    $isTextType = stripos((string) $datatype, 'TEXT') !== false || stripos((string) $datatype, 'BLOB') !== false;
+    if ($defaultValue !== null && $defaultValue !== '' && !$isTextType) {
+        $query .= ' DEFAULT ' . $pdo->quote((string) $defaultValue);
+    }
     $statement = $pdo->prepare($query);
     $statement->execute();
-    if ($defaultValue != null) {
+    if ($defaultValue !== null && $defaultValue !== '') {
         $stmt = $pdo->prepare("UPDATE $tableName SET $fieldName= ?");
         $stmt->bindParam(1, $defaultValue);
         $stmt->execute();

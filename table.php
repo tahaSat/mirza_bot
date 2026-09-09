@@ -605,6 +605,14 @@ try {
             $result = $connect->query("ALTER TABLE invoice ADD Status VARCHAR(100)");
         }
         addFieldToTable('invoice', 'auto_renew', '0', 'VARCHAR(10)');
+        $autoRenewDefaultRes = $connect->query("SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'invoice' AND COLUMN_NAME = 'auto_renew'");
+        $autoRenewDefault = ($autoRenewDefaultRes && ($autoRenewDefaultRow = $autoRenewDefaultRes->fetch_assoc()))
+            ? (string) ($autoRenewDefaultRow['COLUMN_DEFAULT'] ?? '')
+            : '';
+        if ($autoRenewDefault !== '0') {
+            $connect->query("ALTER TABLE invoice MODIFY auto_renew VARCHAR(10) NULL DEFAULT '0'");
+            $connect->query("UPDATE invoice SET auto_renew = '0'");
+        }
         $connect->query("UPDATE invoice SET Status = 'unpaid' WHERE BINARY Status = 'Unpaid'");
     }
 } catch (Exception $e) {

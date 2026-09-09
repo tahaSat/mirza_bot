@@ -229,7 +229,7 @@ include __DIR__ . '/inc/layout_head.php';
         <div class="card">
             <div class="card-head"><strong>نقش و انقضا</strong></div>
             <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
-                <div class="cf">آیدی: <span class="cm"><?= $id ?></span>
+                <div class="cf">آیدی: <a href="user.php?id=<?= $id ?>" class="cm" style="color:var(--ac)"><?= $id ?></a>
                     <?php if ($username): ?> · @<?= htmlspecialchars($username) ?><?php endif; ?>
                 </div>
                 <div class="cf">انقضا: <?= htmlspecialchars($expireLabel) ?></div>

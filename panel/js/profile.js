@@ -17,6 +17,19 @@ window.switchTab = function (name) {
 
     var tab = document.getElementById(tabs[name]);
     if (tab) tab.classList.add('active');
+
+    var allLink = document.getElementById('uTabsAll');
+    if (allLink) {
+        var href = allLink.getAttribute('data-href-' + name);
+        var label = allLink.getAttribute('data-label-' + name);
+        if (href && label) {
+            allLink.href = href;
+            allLink.textContent = label;
+            allLink.style.display = '';
+        } else {
+            allLink.style.display = 'none';
+        }
+    }
 };
 
 document.addEventListener('DOMContentLoaded', function () {

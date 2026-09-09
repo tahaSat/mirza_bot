@@ -174,7 +174,9 @@ include __DIR__ . '/inc/layout_head.php';
                         ?>
                         <tr>
                             <td class="cf"><?= $rowNum ?></td>
-                            <td><span class="cm"><?= $uid ?></span></td>
+                            <td>
+                                <a href="user.php?id=<?= $uid ?>" class="cm" style="color:var(--ac)"><?= $uid ?></a>
+                            </td>
                             <td><?= $uname ? '@' . htmlspecialchars($uname) : '—' ?></td>
                             <td><span class="tag <?= user_role_tag($roleAgent) ?>"><?= user_role_label($roleAgent) ?></span></td>
                             <td><?= number_format((int) ($a['Balance'] ?? 0)) ?></td>

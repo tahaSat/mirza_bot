@@ -368,7 +368,15 @@ include __DIR__ . '/inc/layout_head.php';
                         </button>
                     <?php endif; ?>
                 </div>
-                <a href="user_services.php?id=<?= $id ?>" class="btn-link u-tabs-all">همه سرویس‌ها ←</a>
+                <a href="user_services.php?id=<?= $id ?>"
+                    class="btn-link u-tabs-all"
+                    id="uTabsAll"
+                    data-href-services="user_services.php?id=<?= $id ?>"
+                    data-label-services="همه سرویس‌ها ←"
+                    data-href-orders="invoice.php?tab=orders&amp;q=<?= urlencode((string) $id) ?>"
+                    data-label-orders="همه سفارش‌ها ←"
+                    data-href-pay="payment.php?q=<?= urlencode((string) $id) ?>"
+                    data-label-pay="همه تراکنش‌ها ←">همه سرویس‌ها ←</a>
             </div>
 
             <div id="paneServices">
@@ -439,6 +447,7 @@ include __DIR__ . '/inc/layout_head.php';
                                         <span class="tag <?= $tagClass ?>"><?= $label ?></span>
                                     </div>
                                     <div class="m-row-meta">
+                                        <span class="cm"><?= htmlspecialchars($inv['id_invoice'] ?? '—') ?></span>
                                         <span class="cn"><?= number_format((int) ($inv['price_product'] ?? 0)) ?> ت</span>
                                         <span><?= htmlspecialchars($inv['Volume'] ?? '—') ?></span>
                                         <span class="cf"><?= safe_date($inv['time_sell'] ?? null, 'Y/m/d') ?></span>
@@ -451,6 +460,7 @@ include __DIR__ . '/inc/layout_head.php';
                         <table class="tbl-lg">
                             <thead>
                                 <tr>
+                                    <th>شناسه سفارش</th>
                                     <th>محصول</th>
                                     <th>قیمت</th>
                                     <th>حجم</th>
@@ -463,6 +473,9 @@ include __DIR__ . '/inc/layout_head.php';
                                     [$tagClass, $label] = $statusMap[panel_invoice_get_status($inv)] ?? ['tag-plain', panel_invoice_get_status($inv) ?: '—'];
                                     ?>
                                     <tr>
+                                        <td class="cm" style="color:var(--ac)">
+                                            <?= htmlspecialchars($inv['id_invoice'] ?? '—') ?>
+                                        </td>
                                         <td class="cs"
                                             style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                                             <?= htmlspecialchars($inv['name_product'] ?? '—') ?>
@@ -512,6 +525,7 @@ include __DIR__ . '/inc/layout_head.php';
                                         <span class="tag <?= $tagClass ?>"><?= $label ?></span>
                                     </div>
                                     <div class="m-row-meta">
+                                        <span class="cm"><?= htmlspecialchars($p['id_order'] ?? '—') ?></span>
                                         <span><?= htmlspecialchars($method) ?></span>
                                         <span class="cf"><?= safe_date($p['time'] ?? null, 'Y/m/d H:i') ?></span>
                                     </div>
@@ -523,6 +537,7 @@ include __DIR__ . '/inc/layout_head.php';
                         <table class="tbl-md">
                             <thead>
                                 <tr>
+                                    <th>شناسه تراکنش</th>
                                     <th>مبلغ</th>
                                     <th>روش</th>
                                     <th>تاریخ</th>
@@ -538,6 +553,9 @@ include __DIR__ . '/inc/layout_head.php';
                                         : panel_payment_method_label((string) ($p['Payment_Method'] ?? ''));
                                     ?>
                                     <tr>
+                                        <td class="cm" style="color:var(--ac)">
+                                            <?= htmlspecialchars($p['id_order'] ?? '—') ?>
+                                        </td>
                                         <td class="cn cs" style="white-space:nowrap">
                                             <?= number_format((int) ($p['price'] ?? 0)) ?> <span class="cf">ت</span>
                                         </td>

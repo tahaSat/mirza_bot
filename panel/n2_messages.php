@@ -114,7 +114,7 @@ include __DIR__ . '/inc/layout_head.php';
             <div class="data-row-body">
               <div class="data-row-head">
                 <div class="data-row-title"><?= htmlspecialchars((string) ($msg['user_name'] ?? $msg['iduser'] ?? 'کاربر')) ?></div>
-                <span class="cf"><?= htmlspecialchars((string) ($msg['time'] ?? '')) ?></span>
+                <span class="cf"><?= safe_date($msg['time'] ?? null, 'Y/m/d H:i') ?></span>
               </div>
               <p style="margin:8px 0 0;white-space:pre-wrap"><?= htmlspecialchars((string) ($msg['text'] ?? '')) ?></p>
               <?php if (!empty($msg['result'])): ?>

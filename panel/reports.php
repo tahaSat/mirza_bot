@@ -56,7 +56,7 @@ include __DIR__ . '/inc/layout_head.php';
           </div>
           <div class="kv">
             <span class="kv-key">آخرین بروزرسانی</span>
-            <span class="kv-val"><?= htmlspecialchars(($tail['mtime'] ?? null) ? date('Y/m/d H:i:s', (int) $tail['mtime']) : '—') ?></span>
+            <span class="kv-val"><?= safe_date($tail['mtime'] ?? null, 'Y/m/d H:i:s') ?></span>
           </div>
         </div>
         <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:65vh;overflow:auto">

@@ -283,7 +283,7 @@ include __DIR__ . '/inc/referral_nav.php';
                 <?php endif; ?>
               </td>
               <td class="cm"><?= htmlspecialchars((string) ($row['user_id'] ?? '')) ?></td>
-              <td class="cf"><?= htmlspecialchars((string) ($row['time'] ?? '—')) ?></td>
+              <td class="cf"><?= safe_date($row['time'] ?? null, 'Y/m/d H:i') ?></td>
               <td>
                 <span class="tag <?= $commissionPaid ? 'tag-ok' : '' ?>"><?= $commissionPaid ? 'واریز شده' : 'واریز نشده' ?></span>
               </td>

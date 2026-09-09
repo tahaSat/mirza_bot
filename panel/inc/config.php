@@ -3,6 +3,8 @@
 require __DIR__ . '/../../config.php';
 require __DIR__ . '/../../function.php';
 
+date_default_timezone_set('Asia/Tehran');
+
 function panel_ensure_pdo(): PDO
 {
     global $pdo;
@@ -552,14 +554,86 @@ function trunc(string $str, int $max = 30): string
         : $str;
 }
 
+function panel_parse_datetime_ts($value): ?int
+{
+    if ($value === null || $value === false || $value === '' || $value === '0' || $value === 0) {
+        return null;
+    }
+
+    if (is_int($value) || is_float($value)) {
+        $ts = (int) $value;
+        return $ts > 0 ? $ts : null;
+    }
+
+    $raw = trim((string) $value);
+    if ($raw === '' || $raw === '—' || strcasecmp($raw, 'none') === 0) {
+        return null;
+    }
+    if (function_exists('tr_num')) {
+        $raw = trim((string) tr_num($raw, 'en'));
+    }
+    if ($raw === '') {
+        return null;
+    }
+
+    if (is_numeric($raw) && strlen((string) (int) $raw) >= 9) {
+        $ts = (int) $raw;
+        return $ts > 0 ? $ts : null;
+    }
+
+    $normalized = trim(str_replace(['T', '.'], [' ', '/'], $raw));
+    $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+    if (!preg_match('/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/', $normalized, $m)) {
+        return null;
+    }
+
+    $year = (int) $m[1];
+    $month = (int) $m[2];
+    $day = (int) $m[3];
+    $hour = isset($m[4]) ? (int) $m[4] : 0;
+    $minute = isset($m[5]) ? (int) $m[5] : 0;
+    $second = isset($m[6]) ? (int) $m[6] : 0;
+    $datePart = sprintf('%04d/%02d/%02d', $year, $month, $day);
+    $timePart = sprintf('%02d:%02d:%02d', $hour, $minute, $second);
+
+    if ($year >= 1200 && $year <= 1600 && function_exists('jalali_tehran_timestamp')) {
+        return jalali_tehran_timestamp($datePart, $timePart);
+    }
+
+    if ($year < 1900 || $year > 2100 || $month < 1 || $month > 12 || $day < 1 || $day > 31) {
+        return null;
+    }
+
+    $tz = function_exists('tehran_timezone') ? tehran_timezone() : new DateTimeZone('Asia/Tehran');
+    $dt = DateTimeImmutable::createFromFormat(
+        '!Y-n-j H:i:s',
+        sprintf('%04d-%d-%d %02d:%02d:%02d', $year, $month, $day, $hour, $minute, $second),
+        $tz
+    );
+    if (!$dt instanceof DateTimeImmutable) {
+        return null;
+    }
+
+    return $dt->getTimestamp();
+}
+
 function safe_date($ts, string $fmt = 'Y/m/d'): string
 {
-    if (!$ts)
-        return '—';
-    if (!is_numeric($ts))
+    $parsed = panel_parse_datetime_ts($ts);
+    if ($parsed === null) {
+        if ($ts === null || $ts === false || $ts === '' || $ts === '0' || $ts === 0) {
+            return '—';
+        }
         return htmlspecialchars((string) $ts);
-    return date($fmt, (int) $ts);
+    }
+
+    if (function_exists('jalali_tehran_format')) {
+        return jalali_tehran_format($parsed, $fmt, 'fa');
+    }
+
+    return htmlspecialchars((string) date($fmt, $parsed));
 }
+
 function check_login_rate(string $ip): bool
 {
     $file = sys_get_temp_dir() . '/panel_login_' . md5($ip);

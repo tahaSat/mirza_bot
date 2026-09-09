@@ -841,7 +841,7 @@ include __DIR__ . '/inc/layout_head.php';
               </div>
               <div class="kv">
                 <span class="kv-key">آخرین بروزرسانی</span>
-                <span class="kv-val"><?= htmlspecialchars(($reportTail['mtime'] ?? null) ? date('Y/m/d H:i:s', (int) $reportTail['mtime']) : '—') ?></span>
+                <span class="kv-val"><?= safe_date($reportTail['mtime'] ?? null, 'Y/m/d H:i:s') ?></span>
               </div>
             </div>
             <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:12px;max-height:420px;overflow:auto">

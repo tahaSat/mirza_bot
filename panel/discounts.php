@@ -43,17 +43,20 @@ function discount_expiry_label(?string $time): string
   if ($time === null || $time === '' || $time === '0') {
     return 'نامحدود';
   }
-  if (!is_numeric($time)) {
+  $ts = function_exists('panel_parse_datetime_ts')
+    ? panel_parse_datetime_ts($time)
+    : (is_numeric($time) ? (int) $time : null);
+  if ($ts === null) {
     return (string) $time;
   }
-  $ts = (int) $time;
   if ($ts <= 0) {
     return 'نامحدود';
   }
+  $label = safe_date($ts, 'Y/m/d H:i');
   if ($ts < time()) {
-    return 'منقضی (' . date('Y/m/d H:i', $ts) . ')';
+    return 'منقضی (' . $label . ')';
   }
-  return date('Y/m/d H:i', $ts);
+  return $label;
 }
 
 function discount_post_scope(string $key, string $allToken = 'all'): string
@@ -913,7 +916,7 @@ endif; ?>
                   —
                 <?php endif; ?>
               </td>
-              <td class="cn" style="font-size:.75rem"><?= !empty($u['created_at']) ? date('Y/m/d H:i', (int) $u['created_at']) : '—' ?></td>
+              <td class="cn" style="font-size:.75rem"><?= safe_date($u['created_at'] ?? null, 'Y/m/d H:i') ?></td>
             </tr>
           <?php endforeach; ?>
         </tbody>

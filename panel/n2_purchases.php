@@ -76,7 +76,7 @@ include __DIR__ . '/inc/layout_head.php';
               <td><?= htmlspecialchars(trunc((string) ($inv['name_product'] ?? '—'), 36)) ?></td>
               <td class="cn"><?= htmlspecialchars((string) ($inv['Volume'] ?? '—')) ?></td>
               <td class="cn"><?= number_format((int) ($inv['price_product'] ?? 0)) ?> ت</td>
-              <td class="cf"><?= htmlspecialchars((string) ($inv['time_sell'] ?? '—')) ?></td>
+              <td class="cf"><?= safe_date($inv['time_sell'] ?? null, 'Y/m/d') ?></td>
               <td><span class="tag <?= $cls ?>"><?= htmlspecialchars($lbl) ?></span></td>
             </tr>
           <?php endforeach; endif; ?>

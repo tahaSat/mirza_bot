@@ -115,9 +115,11 @@ include __DIR__ . '/inc/layout_head.php';
 include __DIR__ . '/inc/referral_nav.php';
 ?>
 
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.min.css">
+
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px" class="fade-up">
   <div style="font-size:.85rem;color:var(--mute)"><?= number_format($total) ?> تبلیغ‌کننده</div>
-  <button class="btn btn-primary" onclick="openModal('addModal')"><?= icon('plus', 14) ?> افزودن تبلیغ</button>
+  <button class="btn btn-primary" onclick="openModal('addModal');initAdJalaliPickers()"><?= icon('plus', 14) ?> افزودن تبلیغ</button>
 </div>
 
 <div class="card fade-up" id="list">
@@ -183,7 +185,7 @@ include __DIR__ . '/inc/referral_nav.php';
               <td class="cm"><?= !empty($row['source_user_id']) ? htmlspecialchars((string) $row['source_user_id']) : '—' ?></td>
               <td><?= number_format((int) $row['join_count']) ?></td>
               <td class="cn"><?= number_format((int) $row['amount']) ?> <span class="cf">ت</span></td>
-              <td class="cf"><?= htmlspecialchars((string) $row['started_at']) ?></td>
+              <td class="cf"><?= safe_date($row['started_at'] ?? null, 'Y/m/d') ?></td>
               <td>
                 <div style="display:flex;align-items:center;gap:6px;max-width:280px">
                   <code class="cm" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:ltr;text-align:left"><?= htmlspecialchars($link) ?></code>
@@ -275,7 +277,7 @@ include __DIR__ . '/inc/referral_nav.php';
               <tr>
                 <td><?= htmlspecialchars($joinLabel) ?></td>
                 <td class="cm"><?= htmlspecialchars((string) $join['user_id']) ?></td>
-                <td class="cf"><?= htmlspecialchars((string) $join['created_at']) ?></td>
+                <td class="cf"><?= safe_date($join['created_at'] ?? null, 'Y/m/d H:i') ?></td>
                 <td>
                   <?php if (($join['source'] ?? '') === 'affiliate_migration'): ?>
                     <span class="tag tag-warn">انتقال از همکاری</span>
@@ -324,7 +326,7 @@ include __DIR__ . '/inc/referral_nav.php';
   }
   .ad-form-grid .field.full { grid-column: 1 / -1; }
   .ad-form-grid .field label { text-align: start; }
-  .ad-modal .input[type="date"] { direction: ltr; }
+  .ad-modal .jalali-date-picker { direction: ltr; text-align: left; }
   .ad-modal form { display: flex; flex-direction: column; min-height: 0; }
   #addModal .modal-foot,
   #editModal .modal-foot {
@@ -366,7 +368,7 @@ include __DIR__ . '/inc/referral_nav.php';
           </div>
           <div class="field full">
             <label>تاریخ شروع تبلیغ</label>
-            <input type="date" class="input" name="started_at" value="<?= date('Y-m-d') ?>" required>
+            <input type="text" class="input jalali-date-picker" name="started_at" value="<?= htmlspecialchars(ads_lib_date_input_value('')) ?>" placeholder="۱۴۰۴/۰۶/۱۸" autocomplete="off" required>
           </div>
         </div>
       </div>
@@ -404,7 +406,7 @@ include __DIR__ . '/inc/referral_nav.php';
           </div>
           <div class="field full">
             <label>تاریخ شروع تبلیغ</label>
-            <input type="date" class="input" name="started_at" id="edit_started_at" required>
+            <input type="text" class="input jalali-date-picker" name="started_at" id="edit_started_at" placeholder="۱۴۰۴/۰۶/۱۸" autocomplete="off" required>
           </div>
         </div>
       </div>
@@ -416,15 +418,49 @@ include __DIR__ . '/inc/referral_nav.php';
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.min.js"></script>
 <script>
+function initAdJalaliPickers() {
+  if (!window.jQuery) return;
+  window.jQuery('.jalali-date-picker').each(function () {
+    var input = this;
+    if (input.dataset.pdp === '1') return;
+    var $el = window.jQuery(input);
+    $el.persianDatepicker({
+      calendarType: 'persian',
+      format: 'YYYY/MM/DD',
+      initialValue: $el.val() !== '',
+      initialValueType: 'persian',
+      autoClose: true,
+      responsive: true,
+      observer: true,
+      navigator: { scroll: { enabled: false } },
+      toolbox: {
+        calendarSwitch: { enabled: false },
+        todayButton: { enabled: true },
+        submitButton: { enabled: false }
+      },
+      timePicker: { enabled: false }
+    });
+    input.dataset.pdp = '1';
+  });
+}
+
 function openEditAd(row) {
   document.getElementById('edit_id').value = row.id;
   document.getElementById('edit_name').value = row.name || '';
   document.getElementById('edit_join_count').value = row.join_count || 0;
   document.getElementById('edit_amount').value = row.amount || 0;
-  document.getElementById('edit_started_at').value = row.started_at || '';
+  var started = row.started_at || '';
+  document.getElementById('edit_started_at').value = started;
+  if (window.jQuery) window.jQuery('#edit_started_at').val(started).trigger('change');
   openModal('editModal');
+  initAdJalaliPickers();
 }
+
+document.addEventListener('DOMContentLoaded', initAdJalaliPickers);
 </script>
 
 <?php include __DIR__ . '/inc/layout_foot.php'; ?>

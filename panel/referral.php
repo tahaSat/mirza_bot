@@ -251,7 +251,7 @@ include __DIR__ . '/inc/referral_nav.php';
                 <td class="cm"><?= htmlspecialchars((string) $inv['referrer_id']) ?></td>
                 <td><?= !empty($inv['invited_username']) ? '@' . htmlspecialchars($inv['invited_username']) : '—' ?></td>
                 <td class="cm"><?= htmlspecialchars((string) $inv['invited_user_id']) ?></td>
-                <td class="cf"><?= htmlspecialchars($inv['created_at']) ?></td>
+                <td class="cf"><?= safe_date($inv['created_at'] ?? null, 'Y/m/d H:i') ?></td>
               </tr>
             <?php endforeach; ?>
           </tbody>

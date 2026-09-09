@@ -75,7 +75,7 @@ include __DIR__ . '/inc/layout_head.php';
               <td class="cm"><?= htmlspecialchars(trunc((string) ($pay['id_order'] ?? '—'), 22)) ?></td>
               <td><?= htmlspecialchars(panel_payment_method_label((string) ($pay['Payment_Method'] ?? ''))) ?></td>
               <td class="cn"><?= number_format((int) ($pay['price'] ?? 0)) ?> ت</td>
-              <td class="cf"><?= htmlspecialchars((string) ($pay['time'] ?? '—')) ?></td>
+              <td class="cf"><?= safe_date($pay['time'] ?? null, 'Y/m/d H:i') ?></td>
               <td><span class="tag <?= $cls ?>"><?= htmlspecialchars($lbl) ?></span></td>
             </tr>
           <?php endforeach; endif; ?>

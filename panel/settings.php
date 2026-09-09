@@ -1009,7 +1009,7 @@ include __DIR__ . '/inc/layout_head.php';
                 <div class="kv">
                     <span class="kv-key">زمان ورود</span>
                     <span class="kv-val">
-                        <?= isset($_SESSION['login_time']) ? date('Y/m/d H:i:s', $_SESSION['login_time']) : '—' ?>
+                        <?= isset($_SESSION['login_time']) ? safe_date($_SESSION['login_time'], 'Y/m/d H:i:s') : '—' ?>
                     </span>
                 </div>
                 <div class="kv">
@@ -1143,7 +1143,7 @@ include __DIR__ . '/inc/layout_head.php';
                 ['MySQL', $dbVer],
                 ['سرور وب', $_SERVER['SERVER_SOFTWARE'] ?? '—'],
                 ['مدیر فعلی', $_SESSION['admin_user']],
-                ['زمان سرور', date('Y/m/d H:i:s')],
+                ['زمان سرور', safe_date(time(), 'Y/m/d H:i:s')],
                 ['حافظه PHP', ini_get('memory_limit')],
             ];
             foreach ($sysInfo as [$key, $value]):

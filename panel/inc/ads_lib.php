@@ -1,30 +1,40 @@
 <?php
 
+function ads_lib_date_timestamp(string $raw): ?int
+{
+    if (function_exists('panel_parse_datetime_ts')) {
+        return panel_parse_datetime_ts($raw);
+    }
+    $raw = trim($raw);
+    return $raw !== '' ? (strtotime(str_replace('/', '-', $raw)) ?: null) : null;
+}
+
 function ads_lib_normalize_date(string $raw): string
 {
-    $raw = trim($raw);
-    if ($raw === '') {
-        return date('Y/m/d');
+    $ts = ads_lib_date_timestamp($raw);
+    if ($ts === null) {
+        $ts = time();
     }
-    if (preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $raw, $m)) {
-        return $m[1] . '/' . $m[2] . '/' . $m[3];
-    }
-    if (preg_match('/^(\d{4})\/(\d{2})\/(\d{2})/', $raw, $m)) {
-        return $m[1] . '/' . $m[2] . '/' . $m[3];
-    }
-    return $raw;
+    return function_exists('tehran_datetime_string')
+        ? tehran_datetime_string($ts, 'Y/m/d')
+        : date('Y/m/d', $ts);
 }
 
 function ads_lib_date_input_value(string $stored): string
 {
-    $stored = trim($stored);
-    if (preg_match('/^(\d{4})\/(\d{2})\/(\d{2})/', $stored, $m)) {
-        return $m[1] . '-' . $m[2] . '-' . $m[3];
-    }
-    if (preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $stored, $m)) {
-        return $m[1] . '-' . $m[2] . '-' . $m[3];
-    }
-    return date('Y-m-d');
+    $ts = ads_lib_date_timestamp($stored) ?? time();
+    return function_exists('jalali_tehran_format')
+        ? jalali_tehran_format($ts, 'Y/m/d', 'en')
+        : date('Y/m/d', $ts);
+}
+
+function ads_lib_payment_datetime_local(string $stored): string
+{
+    $ts = ads_lib_date_timestamp($stored) ?? time();
+    $ymd = function_exists('tehran_datetime_string')
+        ? tehran_datetime_string($ts, 'Y-m-d')
+        : date('Y-m-d', $ts);
+    return $ymd . 'T00:00';
 }
 
 function ads_lib_list(PDO $pdo, string $search = '', int $limit = 25, int $offset = 0, string $sort = 'id', string $dir = 'desc'): array
@@ -106,7 +116,7 @@ function ads_lib_sync_payment(PDO $pdo, array $advertiser): ?string
     $amount = (int) ($advertiser['amount'] ?? 0);
     $orderId = trim((string) ($advertiser['payment_order_id'] ?? ''));
     $note = 'هزینه تبلیغ — ' . (string) ($advertiser['name'] ?? '');
-    $time = ads_lib_date_input_value((string) ($advertiser['started_at'] ?? '')) . 'T00:00';
+    $time = ads_lib_payment_datetime_local((string) ($advertiser['started_at'] ?? ''));
 
     if ($amount < 1) {
         if ($orderId !== '') {

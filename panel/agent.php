@@ -52,7 +52,7 @@ $pricePerGb = (int) ($user['agent_price_per_gb'] ?? 0);
 $maxBuy = (int) ($user['maxbuyagent'] ?? 0);
 $username = ($user['username'] ?? '') === 'none' ? '' : ($user['username'] ?? '');
 $expire = $user['expire'] ?? null;
-$expireLabel = $expire ? date('Y/m/d H:i', (int) $expire) : 'بدون انقضا';
+$expireLabel = $expire ? safe_date($expire, 'Y/m/d H:i') : 'بدون انقضا';
 
 $isN2 = ($agent === 'n2');
 $usesCategoryWhitelist = function_exists('agent_uses_category_whitelist')
@@ -481,8 +481,7 @@ include __DIR__ . '/inc/layout_head.php';
                         </thead>
                         <tbody>
                             <?php foreach ($agentPurchases as $pur):
-                                $ts = (int) ($pur['created_at'] ?? 0);
-                                $dateLabel = $ts > 0 ? date('Y/m/d H:i', $ts) : '—';
+                                $dateLabel = safe_date($pur['created_at'] ?? null, 'Y/m/d H:i');
                                 ?>
                                 <tr>
                                     <td style="padding:8px"><?= htmlspecialchars($dateLabel) ?></td>
@@ -545,7 +544,7 @@ include __DIR__ . '/inc/layout_head.php';
                     </div>
                     <div>
                         <div class="cf" style="font-size:.75rem">زمان ساخت</div>
-                        <div><?= htmlspecialchars($bot['time'] ?? '—') ?></div>
+                        <div><?= safe_date($bot['time'] ?? null, 'Y/m/d H:i') ?></div>
                     </div>
                 </div>
 

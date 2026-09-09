@@ -169,7 +169,7 @@ include __DIR__ . '/inc/layout_head.php';
                         $ppg = (int) ($a['agent_price_per_gb'] ?? 0);
                         $hasBot = !empty($a['bot_username']);
                         $expire = $a['expire'] ?? null;
-                        $expireLabel = $expire ? date('Y/m/d', (int) $expire) : '—';
+                        $expireLabel = $expire ? safe_date($expire, 'Y/m/d') : '—';
                         $roleAgent = $a['agent'] ?? 'f';
                         ?>
                         <tr>

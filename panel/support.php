@@ -287,6 +287,7 @@ include __DIR__ . '/inc/layout_head.php';
                 $previewText = $preview['from'] === 'admin' ? ('شما: ' . $preview['text']) : $preview['text'];
                 $dept = $item['conversation_departman'] ?? $item['name_departman'] ?? '';
                 $previewTime = $preview['time'] !== '' ? $preview['time'] : (string) ($item['last_message_at'] ?? '');
+                $previewTime = safe_date($previewTime, 'Y/m/d H:i');
                 ?>
                 <a class="support-ticket <?= $userId === (string) $item['iduser'] ? 'selected' : '' ?>" href="<?= support_inbox_url(['user_id' => $item['iduser']]) ?>">
                     <div class="support-ticket-head">
@@ -357,7 +358,7 @@ include __DIR__ . '/inc/layout_head.php';
             </div>
             <div class="support-meta">
                 <span>تعداد پیام‌ها: <?= count($conversation) ?></span>
-                <span>آخرین پیام: <?= htmlspecialchars($conversation[count($conversation) - 1]['time']) ?></span>
+                <span>آخرین پیام: <?= safe_date($conversation[count($conversation) - 1]['time'] ?? null, 'Y/m/d H:i') ?></span>
             </div>
             <div class="support-identities">
                 <span><small>شناسه کاربر</small><b><?= htmlspecialchars($ticket['iduser']) ?></b></span>
@@ -374,7 +375,7 @@ include __DIR__ . '/inc/layout_head.php';
                     ?>
                     <?php if ($showUser): ?>
                         <div class="support-bubble from-user">
-                            <small>کاربر · <?= htmlspecialchars($message['time']) ?> · <?= htmlspecialchars($message['name_departman']) ?></small>
+                            <small>کاربر · <?= safe_date($message['time'] ?? null, 'Y/m/d H:i') ?> · <?= htmlspecialchars($message['name_departman']) ?></small>
                             <?php if ($userText !== ''): ?><div><?= nl2br(htmlspecialchars($userText)) ?></div><?php endif; ?>
                             <?= support_media_markup($inMedia) ?>
                         </div>
@@ -388,7 +389,7 @@ include __DIR__ . '/inc/layout_head.php';
                             <small>
                                 <?= $replyAdminName !== '' ? 'ادمین ' . htmlspecialchars($replyAdminName) : 'پاسخ ادمین (قدیمی)' ?>
                                 <?= $replyAdminId !== '' ? ' · ' . htmlspecialchars($replyAdminId) : '' ?>
-                                <?php if (!empty($message['answered_at'])): ?> · <?= htmlspecialchars($message['answered_at']) ?><?php endif; ?>
+                                <?php if (!empty($message['answered_at'])): ?> · <?= safe_date($message['answered_at'], 'Y/m/d H:i') ?><?php endif; ?>
                             </small>
                             <?php if ($adminText !== ''): ?><div><?= nl2br(htmlspecialchars($adminText)) ?></div><?php endif; ?>
                             <?= support_media_markup($outMedia) ?>

@@ -2865,7 +2865,7 @@ function payment_sync_exclude_from_stats_for_user($userId, $agent): void
 
 function bot_stats_cache_ttl(): int
 {
-    return 90;
+    return 600;
 }
 
 function bot_stats_cache_dir(): string

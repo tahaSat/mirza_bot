@@ -222,13 +222,10 @@ if (in_array($text, $textadmin) || $datain == "admin") {
         $channel_summary .= "\n\nهنوز کانالی ثبت نشده است.";
     }
     sendmessage($from_id, $channel_summary, $channelkeyboard, 'HTML');
-} elseif ($text == $textbotlang['Admin']['Status']['btn'] || $datain == "stat_all_bot") {
-    $statisticsall = bot_overall_stats_html($pdo);
-    if ($datain == "stat_all_bot") {
-        Editmessagetext($from_id, $message_id, $statisticsall, $keyboard_stat, 'HTML');
-    } else {
-        sendmessage($from_id, $statisticsall, $keyboard_stat, 'HTML');
-    }
+} elseif ($text == $textbotlang['Admin']['Status']['btn']) {
+    sendmessage($from_id, "📌 بازه زمانی آمار را انتخاب کنید:", $keyboard_stat, 'HTML');
+} elseif ($datain == "stat_all_bot") {
+    Editmessagetext($from_id, $message_id, bot_overall_stats_html($pdo), $keyboard_stat, 'HTML');
 } elseif ($datain == "hoursago_stat") {
     $range = stats_tehran_named_range('last_hour');
     Editmessagetext($from_id, $message_id, bot_format_period_stats(bot_period_stats($pdo, $range['start'], $range['end'], ['live_payments' => true]), 'آمار ۱ ساعت گذشته', $range['label']), $keyboard_stat, 'HTML');

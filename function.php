@@ -1118,6 +1118,12 @@ function bot_sql_extra_volume_gb(string $column = 'value'): string
  */
 function bot_sold_volume_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = null): array
 {
+    $cacheKey = 'sold_volume:' . bot_stats_cache_range_suffix($startTs, $endTs);
+    $cached = bot_stats_cache_get($cacheKey);
+    if (is_array($cached)) {
+        return $cached;
+    }
+
     $paidSql = invoice_paid_status_sql('Status');
     $panelSql = "COALESCE(NULLIF(TRIM(Service_location), ''), 'نامشخص')";
     $hasRange = $startTs !== null && $endTs !== null;
@@ -1205,12 +1211,14 @@ function bot_sold_volume_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = nul
         return $cmp !== 0 ? $cmp : strcasecmp($a['name'], $b['name']);
     });
 
-    return [
+    $result = [
         'invoice' => $invoiceTotal,
         'extra' => $extraTotal,
         'total' => $invoiceTotal + $extraTotal,
         'panels' => $panels,
     ];
+    bot_stats_cache_set($cacheKey, $result);
+    return $result;
 }
 
 function bot_format_sold_volume_block(array $vol, bool $html = false): string
@@ -1260,6 +1268,12 @@ function bot_format_sold_volume_block(array $vol, bool $html = false): string
 function bot_first_purchase_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = null): array
 {
     $empty = ['count' => 0, 'sum' => 0.0];
+    $cacheKey = 'first_purchase:' . bot_stats_cache_range_suffix($startTs, $endTs);
+    $cached = bot_stats_cache_get($cacheKey);
+    if (is_array($cached)) {
+        return $cached;
+    }
+
     $paidSql = invoice_paid_status_sql('i.Status');
     $sellEpoch = unix_column_epoch_sql('i.time_sell');
     $hasRange = $startTs !== null && $endTs !== null;
@@ -1288,10 +1302,12 @@ function bot_first_purchase_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = 
         $stmt = $pdo->prepare($sqlWindow);
         $stmt->execute($params);
         $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-        return [
+        $result = [
             'count' => (int) ($row['count'] ?? 0),
             'sum' => (float) ($row['sum'] ?? 0),
         ];
+        bot_stats_cache_set($cacheKey, $result);
+        return $result;
     } catch (Throwable $e) {
         error_log('bot_first_purchase_stats window: ' . $e->getMessage());
     }
@@ -1315,10 +1331,12 @@ function bot_first_purchase_stats(PDO $pdo, ?int $startTs = null, ?int $endTs = 
         $stmt = $pdo->prepare($sqlFallback);
         $stmt->execute($params);
         $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-        return [
+        $result = [
             'count' => (int) ($row['count'] ?? 0),
             'sum' => (float) ($row['sum'] ?? 0),
         ];
+        bot_stats_cache_set($cacheKey, $result);
+        return $result;
     } catch (Throwable $e) {
         error_log('bot_first_purchase_stats fallback: ' . $e->getMessage());
         return $empty;
@@ -1581,27 +1599,65 @@ function bot_agent_invoice_purchase_stats(PDO $pdo, ?int $startTs = null, ?int $
 }
 
 /**
- * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,expenses:int,expenses_sum:float,users:int,avg_join:string,total_count:int,period_income_sum:float,period_net_sum:float,period_investment_sum:float,income_sum:float,total_sum:float,investment_sum:float,agent_n_count:int,agent_n_sum:float,agent_n2_count:int,agent_n2_sum:float,sold_volume:array,first_purchase:array,forecast_sold_volume:?float}
+ * @return array{orders:int,orders_sum:float,orders_invoice_sum:float,tests:int,extends:int,extends_sum:float,extra_volume:int,extra_volume_sum:float,extra_time:int,extra_time_sum:float,change_location:int,change_location_sum:float,wallet:int,wallet_sum:float,wallet_withdraw:int,wallet_withdraw_sum:float,expenses:int,expenses_sum:float,users:int,avg_join:?string,total_count:int,period_income_sum:float,period_net_sum:float,period_investment_sum:float,income_sum:?float,total_sum:?float,investment_sum:?float,agent_n_count:int,agent_n_sum:float,agent_n2_count:int,agent_n2_sum:float,sold_volume:?array,first_purchase:?array,forecast_sold_volume:?float,ledger_pending?:bool,heavy_pending?:bool}
  */
 function bot_period_stats(PDO $pdo, int $startTs, int $endTs, array $opts = []): array
 {
     stats_schema_ensure_if_needed();
     $livePayments = !empty($opts['live_payments']);
+    $attachLedger = !array_key_exists('attach_ledger', $opts) || !empty($opts['attach_ledger']);
+    $skipHeavy = !empty($opts['skip_heavy']);
     $cacheKey = 'period:' . $startTs . ':' . $endTs;
-    $ledgerAll = bot_stats_cached_ledger_all($pdo);
     $cached = bot_stats_cache_get($cacheKey);
-    if (is_array($cached)) {
-        $cached = bot_period_stats_attach_all_time($cached, $ledgerAll);
-        if ($livePayments) {
-            return bot_period_stats_overlay_live_payments($pdo, $cached, $startTs, $endTs);
-        }
-        return $cached;
+    if (is_array($cached) && bot_period_stats_is_heavy_complete($cached)) {
+        $result = $cached;
+    } elseif ($skipHeavy) {
+        $result = bot_period_stats_compute_fast($pdo, $startTs, $endTs);
+        $result['heavy_pending'] = true;
+    } else {
+        $result = bot_period_stats_compute($pdo, $startTs, $endTs);
+        bot_stats_cache_set($cacheKey, bot_period_stats_for_cache($result));
     }
-
-    $result = bot_period_stats_compute($pdo, $startTs, $endTs);
-    $result = bot_period_stats_attach_all_time($result, $ledgerAll);
-    bot_stats_cache_set($cacheKey, $result);
+    if ($livePayments) {
+        $result = bot_period_stats_overlay_live_payments($pdo, $result, $startTs, $endTs);
+    }
+    $result = bot_period_stats_strip_all_time($result);
+    if ($attachLedger) {
+        $result = bot_period_stats_attach_all_time($result, bot_stats_cached_ledger_all($pdo));
+    } else {
+        $result['ledger_pending'] = true;
+        $result['income_sum'] = null;
+        $result['total_sum'] = null;
+        $result['investment_sum'] = null;
+    }
     return $result;
+}
+
+function bot_period_stats_is_heavy_complete(array $s): bool
+{
+    return empty($s['heavy_pending'])
+        && isset($s['sold_volume'], $s['first_purchase'], $s['avg_join'])
+        && is_array($s['sold_volume'])
+        && is_array($s['first_purchase'])
+        && is_string($s['avg_join']);
+}
+
+function bot_period_stats_for_cache(array $s): array
+{
+    unset(
+        $s['income_sum'],
+        $s['total_sum'],
+        $s['investment_sum'],
+        $s['ledger_pending'],
+        $s['heavy_pending']
+    );
+    return $s;
+}
+
+function bot_period_stats_strip_all_time(array $s): array
+{
+    unset($s['income_sum'], $s['total_sum'], $s['investment_sum'], $s['ledger_pending']);
+    return $s;
 }
 
 function bot_period_stats_attach_all_time(array $s, array $ledgerAll): array
@@ -1609,6 +1665,7 @@ function bot_period_stats_attach_all_time(array $s, array $ledgerAll): array
     $s['income_sum'] = (float) ($ledgerAll['income_sum'] ?? 0);
     $s['total_sum'] = (float) ($ledgerAll['net_sum'] ?? 0);
     $s['investment_sum'] = (float) ($ledgerAll['investment_sum'] ?? 0);
+    unset($s['ledger_pending']);
     return $s;
 }
 
@@ -1647,7 +1704,8 @@ function bot_period_stats_overlay_live_payments(PDO $pdo, array $s, int $startTs
     );
 }
 
-function bot_period_stats_compute(PDO $pdo, int $startTs, int $endTs): array
+/** Fast period core (no sold volume / first purchase / avg join / forecast). */
+function bot_period_stats_compute_fast(PDO $pdo, int $startTs, int $endTs): array
 {
     $mixedTime = sql_unix_or_datetime_between('time');
     $mixedParams = stats_time_between_params($startTs, $endTs);
@@ -1695,19 +1753,39 @@ function bot_period_stats_compute(PDO $pdo, int $startTs, int $endTs): array
         'wallet_withdraw' => (int) ($withdraw['count'] ?? 0),
         'wallet_withdraw_sum' => (float) ($withdraw['sum'] ?? 0),
         'users' => $users,
-        'avg_join' => avg_join_to_first_purchase_label($pdo, $startTs, $endTs),
+        'avg_join' => null,
         'agent_n_count' => (int) ($agentInvoices['n_count'] ?? 0),
         'agent_n_sum' => (float) ($agentInvoices['n_sum'] ?? 0),
         'agent_n2_count' => (int) ($agentInvoices['n2_count'] ?? 0),
         'agent_n2_sum' => (float) ($agentInvoices['n2_sum'] ?? 0),
-        'sold_volume' => bot_sold_volume_stats($pdo, $startTs, $endTs),
-        'first_purchase' => bot_first_purchase_stats($pdo, $startTs, $endTs),
-        'forecast_sold_volume' => ($endTs - $startTs) >= (7 * 86400)
-            ? forecast_monthly_sold_volume($pdo, $startTs, $endTs)
-            : null,
+        'sold_volume' => null,
+        'first_purchase' => null,
+        'forecast_sold_volume' => null,
     ];
 
     return bot_period_stats_apply_payments($result, $payments, $ledger);
+}
+
+function bot_period_stats_attach_heavy(PDO $pdo, array $s, int $startTs, int $endTs): array
+{
+    $s['avg_join'] = avg_join_to_first_purchase_label($pdo, $startTs, $endTs);
+    $s['sold_volume'] = bot_sold_volume_stats($pdo, $startTs, $endTs);
+    $s['first_purchase'] = bot_first_purchase_stats($pdo, $startTs, $endTs);
+    $s['forecast_sold_volume'] = ($endTs - $startTs) >= (7 * 86400)
+        ? forecast_monthly_sold_volume($pdo, $startTs, $endTs)
+        : null;
+    unset($s['heavy_pending']);
+    return $s;
+}
+
+function bot_period_stats_compute(PDO $pdo, int $startTs, int $endTs): array
+{
+    return bot_period_stats_attach_heavy(
+        $pdo,
+        bot_period_stats_compute_fast($pdo, $startTs, $endTs),
+        $startTs,
+        $endTs
+    );
 }
 
 function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = null): string
@@ -1727,23 +1805,40 @@ function bot_format_period_stats(array $s, string $title, ?string $rangeLabel = 
     $sumPeriodIncome = number_format((float) ($s['period_income_sum'] ?? 0), 0);
     $sumPeriodNet = number_format((float) ($s['period_net_sum'] ?? 0), 0);
     $sumPeriodInvestment = number_format((float) ($s['period_investment_sum'] ?? 0), 0);
-    $sumIncome = number_format((float) ($s['income_sum'] ?? 0), 0);
-    $sumTotal = number_format($s['total_sum'], 0);
-    $sumInvestment = number_format((float) ($s['investment_sum'] ?? 0), 0);
+    $pending = bot_stats_pending_label();
+    $ledgerPending = !empty($s['ledger_pending']) || !isset($s['income_sum']) || $s['income_sum'] === null;
+    if ($ledgerPending) {
+        $sumIncome = $pending;
+        $sumTotal = $pending;
+        $sumInvestment = $pending;
+    } else {
+        $sumIncome = number_format((float) $s['income_sum'], 0) . ' تومان';
+        $sumTotal = number_format((float) ($s['total_sum'] ?? 0), 0) . ' تومان';
+        $sumInvestment = number_format((float) ($s['investment_sum'] ?? 0), 0) . ' تومان';
+    }
     $agentNCount = (int) ($s['agent_n_count'] ?? 0);
     $agentNSum = number_format((float) ($s['agent_n_sum'] ?? 0), 0);
     $agentN2Count = (int) ($s['agent_n2_count'] ?? 0);
     $agentN2Sum = number_format((float) ($s['agent_n2_sum'] ?? 0), 0);
-    $soldVolumeBlock = bot_format_sold_volume_block($s['sold_volume'] ?? []);
-    $forecastVolume = $s['forecast_sold_volume'] ?? null;
-    if ($forecastVolume !== null) {
-        $soldVolumeBlock .= "\n📅 حجم فروخته‌شده پیش‌بینی‌شده ماهانه : " . bot_format_gb($forecastVolume) . " گیگابایت";
+
+    $heavyPending = !empty($s['heavy_pending']) || !bot_period_stats_is_heavy_complete($s);
+    if ($heavyPending) {
+        $soldVolumeBlock = "🔋 حجم فروخته‌شده : $pending";
+        $firstPurchaseBlock = "🆕 خرید اول : $pending\n💰 مبلغ خرید اول : $pending";
+        $avgJoin = $pending;
+    } else {
+        $soldVolumeBlock = bot_format_sold_volume_block($s['sold_volume'] ?? []);
+        $forecastVolume = $s['forecast_sold_volume'] ?? null;
+        if ($forecastVolume !== null) {
+            $soldVolumeBlock .= "\n📅 حجم فروخته‌شده پیش‌بینی‌شده ماهانه : " . bot_format_gb($forecastVolume) . " گیگابایت";
+        }
+        $firstPurchaseBlock = bot_format_first_purchase_block(
+            $s['first_purchase'] ?? [],
+            (int) ($s['orders'] ?? 0),
+            (float) ($s['orders_invoice_sum'] ?? $s['orders_sum'] ?? 0)
+        );
+        $avgJoin = (string) ($s['avg_join'] ?? $pending);
     }
-    $firstPurchaseBlock = bot_format_first_purchase_block(
-        $s['first_purchase'] ?? [],
-        (int) ($s['orders'] ?? 0),
-        (float) ($s['orders_invoice_sum'] ?? $s['orders_sum'] ?? 0)
-    );
 
     return "
 🕐 <b>$title</b>
@@ -1776,113 +1871,35 @@ $soldVolumeBlock
 
 🔑 اکانت‌های تست  : {$s['tests']} عدد
 👤 تعداد کاربران  : {$s['users']} نفر
-⏱ میانگین زمان عضویت تا اولین خرید : {$s['avg_join']}
+⏱ میانگین زمان عضویت تا اولین خرید : $avgJoin
 
 💰 درآمد کل (این بازه) : $sumPeriodIncome تومان
 💵 درآمد خالص (این بازه) : $sumPeriodNet تومان
 🏦 ورود سرمایه (این بازه) : $sumPeriodInvestment تومان
-💰 درآمد کل (از ابتدا) : $sumIncome تومان
-💵 درآمد خالص (از ابتدا) : $sumTotal تومان
-🏦 ورود سرمایه (از ابتدا) : $sumInvestment تومان
+💰 درآمد کل (از ابتدا) : $sumIncome
+💵 درآمد خالص (از ابتدا) : $sumTotal
+🏦 ورود سرمایه (از ابتدا) : $sumInvestment
 ";
 }
 
-function bot_overall_stats_html(PDO $pdo): string
+function bot_gateway_income_stats_html(PDO $pdo): string
 {
     stats_schema_ensure_if_needed();
-    $cached = bot_stats_cache_get('overall_html');
+    $cached = bot_stats_cache_get('gateway_income_html');
     if (is_string($cached) && $cached !== '') {
         return $cached;
     }
 
     global $datatextbot;
-    $paidSql = invoice_paid_status_sql('Status');
-    $activeSql = "Status IN ('active','end_of_time','end_of_volume','sendedwarn','send_on_hold')";
-
-    $userRow = $pdo->query("SELECT
-            COUNT(*) AS users,
-            COALESCE(SUM(Balance), 0) AS balance,
-            COALESCE(SUM(agent != 'f'), 0) AS agents,
-            COALESCE(SUM(agent = 'n'), 0) AS agents_n,
-            COALESCE(SUM(agent = 'n2'), 0) AS agents_n2
-        FROM user")->fetch(PDO::FETCH_ASSOC) ?: [];
-    $statistics = (int) ($userRow['users'] ?? 0);
-    $Balanceall = $userRow['balance'] ?? 0;
-    $agentsum = (int) ($userRow['agents'] ?? 0);
-    $agentsumn = (int) ($userRow['agents_n'] ?? 0);
-    $agentsumn2 = (int) ($userRow['agents_n2'] ?? 0);
-
-    $sumpanel = (int) $pdo->query('SELECT COUNT(*) FROM marzban_panel')->fetchColumn();
-
-    $invoiceRow = $pdo->query("SELECT
-            COALESCE(SUM(CASE WHEN $paidSql AND name_product != 'سرویس تست' THEN 1 ELSE 0 END), 0) AS paid_count,
-            COALESCE(SUM(CASE WHEN $paidSql AND name_product != 'سرویس تست' THEN CAST(price_product AS DECIMAL(20,0)) ELSE 0 END), 0) AS paid_sum,
-            COALESCE(SUM(CASE WHEN $activeSql AND name_product != 'سرویس تست' THEN 1 ELSE 0 END), 0) AS active_count,
-            COALESCE(SUM(CASE WHEN $activeSql AND name_product != 'سرویس تست' THEN CAST(price_product AS DECIMAL(20,0)) ELSE 0 END), 0) AS active_sum,
-            COALESCE(SUM(CASE WHEN name_product = 'سرویس تست' THEN 1 ELSE 0 END), 0) AS test_count
-        FROM invoice")->fetch(PDO::FETCH_ASSOC) ?: [];
-    $invoice = (int) ($invoiceRow['paid_count'] ?? 0);
-    $invoicePaidSum = (float) ($invoiceRow['paid_sum'] ?? 0);
-    $invoiceactive = (int) ($invoiceRow['active_count'] ?? 0);
-    $invoicesum = (float) ($invoiceRow['active_sum'] ?? 0);
-    $count_usertest = (int) ($invoiceRow['test_count'] ?? 0);
-
-    $withdrawAll = bot_wallet_withdraw_stats($pdo);
-    $ledgerAll = bot_stats_cached_ledger_all($pdo);
-    $invoiceTotal = (float) ($ledgerAll['income_sum'] ?? 0);
-
-    $extendRow = $pdo->query("SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_extend
-        FROM service_other
-        WHERE type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'")->fetch(PDO::FETCH_ASSOC) ?: [];
-    $extendsum = (float) ($extendRow['total_extend'] ?? 0);
-
-    $stmt2 = $pdo->query("SELECT
-        COUNT(*) AS users_with_account,
-        COALESCE(SUM(has_purchase), 0) AS users_with_purchase,
-        COALESCE(SUM(has_test), 0) AS users_with_test,
-        COALESCE(SUM(has_test AND NOT has_purchase), 0) AS users_with_test_no_purchase,
-        COALESCE(SUM(has_test AND has_purchase), 0) AS users_with_test_and_purchase
-        FROM (
-            SELECT id_user,
-                   MAX(name_product = 'سرویس تست') AS has_test,
-                   MAX(name_product != 'سرویس تست') AS has_purchase
-            FROM invoice
-            WHERE $paidSql
-            GROUP BY id_user
-        ) user_invoice_flags");
-    $statsUsers = $stmt2->fetch(PDO::FETCH_ASSOC) ?: [];
-    $count_users_account = (int) ($statsUsers['users_with_account'] ?? 0);
-    $statisticsorder = (int) ($statsUsers['users_with_purchase'] ?? 0);
-    $count_users_test_no_purchase = (int) ($statsUsers['users_with_test_no_purchase'] ?? 0);
-    $count_users_test_and_purchase = (int) ($statsUsers['users_with_test_and_purchase'] ?? 0);
-
     $stmt = $pdo->query("SELECT SUM(price) AS sumpay, Payment_Method, COUNT(price) AS countpay
         FROM Payment_report
         WHERE payment_Status = 'paid'
         GROUP BY Payment_Method");
     $statispay = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
 
-    $ratecustomer = $statistics > 0 ? round(($statisticsorder / $statistics) * 100, 2) : 0;
-    $ratetest = $statistics > 0 ? round((((int) ($statsUsers['users_with_test'] ?? 0)) / $statistics) * 100, 2) : 0;
-    $avgbuy_customer = $statisticsorder > 0 ? number_format($invoiceTotal / $statisticsorder) : '0';
-    $monthe_buy = number_format(forecast_monthly_paid_income($pdo));
-    $monthe_volume = bot_format_gb(forecast_monthly_sold_volume($pdo) ?? 0);
-    $percent_of_extend = $invoiceTotal > 0 ? round(($extendsum / $invoiceTotal) * 100, 2) : 0;
-    $percent_of_extend = $percent_of_extend > 100 ? 100 : $percent_of_extend;
-    $firstPurchaseStats = bot_first_purchase_stats($pdo);
-    $firstPurchaseSum = (float) ($firstPurchaseStats['sum'] ?? 0);
-    $repeatPurchaseSum = max(0.0, $invoicePaidSum - $firstPurchaseSum);
-    $percent_of_loyalty = $invoiceTotal > 0
-        ? round((($repeatPurchaseSum + $extendsum) / $invoiceTotal) * 100, 2)
-        : 0;
-    $percent_of_loyalty = $percent_of_loyalty > 100 ? 100 : $percent_of_loyalty;
-    $avgJoinBuy = avg_join_to_first_purchase_label($pdo);
-    $soldVolumeText = bot_format_sold_volume_block(bot_sold_volume_stats($pdo), true);
-    $agentInvoiceStats = bot_agent_invoice_purchase_stats($pdo);
-    $autoRenewStats = invoice_auto_renew_stats($pdo);
-    $firstPurchaseText = bot_format_first_purchase_block($firstPurchaseStats, $invoice, $invoicePaidSum, true);
-
-    $paycount = '';
+    $lines = '';
+    $totalCount = 0;
+    $totalSum = 0.0;
     if (is_array($statispay) && count($statispay) !== 0) {
         foreach ($statispay as $tracepay) {
             if (($tracepay['Payment_Method'] ?? '') === 'capital_injection') {
@@ -1903,28 +1920,214 @@ function bot_overall_stats_html(PDO $pdo): string
                 'add order by admin' => 'سفارش توسط ادمین',
                 'extend by admin' => 'تمدید توسط ادمین',
             ][$tracepay['Payment_Method']] ?? ($tracepay['Payment_Method'] ?: 'سایر');
-            $sumPay = number_format((float) ($tracepay['sumpay'] ?? 0), 0);
+            $sumPay = (float) ($tracepay['sumpay'] ?? 0);
             $countPay = (int) ($tracepay['countpay'] ?? 0);
+            $totalCount += $countPay;
+            $totalSum += $sumPay;
             $status_var = htmlspecialchars((string) $status_var, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            $paycount .= "\n• {$status_var}: <code>$countPay</code> عدد — <code>$sumPay</code> تومان";
+            $sumPayFmt = number_format($sumPay, 0);
+            $lines .= "\n• {$status_var}: <code>$countPay</code> عدد — <code>$sumPayFmt</code> تومان";
         }
+    }
+
+    if ($lines === '') {
+        $html = "💳 <b>درآمد درگاه‌ها</b>\n━━━━━━━━━━━━━━━━━━\nداده‌ای ثبت نشده است.";
+    } else {
+        $totalCountFmt = number_format($totalCount);
+        $totalSumFmt = number_format($totalSum, 0);
+        $html = "💳 <b>درآمد درگاه‌ها</b>
+━━━━━━━━━━━━━━━━━━
+📊 <b>مجموع:</b> <code>$totalCountFmt</code> عدد — <code>$totalSumFmt</code> تومان
+$lines";
+    }
+    bot_stats_cache_set('gateway_income_html', $html);
+    return $html;
+}
+
+/**
+ * @param array{ledger_pending?:bool,ledger?:array|null,reuse_base?:bool} $opts
+ */
+function bot_overall_stats_html(PDO $pdo, array $opts = []): string
+{
+    stats_schema_ensure_if_needed();
+    $ledgerPending = !empty($opts['ledger_pending']);
+    $ledgerOverride = array_key_exists('ledger', $opts) ? $opts['ledger'] : null;
+    $reuseBase = !empty($opts['reuse_base']);
+
+    if (!$ledgerPending && $ledgerOverride === null) {
+        $cached = bot_stats_cache_get('overall_html');
+        if (is_string($cached) && $cached !== '') {
+            return $cached;
+        }
+    }
+
+    if ($ledgerPending) {
+        $ledgerAll = null;
+    } elseif (is_array($ledgerOverride)) {
+        $ledgerAll = $ledgerOverride;
+    } else {
+        $ledgerAll = bot_stats_cached_ledger_all($pdo);
+    }
+
+    static $baseMemo = null;
+    if (!$reuseBase) {
+        $baseMemo = null;
+    }
+    if (!is_array($baseMemo)) {
+        $paidSql = invoice_paid_status_sql('Status');
+        $activeSql = "Status IN ('active','end_of_time','end_of_volume','sendedwarn','send_on_hold')";
+
+        $userRow = $pdo->query("SELECT
+                COUNT(*) AS users,
+                COALESCE(SUM(Balance), 0) AS balance,
+                COALESCE(SUM(agent != 'f'), 0) AS agents,
+                COALESCE(SUM(agent = 'n'), 0) AS agents_n,
+                COALESCE(SUM(agent = 'n2'), 0) AS agents_n2
+            FROM user")->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $invoiceRow = $pdo->query("SELECT
+                COALESCE(SUM(CASE WHEN $paidSql AND name_product != 'سرویس تست' THEN 1 ELSE 0 END), 0) AS paid_count,
+                COALESCE(SUM(CASE WHEN $paidSql AND name_product != 'سرویس تست' THEN CAST(price_product AS DECIMAL(20,0)) ELSE 0 END), 0) AS paid_sum,
+                COALESCE(SUM(CASE WHEN $activeSql AND name_product != 'سرویس تست' THEN 1 ELSE 0 END), 0) AS active_count,
+                COALESCE(SUM(CASE WHEN $activeSql AND name_product != 'سرویس تست' THEN CAST(price_product AS DECIMAL(20,0)) ELSE 0 END), 0) AS active_sum,
+                COALESCE(SUM(CASE WHEN name_product = 'سرویس تست' THEN 1 ELSE 0 END), 0) AS test_count
+            FROM invoice")->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $extendRow = $pdo->query("SELECT COALESCE(SUM(CAST(price AS DECIMAL(20,0))),0) AS total_extend
+            FROM service_other
+            WHERE type IN ('extend_user','extends_not_user','extend_user_by_admin') AND status = 'paid'")->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $statsUsers = bot_invoice_user_flags_stats($pdo);
+        $firstPurchaseStats = bot_first_purchase_stats($pdo);
+        $invoice = (int) ($invoiceRow['paid_count'] ?? 0);
+        $invoicePaidSum = (float) ($invoiceRow['paid_sum'] ?? 0);
+
+        $baseMemo = [
+            'statistics' => (int) ($userRow['users'] ?? 0),
+            'Balanceall' => $userRow['balance'] ?? 0,
+            'agentsum' => (int) ($userRow['agents'] ?? 0),
+            'agentsumn' => (int) ($userRow['agents_n'] ?? 0),
+            'agentsumn2' => (int) ($userRow['agents_n2'] ?? 0),
+            'sumpanel' => (int) $pdo->query('SELECT COUNT(*) FROM marzban_panel')->fetchColumn(),
+            'invoice' => $invoice,
+            'invoicePaidSum' => $invoicePaidSum,
+            'invoiceactive' => (int) ($invoiceRow['active_count'] ?? 0),
+            'invoicesum' => (float) ($invoiceRow['active_sum'] ?? 0),
+            'count_usertest' => (int) ($invoiceRow['test_count'] ?? 0),
+            'withdrawAll' => bot_wallet_withdraw_stats($pdo),
+            'extendsum' => (float) ($extendRow['total_extend'] ?? 0),
+            'statsUsers' => $statsUsers,
+            'count_users_account' => (int) ($statsUsers['users_with_account'] ?? 0),
+            'statisticsorder' => (int) ($statsUsers['users_with_purchase'] ?? 0),
+            'count_users_test_no_purchase' => (int) ($statsUsers['users_with_test_no_purchase'] ?? 0),
+            'count_users_test_and_purchase' => (int) ($statsUsers['users_with_test_and_purchase'] ?? 0),
+            'monthe_buy' => number_format(forecast_monthly_paid_income($pdo)),
+            'monthe_volume' => bot_format_gb(forecast_monthly_sold_volume($pdo) ?? 0),
+            'firstPurchaseStats' => $firstPurchaseStats,
+            'firstPurchaseSum' => (float) ($firstPurchaseStats['sum'] ?? 0),
+            'avgJoinBuy' => avg_join_to_first_purchase_label($pdo),
+            'soldVolumeText' => bot_format_sold_volume_block(bot_sold_volume_stats($pdo), true),
+            'agentInvoiceStats' => bot_agent_invoice_purchase_stats($pdo),
+            'autoRenewStats' => invoice_auto_renew_stats($pdo),
+            'firstPurchaseText' => bot_format_first_purchase_block($firstPurchaseStats, $invoice, $invoicePaidSum, true),
+        ];
+    }
+
+    $statistics = $baseMemo['statistics'];
+    $Balanceall = $baseMemo['Balanceall'];
+    $agentsum = $baseMemo['agentsum'];
+    $agentsumn = $baseMemo['agentsumn'];
+    $agentsumn2 = $baseMemo['agentsumn2'];
+    $sumpanel = $baseMemo['sumpanel'];
+    $invoice = $baseMemo['invoice'];
+    $invoicePaidSum = $baseMemo['invoicePaidSum'];
+    $invoiceactive = $baseMemo['invoiceactive'];
+    $invoicesum = $baseMemo['invoicesum'];
+    $count_usertest = $baseMemo['count_usertest'];
+    $withdrawAll = $baseMemo['withdrawAll'];
+    $extendsum = $baseMemo['extendsum'];
+    $statsUsers = $baseMemo['statsUsers'];
+    $count_users_account = $baseMemo['count_users_account'];
+    $statisticsorder = $baseMemo['statisticsorder'];
+    $count_users_test_no_purchase = $baseMemo['count_users_test_no_purchase'];
+    $count_users_test_and_purchase = $baseMemo['count_users_test_and_purchase'];
+    $monthe_buy = $baseMemo['monthe_buy'];
+    $monthe_volume = $baseMemo['monthe_volume'];
+    $firstPurchaseSum = $baseMemo['firstPurchaseSum'];
+    $avgJoinBuy = $baseMemo['avgJoinBuy'];
+    $soldVolumeText = $baseMemo['soldVolumeText'];
+    $agentInvoiceStats = $baseMemo['agentInvoiceStats'];
+    $autoRenewStats = $baseMemo['autoRenewStats'];
+    $firstPurchaseText = $baseMemo['firstPurchaseText'];
+
+    $invoiceTotal = is_array($ledgerAll) ? (float) ($ledgerAll['income_sum'] ?? 0) : null;
+    $pending = bot_stats_pending_label();
+    $ratecustomer = $statistics > 0 ? round(($statisticsorder / $statistics) * 100, 2) : 0;
+    $ratetest = $statistics > 0 ? round((((int) ($statsUsers['users_with_test'] ?? 0)) / $statistics) * 100, 2) : 0;
+
+    if ($invoiceTotal === null) {
+        $avgbuy_customer = $pending;
+        $percent_of_extend = $pending;
+        $percent_of_loyalty = $pending;
+        $incomeSumAllFmt = $pending;
+        $investmentSumAllFmt = $pending;
+        $invoicesumall = $pending;
+        $expenseCountAll = $pending;
+        $expenseSumAllFmt = $pending;
+    } else {
+        $customerMetrics = bot_overall_customer_metrics_cached(
+            $statisticsorder,
+            $invoiceTotal,
+            $extendsum,
+            $invoicePaidSum,
+            $firstPurchaseSum
+        );
+        $avgbuy_customer = $customerMetrics['avgbuy_customer'];
+        $percent_of_loyalty = $customerMetrics['percent_of_loyalty'];
+        $percent_of_extend = $invoiceTotal > 0 ? round(($extendsum / $invoiceTotal) * 100, 2) : 0;
+        $percent_of_extend = $percent_of_extend > 100 ? 100 : $percent_of_extend;
+        $incomeSumAllFmt = number_format((float) ($ledgerAll['income_sum'] ?? 0), 0);
+        $investmentSumAllFmt = number_format((float) ($ledgerAll['investment_sum'] ?? 0), 0);
+        $invoicesumall = number_format((float) ($ledgerAll['net_sum'] ?? 0), 0);
+        $expenseCountAll = (int) ($ledgerAll['expenses_count'] ?? 0);
+        $expenseSumAllFmt = number_format((float) ($ledgerAll['expenses_sum'] ?? 0), 0);
     }
 
     $invoicesumFmt = number_format($invoicesum, 0);
     $extendsumFmt = number_format($extendsum, 0);
-    $incomeSumAllFmt = number_format((float) ($ledgerAll['income_sum'] ?? 0), 0);
-    $investmentSumAllFmt = number_format((float) ($ledgerAll['investment_sum'] ?? 0), 0);
-    $invoicesumall = number_format((float) ($ledgerAll['net_sum'] ?? 0), 0);
     $withdrawCountAll = (int) ($withdrawAll['count'] ?? 0);
     $withdrawSumAllFmt = number_format((float) ($withdrawAll['sum'] ?? 0), 0);
-    $expenseCountAll = (int) ($ledgerAll['expenses_count'] ?? 0);
-    $expenseSumAllFmt = number_format((float) ($ledgerAll['expenses_sum'] ?? 0), 0);
     $agentNCountAll = (int) ($agentInvoiceStats['n_count'] ?? 0);
     $agentNSumAll = number_format((float) ($agentInvoiceStats['n_sum'] ?? 0), 0);
     $agentN2CountAll = (int) ($agentInvoiceStats['n2_count'] ?? 0);
     $agentN2SumAll = number_format((float) ($agentInvoiceStats['n2_sum'] ?? 0), 0);
     $autoRenewUsers = $autoRenewStats['users'];
     $autoRenewServices = $autoRenewStats['services'];
+
+    $incomeLine = $invoiceTotal === null
+        ? "<b>💰 درآمد کل:</b> $pending"
+        : "<b>💰 درآمد کل: <code>$incomeSumAllFmt</code> تومان</b>";
+    $investmentLine = $invoiceTotal === null
+        ? "🏦 <b>ورود سرمایه:</b> $pending"
+        : "🏦 <b>ورود سرمایه: <code>$investmentSumAllFmt</code> تومان</b>";
+    $expenseCountLine = $invoiceTotal === null
+        ? "🧾 <b>تعداد کل هزینه‌ها:</b> $pending"
+        : "🧾 <b>تعداد کل هزینه‌ها:</b> <code>$expenseCountAll</code> عدد";
+    $expenseSumLine = $invoiceTotal === null
+        ? "💸 <b>مجموع کل هزینه‌ها:</b> $pending"
+        : "💸 <b>مجموع کل هزینه‌ها:</b> <code>$expenseSumAllFmt</code> تومان";
+    $netLine = $invoiceTotal === null
+        ? "<b>💵 درآمد خالص:</b> $pending"
+        : "<b>💵 درآمد خالص: <code>$invoicesumall</code> تومان</b>";
+    $avgBuyLine = $invoiceTotal === null
+        ? "💳 <b>میانگین خرید هر مشتری:</b> $pending"
+        : "💳 <b>میانگین خرید هر مشتری:</b> <code>$avgbuy_customer</code> تومان";
+    $extendPctLine = $invoiceTotal === null
+        ? "📊 <b>درصد تمدید از فروش:</b> $pending"
+        : "📊 <b>درصد تمدید از فروش:</b> <code>$percent_of_extend</code>٪";
+    $loyaltyLine = $invoiceTotal === null
+        ? "💚 <b>درصد وفاداری:</b> $pending"
+        : "💚 <b>درصد وفاداری:</b> <code>$percent_of_loyalty</code>٪";
 
     $html = "📊 <b>آمار کلی ربات</b>
 ━━━━━━━━━━━━━━━━━━
@@ -1944,17 +2147,16 @@ $firstPurchaseText
 🔄 <b>جمع کل تمدید:</b> <code>$extendsumFmt</code> تومان
 🛒 <b>خرید نمایندگان عادی:</b> <code>$agentNCountAll</code> عدد — <code>$agentNSumAll</code> تومان
 🛒 <b>خرید نمایندگان پیشرفته:</b> <code>$agentN2CountAll</code> عدد — <code>$agentN2SumAll</code> تومان
-$paycount
-<b>💰 درآمد کل: <code>$incomeSumAllFmt</code> تومان</b>
-🏦 <b>ورود سرمایه: <code>$investmentSumAllFmt</code> تومان</b>
+$incomeLine
+$investmentLine
 
 💸 <b>هزینه‌ها</b>
 💸 <b>تعداد برداشت از کیف پول:</b> <code>$withdrawCountAll</code> عدد
 💰 <b>مبلغ برداشت از کیف پول:</b> <code>$withdrawSumAllFmt</code> تومان
-🧾 <b>تعداد کل هزینه‌ها:</b> <code>$expenseCountAll</code> عدد
-💸 <b>مجموع کل هزینه‌ها:</b> <code>$expenseSumAllFmt</code> تومان
+$expenseCountLine
+$expenseSumLine
 
-<b>💵 درآمد خالص: <code>$invoicesumall</code> تومان</b>
+$netLine
 
 ♻️ <b>کاربران با تمدید خودکار:</b> <code>$autoRenewUsers</code> نفر  
 ♻️ <b>سرویس‌های تمدید خودکار:</b> <code>$autoRenewServices</code> عدد  
@@ -1962,12 +2164,12 @@ $soldVolumeText
 
 📈 <b>نرخ تبدیل به مشتری:</b> <code>$ratecustomer</code>٪  
 🧪 <b>نرخ دریافت تست:</b> <code>$ratetest</code>٪  
-💳 <b>میانگین خرید هر مشتری:</b> <code>$avgbuy_customer</code> تومان  
+$avgBuyLine  
 ⏱ <b>میانگین زمان عضویت تا اولین خرید:</b> <code>$avgJoinBuy</code>  
 📅 <b>درآمد پیش‌بینی‌شده ماهانه:</b> <code>$monthe_buy</code> تومان  
 🔋 <b>حجم فروخته‌شده پیش‌بینی‌شده ماهانه:</b> <code>$monthe_volume</code> گیگابایت  
-📊 <b>درصد تمدید از فروش:</b> <code>$percent_of_extend</code>٪  
-💚 <b>درصد وفاداری:</b> <code>$percent_of_loyalty</code>٪  
+$extendPctLine  
+$loyaltyLine  
 
 
 👨‍💼 <b>تعداد کل نمایندگان:</b> <code>$agentsum</code> نفر  
@@ -1975,8 +2177,116 @@ $soldVolumeText
 🔸 <b>نمایندگان نوع N2:</b> <code>$agentsumn2</code> نفر  
 🧩 <b>تعداد پنل‌ها:</b> <code>$sumpanel</code> عدد
 ";
-    bot_stats_cache_set('overall_html', $html);
+    if (!$ledgerPending && is_array($ledgerAll)) {
+        bot_stats_cache_set('overall_html', $html);
+        $baseMemo = null;
+    }
     return $html;
+}
+
+/**
+ * Multi-phase period stats reply: fast core first, then heavy fields, then all-time ledger.
+ */
+function bot_admin_deliver_period_stats(
+    PDO $pdo,
+    $chatId,
+    $messageId,
+    $keyboard,
+    int $startTs,
+    int $endTs,
+    string $title,
+    ?string $rangeLabel = null,
+    array $periodOpts = [],
+    string $mode = 'edit'
+): void {
+    stats_schema_ensure_if_needed();
+    $livePayments = !empty($periodOpts['live_payments']);
+    $cacheKey = 'period:' . $startTs . ':' . $endTs;
+    $cached = bot_stats_cache_get($cacheKey);
+    $ledgerPeek = bot_stats_peek_ledger_all();
+
+    $publish = static function (string $text, $mid) use ($chatId, $messageId, $keyboard, $mode) {
+        if ($mode === 'edit') {
+            $target = ($mid !== null && (int) $mid > 0) ? (int) $mid : (int) $messageId;
+            Editmessagetext($chatId, $target, $text, $keyboard, 'HTML');
+            return $target;
+        }
+        if ($mid !== null && (int) $mid > 0) {
+            Editmessagetext($chatId, (int) $mid, $text, $keyboard, 'HTML');
+            return (int) $mid;
+        }
+        $resp = sendmessage($chatId, $text, $keyboard, 'HTML');
+        return is_array($resp) ? (int) ($resp['result']['message_id'] ?? 0) : 0;
+    };
+
+    $applyLedgerState = static function (array $stats) use ($ledgerPeek): array {
+        $stats = bot_period_stats_strip_all_time($stats);
+        if ($ledgerPeek !== null) {
+            return bot_period_stats_attach_all_time($stats, $ledgerPeek);
+        }
+        $stats['ledger_pending'] = true;
+        $stats['income_sum'] = null;
+        $stats['total_sum'] = null;
+        $stats['investment_sum'] = null;
+        return $stats;
+    };
+
+    // Warm period cache: skip heavy placeholders.
+    if (is_array($cached) && bot_period_stats_is_heavy_complete($cached)) {
+        $stats = $cached;
+        if ($livePayments) {
+            $stats = bot_period_stats_overlay_live_payments($pdo, $stats, $startTs, $endTs);
+        }
+        $stats = $applyLedgerState($stats);
+        $mid = $publish(bot_format_period_stats($stats, $title, $rangeLabel), $mode === 'edit' ? $messageId : null);
+        if ($ledgerPeek === null) {
+            $stats = bot_period_stats_attach_all_time($stats, bot_stats_cached_ledger_all($pdo));
+            $publish(bot_format_period_stats($stats, $title, $rangeLabel), $mid);
+        }
+        return;
+    }
+
+    // Cold period cache: fast core first.
+    $stats = bot_period_stats_compute_fast($pdo, $startTs, $endTs);
+    if ($livePayments) {
+        $stats = bot_period_stats_overlay_live_payments($pdo, $stats, $startTs, $endTs);
+    }
+    $stats['heavy_pending'] = true;
+    $stats = $applyLedgerState($stats);
+    $mid = $publish(bot_format_period_stats($stats, $title, $rangeLabel), $mode === 'edit' ? $messageId : null);
+
+    // Fill heavy fields and cache full period payload.
+    $stats = bot_period_stats_attach_heavy($pdo, $stats, $startTs, $endTs);
+    bot_stats_cache_set($cacheKey, bot_period_stats_for_cache($stats));
+    $stats = $applyLedgerState($stats);
+    $mid = $publish(bot_format_period_stats($stats, $title, $rangeLabel), $mid);
+
+    if ($ledgerPeek === null) {
+        $stats = bot_period_stats_attach_all_time($stats, bot_stats_cached_ledger_all($pdo));
+        $publish(bot_format_period_stats($stats, $title, $rangeLabel), $mid);
+    }
+}
+
+/**
+ * Two-phase overall stats reply: placeholders for ledger fields on cache miss.
+ */
+function bot_admin_deliver_overall_stats(PDO $pdo, $chatId, $messageId, $keyboard): void
+{
+    $cachedHtml = bot_stats_cache_get('overall_html');
+    if (is_string($cachedHtml) && $cachedHtml !== '') {
+        Editmessagetext($chatId, $messageId, $cachedHtml, $keyboard, 'HTML');
+        return;
+    }
+
+    $peek = bot_stats_peek_ledger_all();
+    if ($peek !== null) {
+        Editmessagetext($chatId, $messageId, bot_overall_stats_html($pdo, ['ledger' => $peek]), $keyboard, 'HTML');
+        return;
+    }
+
+    Editmessagetext($chatId, $messageId, bot_overall_stats_html($pdo, ['ledger_pending' => true]), $keyboard, 'HTML');
+    $ledger = bot_stats_cached_ledger_all($pdo);
+    Editmessagetext($chatId, $messageId, bot_overall_stats_html($pdo, ['ledger' => $ledger, 'reuse_base' => true]), $keyboard, 'HTML');
 }
 
 function format_duration_fa(?float $seconds): string
@@ -2013,6 +2323,12 @@ function format_duration_fa(?float $seconds): string
 function avg_join_to_first_purchase(PDO $pdo, ?int $joinStart = null, ?int $joinEnd = null): array
 {
     $empty = ['avg_seconds' => null, 'buyers' => 0, 'formatted' => 'داده کافی نیست'];
+    $cacheKey = 'avg_join_buy:' . bot_stats_cache_range_suffix($joinStart, $joinEnd);
+    $cached = bot_stats_cache_get($cacheKey);
+    if (is_array($cached)) {
+        return $cached;
+    }
+
     $registerEpoch = unix_column_epoch_sql('u.register');
     $sellEpoch = unix_column_epoch_sql('i.time_sell');
     $paidSql = invoice_paid_status_sql('i.Status');
@@ -2055,13 +2371,16 @@ function avg_join_to_first_purchase(PDO $pdo, ?int $joinStart = null, ?int $join
         $buyers = (int) ($row['buyers'] ?? 0);
         $avg = isset($row['avg_seconds']) && $row['avg_seconds'] !== null ? (float) $row['avg_seconds'] : null;
         if ($buyers <= 0 || $avg === null) {
+            bot_stats_cache_set($cacheKey, $empty, bot_stats_cache_ttl_heavy());
             return $empty;
         }
-        return [
+        $result = [
             'avg_seconds' => $avg,
             'buyers' => $buyers,
             'formatted' => format_duration_fa($avg) . ' (' . number_format($buyers) . ' کاربر)',
         ];
+        bot_stats_cache_set($cacheKey, $result, bot_stats_cache_ttl_heavy());
+        return $result;
     } catch (Exception $e) {
         error_log('avg_join_to_first_purchase: ' . $e->getMessage());
         return $empty;
@@ -2868,6 +3187,51 @@ function bot_stats_cache_ttl(): int
     return 600;
 }
 
+function bot_stats_cache_ttl_heavy(): int
+{
+    // Only for: avg join→first buy, avg buy/customer, loyalty %
+    return 14400;
+}
+
+/**
+ * 4h-cached overall customer metrics shown in آمار کل.
+ *
+ * @return array{avgbuy_customer:string,percent_of_loyalty:float|int}
+ */
+function bot_overall_customer_metrics_cached(
+    int $statisticsorder,
+    float $invoiceTotal,
+    float $extendsum,
+    float $invoicePaidSum,
+    float $firstPurchaseSum
+): array {
+    $cacheKey = 'overall_customer_metrics';
+    $cached = bot_stats_cache_get($cacheKey);
+    if (is_array($cached) && isset($cached['avgbuy_customer'], $cached['percent_of_loyalty'])) {
+        return $cached;
+    }
+    $avgbuy = $statisticsorder > 0 ? number_format($invoiceTotal / $statisticsorder) : '0';
+    $repeatPurchaseSum = max(0.0, $invoicePaidSum - $firstPurchaseSum);
+    $loyalty = $invoiceTotal > 0
+        ? round((($repeatPurchaseSum + $extendsum) / $invoiceTotal) * 100, 2)
+        : 0;
+    $loyalty = $loyalty > 100 ? 100 : $loyalty;
+    $result = [
+        'avgbuy_customer' => $avgbuy,
+        'percent_of_loyalty' => $loyalty,
+    ];
+    bot_stats_cache_set($cacheKey, $result, bot_stats_cache_ttl_heavy());
+    return $result;
+}
+
+function bot_stats_cache_range_suffix(?int $startTs, ?int $endTs): string
+{
+    if ($startTs === null || $endTs === null) {
+        return 'all';
+    }
+    return $startTs . ':' . $endTs;
+}
+
 function bot_stats_cache_dir(): string
 {
     $dir = __DIR__ . '/logs/stats_cache';
@@ -2929,13 +3293,81 @@ function bot_stats_cache_clear(): void
 
 function bot_stats_cached_ledger_all(PDO $pdo): array
 {
-    $cached = bot_stats_cache_get('ledger_all');
+    $cached = bot_stats_peek_ledger_all();
     if (is_array($cached)) {
         return $cached;
     }
     $ledger = bot_payment_ledger_stats($pdo);
     bot_stats_cache_set('ledger_all', $ledger);
     return $ledger;
+}
+
+/**
+ * Cached all-time ledger only — does not query DB on miss.
+ *
+ * @return array{income_count:int,income_sum:float,expenses_count:int,expenses_sum:float,investment_count:int,investment_sum:float,net_sum:float}|null
+ */
+function bot_stats_peek_ledger_all(): ?array
+{
+    $cached = bot_stats_cache_get('ledger_all');
+    return is_array($cached) ? $cached : null;
+}
+
+function bot_stats_pending_label(): string
+{
+    return 'در حال محاسبه';
+}
+
+/**
+ * Paid-invoice user flags: account / purchase / test combinations.
+ *
+ * @return array{users_with_account:int,users_with_purchase:int,users_with_test:int,users_with_test_no_purchase:int,users_with_test_and_purchase:int}
+ */
+function bot_invoice_user_flags_stats(PDO $pdo): array
+{
+    $cacheKey = 'invoice_user_flags';
+    $cached = bot_stats_cache_get($cacheKey);
+    if (is_array($cached)) {
+        return $cached;
+    }
+
+    $empty = [
+        'users_with_account' => 0,
+        'users_with_purchase' => 0,
+        'users_with_test' => 0,
+        'users_with_test_no_purchase' => 0,
+        'users_with_test_and_purchase' => 0,
+    ];
+    try {
+        $paidSql = invoice_paid_status_sql('Status');
+        $stmt = $pdo->query("SELECT
+            COUNT(*) AS users_with_account,
+            COALESCE(SUM(has_purchase), 0) AS users_with_purchase,
+            COALESCE(SUM(has_test), 0) AS users_with_test,
+            COALESCE(SUM(has_test AND NOT has_purchase), 0) AS users_with_test_no_purchase,
+            COALESCE(SUM(has_test AND has_purchase), 0) AS users_with_test_and_purchase
+            FROM (
+                SELECT id_user,
+                       MAX(name_product = 'سرویس تست') AS has_test,
+                       MAX(name_product != 'سرویس تست') AS has_purchase
+                FROM invoice
+                WHERE $paidSql
+                GROUP BY id_user
+            ) user_invoice_flags");
+        $row = $stmt ? ($stmt->fetch(PDO::FETCH_ASSOC) ?: []) : [];
+        $result = [
+            'users_with_account' => (int) ($row['users_with_account'] ?? 0),
+            'users_with_purchase' => (int) ($row['users_with_purchase'] ?? 0),
+            'users_with_test' => (int) ($row['users_with_test'] ?? 0),
+            'users_with_test_no_purchase' => (int) ($row['users_with_test_no_purchase'] ?? 0),
+            'users_with_test_and_purchase' => (int) ($row['users_with_test_and_purchase'] ?? 0),
+        ];
+        bot_stats_cache_set($cacheKey, $result);
+        return $result;
+    } catch (Throwable $e) {
+        error_log('bot_invoice_user_flags_stats: ' . $e->getMessage());
+        return $empty;
+    }
 }
 
 function ensure_hot_path_indexes(): void

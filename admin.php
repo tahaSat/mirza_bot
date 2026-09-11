@@ -225,22 +225,24 @@ if (in_array($text, $textadmin) || $datain == "admin") {
 } elseif ($text == $textbotlang['Admin']['Status']['btn']) {
     sendmessage($from_id, "📌 بازه زمانی آمار را انتخاب کنید:", $keyboard_stat, 'HTML');
 } elseif ($datain == "stat_all_bot") {
-    Editmessagetext($from_id, $message_id, bot_overall_stats_html($pdo), $keyboard_stat, 'HTML');
+    bot_admin_deliver_overall_stats($pdo, $from_id, $message_id, $keyboard_stat);
+} elseif ($datain == "stat_gateway_income") {
+    Editmessagetext($from_id, $message_id, bot_gateway_income_stats_html($pdo), $keyboard_stat, 'HTML');
 } elseif ($datain == "hoursago_stat") {
     $range = stats_tehran_named_range('last_hour');
-    Editmessagetext($from_id, $message_id, bot_format_period_stats(bot_period_stats($pdo, $range['start'], $range['end'], ['live_payments' => true]), 'آمار ۱ ساعت گذشته', $range['label']), $keyboard_stat, 'HTML');
+    bot_admin_deliver_period_stats($pdo, $from_id, $message_id, $keyboard_stat, $range['start'], $range['end'], 'آمار ۱ ساعت گذشته', $range['label'], ['live_payments' => true]);
 } elseif ($datain == "yesterday_stat") {
     $range = stats_tehran_named_range('yesterday');
-    Editmessagetext($from_id, $message_id, bot_format_period_stats(bot_period_stats($pdo, $range['start'], $range['end']), 'آمار روز گذشته', $range['label']), $keyboard_stat, 'HTML');
+    bot_admin_deliver_period_stats($pdo, $from_id, $message_id, $keyboard_stat, $range['start'], $range['end'], 'آمار روز گذشته', $range['label']);
 } elseif ($datain == "today_stat") {
     $range = stats_tehran_named_range('today');
-    Editmessagetext($from_id, $message_id, bot_format_period_stats(bot_period_stats($pdo, $range['start'], $range['end'], ['live_payments' => true]), 'آمار روز فعلی', $range['label']), $keyboard_stat, 'HTML');
+    bot_admin_deliver_period_stats($pdo, $from_id, $message_id, $keyboard_stat, $range['start'], $range['end'], 'آمار روز فعلی', $range['label'], ['live_payments' => true]);
 } elseif ($datain == "month_old_stat") {
     $range = stats_tehran_named_range('last_month');
-    Editmessagetext($from_id, $message_id, bot_format_period_stats(bot_period_stats($pdo, $range['start'], $range['end']), 'آمار ماه گذشته', $range['label']), $keyboard_stat, 'HTML');
+    bot_admin_deliver_period_stats($pdo, $from_id, $message_id, $keyboard_stat, $range['start'], $range['end'], 'آمار ماه گذشته', $range['label']);
 } elseif ($datain == "month_current_stat") {
     $range = stats_tehran_named_range('this_month');
-    Editmessagetext($from_id, $message_id, bot_format_period_stats(bot_period_stats($pdo, $range['start'], $range['end']), 'آمار ماه فعلی', $range['label']), $keyboard_stat, 'HTML');
+    bot_admin_deliver_period_stats($pdo, $from_id, $message_id, $keyboard_stat, $range['start'], $range['end'], 'آمار ماه فعلی', $range['label']);
 } elseif ($datain == "view_stat_time") {
     sendmessage($from_id, sprintf($textbotlang['Admin']['getstats'], jalali_tehran_format(time(), 'Y/m/d')), $backadmin, 'HTML');
     step("get_time_start", $from_id);
@@ -270,7 +272,7 @@ if (in_array($text, $textadmin) || $datain == "admin") {
     }
     $range_label = jalali_tehran_format($start_time_timestamp, 'Y/m/d H:i:s') . ' تا ' . jalali_tehran_format($end_time_timestamp, 'Y/m/d H:i:s');
     step('home', $from_id);
-    sendmessage($from_id, bot_format_period_stats(bot_period_stats($pdo, $start_time_timestamp, $end_time_timestamp), 'آمار تاریخ انتخابی', $range_label), $keyboardadmin, 'HTML');
+    bot_admin_deliver_period_stats($pdo, $from_id, 0, $keyboardadmin, $start_time_timestamp, $end_time_timestamp, 'آمار تاریخ انتخابی', $range_label, [], 'send');
 } elseif ($datain == "settingaffiliatesf") {
     sendmessage($from_id, $textbotlang['users']['selectoption'], $affiliates, 'HTML');
 } elseif ($text == $textbotlang['Admin']['btnkeyboardadmin']['addpanel'] && $adminrulecheck['rule'] == "administrator") {

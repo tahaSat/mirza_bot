@@ -1868,6 +1868,9 @@ $keyboard_stat = json_encode([
             ['text' => "⏱️ آمار کل", 'callback_data' => 'stat_all_bot'],
         ],
         [
+            ['text' => "💳 درآمد درگاه‌ها", 'callback_data' => 'stat_gateway_income'],
+        ],
+        [
             ['text' => "⏱️ یک ساعت اخیر", 'callback_data' => 'hoursago_stat'],
         ],
         [
